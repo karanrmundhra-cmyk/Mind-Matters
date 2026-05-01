@@ -145,7 +145,7 @@ def render_rkm_receipt(data: dict) -> bytes:
     story.append(Spacer(1, 12))
 
     # Main body
-    amount = float(data.get("sum_rupees") or 0)
+    amount = float(str(data.get("sum_rupees") or 0).replace(",", "").strip() or 0)
     body = Table(
         [
             [Paragraph("RECEIVED With Thanks From", ss["Label"])],
