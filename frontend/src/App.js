@@ -15,6 +15,9 @@ import Loans from "@/pages/Loans";
 import CashFlow from "@/pages/CashFlow";
 import Investments from "@/pages/Investments";
 import Notes from "@/pages/Notes";
+import Documents from "@/pages/Documents";
+import Reminders from "@/pages/Reminders";
+import Settings from "@/pages/Settings";
 
 function RequireAuth({ children }) {
   const { user, loading } = useAuth();
@@ -49,6 +52,9 @@ function Root() {
         <Route path="cash-flow" element={<CashFlow />} />
         <Route path="investments" element={<Investments />} />
         <Route path="notes" element={<Notes />} />
+        <Route path="documents" element={<Documents />} />
+        <Route path="reminders" element={<Reminders />} />
+        <Route path="settings" element={<Settings />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
@@ -70,9 +76,9 @@ function App() {
         offset={24}
         toastOptions={{
           style: {
-            background: "rgba(20,20,22,0.85)",
-            border: "1px solid rgba(255,255,255,0.1)",
-            color: "#fff",
+            background: "linear-gradient(180deg, rgba(26,21,10,0.95), rgba(14,13,10,0.95))",
+            border: "1px solid rgba(201,169,97,0.35)",
+            color: "#E4C98C",
             backdropFilter: "blur(16px)",
           },
         }}

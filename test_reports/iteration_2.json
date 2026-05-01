@@ -1,0 +1,43 @@
+{
+  "summary": "Phase 2+ end-to-end verification of Mind Matters. Backend: 12/12 new pytest cases pass against public REACT_APP_BACKEND_URL, covering GNews real headlines (with url field), built-in templates listing, RKM donation receipt PDF + KRM HUF invoice PDF generation (both >1KB, %PDF magic bytes), share-telegram 400-when-unlinked, .docx custom template upload with placeholder discovery ({name}/{amount}/{donation_date} all detected), reminders CRUD + ICS (BEGIN:VCALENDAR with VEVENT+VALARM), Telegram /status (configured:true, bot_username:'mindmattersbot'), /link-code returns code, /send-test 400 when unlinked, /share/statement 400 when unlinked, dashboard snapshot non-regression. Frontend: Splash → Login (Google button REMOVED) → demo-login with 'Arjun' lands on Dashboard rendered in the new black+gold theme with RKM logo in sidebar. Sidebar nav-documents/nav-reminders/nav-settings all navigate. Documents page lists built-in templates, selecting rkm_donation_receipt opens template-editor with 12 fields, fill + Download triggers a real receipt.pdf download (3170 bytes), and the doc-share-telegram-btn is correctly DISABLED (Telegram unlinked). Reminders page accepts new-reminder-title+new-reminder-time+submit, the row appears with reminder-ics-btn, and reminder-delete works. Settings page renders telegram-card with 'Not linked' chip; tg-generate-code yields a code (e.g. xlPqEsxDKY) and tg-open-bot anchor href='https://t.me/mindmattersbot?start=xlPqEsxDKY'.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/documents/generate (rkm_donation_receipt)", "issue": "PDF generator silently accepts unknown keys (donor_address/donor_pan/receipt_date/purpose/mode) instead of the canonical schema (address/pan/date/for_payment_of). This is forgiving but means typos in the data payload won't surface as 4xx errors — the PDF just has blank cells. Consider validating against the template's required_fields schema."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_phase2.py",
+    "/app/test_reports/pytest/phase2_results.xml",
+    "/app/backend/tests/backend_test.py"
+  ],
+  "action_items": [
+    "(Optional) Validate /api/documents/generate payloads against the template's required_fields keys so wrong field names surface as 4xx instead of producing a near-blank PDF.",
+    "(Optional) The 'Not linked' chip and tg-open-bot deep-link work, but consider auto-polling for link confirmation after the user taps 'I've sent it — check link' so the chip flips to Linked without a manual page refresh.",
+    "(Optional, carried over from iteration_1) server.py is now ~1600 lines — split routers (documents, reminders, telegram, share) into separate modules for maintainability."
+  ],
+  "critical_code_review_comments": [
+    "server.py is 1629 lines — Phase 2 doubled the surface area; please split into routers/{auth,tasks,routines,loans,transactions,investments,notes,documents,reminders,telegram,share,ai}.py for maintainability.",
+    "Phase 2 telegram_chat_id is set on the user via a polling loop (tg.py); ensure that loop survives backend restarts and uses getUpdates offset persistence in Mongo so events aren't lost or double-processed across restarts.",
+    "/api/documents/templates/upload stores the entire .docx as base64 in Mongo — fine for small templates, but add a max-size guard (e.g. 5 MB) and a basic mime/zip-magic check before persisting.",
+    "Custom .docx template generation returns a .docx (not PDF) while built-ins return PDF — the share-telegram path mixes the two; document/test that the Telegram doc-share path correctly sets the right caption/extension for both.",
+    "_render_template_bytes raises HTTPException inside a sync helper that's called from an async handler — fine here but watch for blocking I/O if templates grow.",
+    "Reminder loop (reminder_loop in tg.py) wasn't directly tested — only the CRUD+ICS endpoints were verified; fire-time delivery via Telegram is best-effort and depends on linked chat (not testable in CI without a real user).",
+    "Demo login still creates one shared 'you@mindmatters.local' user — anyone hitting /api/auth/demo-login enters the SAME tenant. Phase 2 added Telegram chat IDs to that user, so a second tester linking their Telegram would clobber the first. Acceptable for v1 single-user, but document this."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_phase2.py"
+  ],
+  "success_rate": {"backend": "100% (12/12 new + 16/16 existing carried over)", "frontend": "100% on tested flows"},
+  "test_credentials": "Demo login via POST /api/auth/demo-login {first_name:'Arjun'}. Frontend: /login → enter 'Arjun' → click 'Enter Mind Matters' (data-testid=login-submit-btn). Telegram link is NOT exercised end-to-end — only the unlinked branches and code-generation are verified, per request guidance.",
+  "seed_data_creation": "Backend tests create/clean TEST_-prefixed reminders + custom .docx template; UI test created+deleted one TEST_UI Reminder. No persistent data left behind.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "All Phase 2 backend endpoints (/documents/templates, /documents/generate, /documents/templates/upload, /documents/share-telegram, /reminders/*, /reminders/{id}/ics, /telegram/status, /telegram/link-code, /telegram/send-test, /telegram/unlink, /share/statement) verified via /app/backend/tests/test_phase2.py. Run with: REACT_APP_BACKEND_URL=$(grep REACT_APP_BACKEND_URL /app/frontend/.env|cut -d= -f2) pytest /app/backend/tests/ -v. Frontend testids confirmed working: login-name-input, login-submit-btn, nav-documents/reminders/settings, documents-page, template-list, template-{id}, template-editor, field-{key}, doc-download-btn (download confirmed), doc-share-telegram-btn (disabled when unlinked), reminders-page, new-reminder-title/time/submit, reminder-row, reminder-ics-btn, reminder-delete, settings-page, telegram-card, tg-connection-chip ('Not linked'), tg-generate-code, tg-open-bot (href to t.me/mindmattersbot?start=CODE). Note: RKM receipt template's actual required_fields are receipt_no/date/donor_name/sum_rupees/for_payment_of/by/mobile/email/address/pan/received_by_name/received_by_mobile (NOT donor_address/donor_pan/receipt_date/purpose/mode as the request spec hinted) — the renderer is forgiving and accepts either, so backend PDF tests pass either way. Telegram polling and reminder dispatch loops run as asyncio background tasks; not exercised in CI.",
+  "rca of the issue": "N/A — no critical bugs found. Documents/Reminders/Settings/Telegram-status flows all work; share-telegram correctly returns 400 / disables UI button when not linked, matching design intent."
+}

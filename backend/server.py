@@ -3,25 +3,33 @@
 FastAPI + MongoDB. Single-user v1 with multi-user-ready schema (every doc has user_id).
 All routes are prefixed with /api. Times are stored as ISO strings. _id is excluded.
 """
+from pathlib import Path
+from dotenv import load_dotenv
+
+ROOT_DIR = Path(__file__).parent
+load_dotenv(ROOT_DIR / ".env")  # must run BEFORE tg/docs_gen imports
+
 from fastapi import FastAPI, APIRouter, HTTPException, Depends, UploadFile, File, Form, Header
 from fastapi.responses import JSONResponse
-from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, Field, ConfigDict
 from typing import List, Optional, Dict, Any, Literal
 from datetime import datetime, timezone, timedelta, date
-from pathlib import Path
 import os
 import io
+import asyncio
 import uuid
+import secrets
 import logging
+import json
 import jwt as pyjwt
+import httpx
 
 from emergentintegrations.llm.chat import LlmChat, UserMessage
 
-ROOT_DIR = Path(__file__).parent
-load_dotenv(ROOT_DIR / ".env")
+from docs_gen import render_by_template_id, BUILTIN_TEMPLATES, render_simple_statement
+from tg import tg_send, tg_send_document, tg_poll_loop, reminder_loop
 
 MONGO_URL = os.environ["MONGO_URL"]
 DB_NAME = os.environ["DB_NAME"]
@@ -1073,10 +1081,29 @@ async def ai_parse(body: ParseReq, user=Depends(get_current_user)):
         return {"parsed": None, "raw": resp}
 
 
-# ───────────────────────────── news (placeholder) ─────────────────────────────
+# ───────────────────────────── news (GNews) ─────────────────────────────
+NEWS_API_KEY = os.environ.get("NEWS_API_KEY", "")
+
+
 @api.get("/news/headlines")
 async def headlines():
-    # placeholder monochrome headlines - wire up real API later
+    if NEWS_API_KEY:
+        try:
+            async with httpx.AsyncClient(timeout=8) as cli:
+                r = await cli.get(
+                    "https://gnews.io/api/v4/top-headlines",
+                    params={"lang": "en", "country": "in", "max": 5,
+                            "apikey": NEWS_API_KEY, "category": "general"},
+                )
+                data = r.json()
+            arts = data.get("articles", []) or []
+            return {"headlines": [
+                {"title": a.get("title", ""), "source": (a.get("source") or {}).get("name", ""),
+                 "url": a.get("url", "")} for a in arts[:3]
+            ]}
+        except Exception as e:
+            logger.warning(f"GNews failed: {e}")
+    # fallback
     return {
         "headlines": [
             {"title": "Global markets steady as central banks hold rates", "source": "Reuters"},
@@ -1086,23 +1113,21 @@ async def headlines():
     }
 
 
-# ───────────────────────────── weather (placeholder) ─────────────────────────────
+# ───────────────────────────── weather ─────────────────────────────
 @api.get("/weather")
 async def weather(lat: Optional[float] = None, lon: Optional[float] = None):
-    """Open-Meteo free API, no key required."""
-    import requests
+    """Open-Meteo free API, no key required (async httpx)."""
     try:
         if lat is None or lon is None:
             lat, lon = 19.0760, 72.8777  # Mumbai default
-        r = requests.get(
-            "https://api.open-meteo.com/v1/forecast",
-            params={"latitude": lat, "longitude": lon, "current": "temperature_2m,weather_code"},
-            timeout=6,
-        )
-        data = r.json()
+        async with httpx.AsyncClient(timeout=6) as cli:
+            r = await cli.get(
+                "https://api.open-meteo.com/v1/forecast",
+                params={"latitude": lat, "longitude": lon, "current": "temperature_2m,weather_code"},
+            )
+            data = r.json()
         cur = data.get("current", {})
         code = cur.get("weather_code", 0)
-        # condensed WMO code to label
         CODES = {
             0: "Clear", 1: "Mainly clear", 2: "Partly cloudy", 3: "Overcast",
             45: "Fog", 48: "Fog", 51: "Light drizzle", 53: "Drizzle", 55: "Drizzle",
@@ -1121,6 +1146,464 @@ async def weather(lat: Optional[float] = None, lon: Optional[float] = None):
     except Exception as e:
         logger.warning(f"weather failed: {e}")
         return {"temperature": None, "label": "—", "code": 0}
+
+
+# ═════════════════════════════════════════════════════════════════════
+# DOCUMENTS / REMINDERS / TELEGRAM / SHARE / SETTINGS  (Phase 2+)
+# ═════════════════════════════════════════════════════════════════════
+
+# --- helper: expand "bill_to.name" style keys into a nested dict ---
+def _unflatten(d: Dict[str, Any]) -> Dict[str, Any]:
+    out: Dict[str, Any] = {}
+    for k, v in d.items():
+        parts = k.split(".")
+        cur = out
+        for p in parts[:-1]:
+            cur = cur.setdefault(p, {})
+        cur[parts[-1]] = v
+    return out
+
+
+# --- internal creators reused from Telegram + share endpoints ---
+async def _create_task_internal(user_id: str, parsed: Dict[str, Any]):
+    sr = await _next_sr("tasks", user_id)
+    doc = {
+        "id": new_id(), "sr_no": sr, "user_id": user_id,
+        "date": parsed.get("date") or today_key(),
+        "name": parsed.get("name") or "",
+        "task": parsed.get("task") or "",
+        "details": parsed.get("details") or "",
+        "status": parsed.get("status") or "Pending",
+        "created_at": now_iso(), "updated_at": now_iso(),
+    }
+    await db.tasks.insert_one(dict(doc))
+    return doc
+
+
+async def _create_expense_internal(user_id: str, parsed: Dict[str, Any]):
+    doc = {
+        "id": new_id(), "user_id": user_id,
+        "date": (parsed.get("date") or today_key()),
+        "amount": float(parsed.get("amount") or 0),
+        "mode": parsed.get("mode") or "Cash",
+        "company": parsed.get("company") or "",
+        "expense_head": parsed.get("expense_head") or "Uncategorized",
+        "direction": parsed.get("direction") or "out",
+        "account": "Personal",
+        "notes": parsed.get("notes") or "",
+        "source": "telegram",
+        "created_at": now_iso(), "updated_at": now_iso(),
+    }
+    await db.transactions.insert_one(dict(doc))
+    return doc
+
+
+async def _create_note_internal(user_id: str, parsed: Dict[str, Any]):
+    doc = {
+        "id": new_id(), "user_id": user_id,
+        "title": parsed.get("title") or "",
+        "body": parsed.get("body") or "",
+        "tags": parsed.get("tags") or [],
+        "pinned": False,
+        "created_at": now_iso(), "updated_at": now_iso(),
+    }
+    await db.notes.insert_one(dict(doc))
+    return doc
+
+
+async def _ai_parse_text(text: str, kind: str = "auto") -> Dict[str, Any]:
+    if not EMERGENT_LLM_KEY:
+        return {}
+    system = (
+        "Extract structured data from a short natural-language instruction. Return ONLY JSON.\n"
+        "task: {kind:'task', name, task, details, date:'YYYY-MM-DD' or null, status:'Pending'}\n"
+        "expense: {kind:'expense', amount:number, expense_head, company, direction:'out'|'in', date, mode, notes}\n"
+        "note: {kind:'note', title, body, tags:[string]}\n"
+    )
+    chat = LlmChat(api_key=EMERGENT_LLM_KEY, session_id=f"p-{new_id()}",
+                   system_message=system).with_model("gemini", "gemini-3-flash-preview")
+    resp = await chat.send_message(UserMessage(text=f"Kind: {kind}. Instruction: {text}"))
+    t = resp.strip()
+    if t.startswith("```"):
+        t = t.strip("`")
+        if t.startswith("json"):
+            t = t[4:]
+    try:
+        return json.loads(t)
+    except Exception:
+        return {}
+
+
+# ───────────────────── Documents / Templates ─────────────────────
+class GenerateDocReq(BaseModel):
+    template_id: str
+    data: Dict[str, Any]
+
+
+@api.get("/documents/templates")
+async def list_templates(user=Depends(get_current_user)):
+    # built-in + user custom
+    user_templates = await db.templates.find(
+        {"user_id": user["id"]}, {"_id": 0}
+    ).sort("created_at", -1).to_list(200)
+    return {"templates": BUILTIN_TEMPLATES + user_templates}
+
+
+@api.post("/documents/templates/upload")
+async def upload_template(
+    file: UploadFile = File(...),
+    name: str = Form(...),
+    kind: str = Form("invoice"),
+    user=Depends(get_current_user),
+):
+    """Upload a .docx with {{placeholders}}. Returns the template meta."""
+    if not (file.filename or "").lower().endswith(".docx"):
+        raise HTTPException(400, "Only .docx templates are supported right now")
+    content = await file.read()
+    # Quick placeholder discovery
+    try:
+        from docx import Document
+        d = Document(io.BytesIO(content))
+        text_all = "\n".join(p.text for p in d.paragraphs)
+        for tbl in d.tables:
+            for row in tbl.rows:
+                for cell in row.cells:
+                    text_all += "\n" + cell.text
+    except Exception as e:
+        raise HTTPException(400, f"Could not parse docx: {e}")
+    import re
+    placeholders = sorted(set(re.findall(r"{{\s*([a-zA-Z0-9_\.]+)\s*}}", text_all)))
+    tmpl = {
+        "id": new_id(),
+        "user_id": user["id"],
+        "name": name,
+        "kind": kind,
+        "builtin": False,
+        "file_name": file.filename,
+        "content_b64": __import__("base64").b64encode(content).decode("ascii"),
+        "required_fields": [{"key": p, "label": p.replace("_", " ").title(), "type": "text"}
+                            for p in placeholders],
+        "created_at": now_iso(),
+    }
+    await db.templates.insert_one(dict(tmpl))
+    # strip content from response
+    resp = {k: v for k, v in tmpl.items() if k != "content_b64"}
+    return resp
+
+
+@api.delete("/documents/templates/{tid}")
+async def delete_template(tid: str, user=Depends(get_current_user)):
+    r = await db.templates.delete_one({"id": tid, "user_id": user["id"]})
+    if r.deleted_count == 0:
+        raise HTTPException(404, "Template not found")
+    return {"ok": True}
+
+
+def _render_template_bytes(template_id: str, data: Dict[str, Any], db_template: Optional[dict]) -> tuple[str, bytes]:
+    """Returns (filename, bytes)."""
+    data = _unflatten(data or {})
+    # built-in
+    if template_id in ("rkm_donation_receipt", "krm_huf_invoice"):
+        content = render_by_template_id(template_id, data)
+        name = "receipt.pdf" if template_id.endswith("receipt") else "invoice.pdf"
+        return name, content
+    # user-uploaded docx
+    if db_template and db_template.get("content_b64"):
+        import base64
+        from docxtpl import DocxTemplate
+        raw = base64.b64decode(db_template["content_b64"])
+        doc = DocxTemplate(io.BytesIO(raw))
+        doc.render(data)
+        out = io.BytesIO()
+        doc.save(out)
+        return f"{db_template.get('name','document')}.docx", out.getvalue()
+    raise HTTPException(404, "Template not found")
+
+
+@api.post("/documents/generate")
+async def generate_document(body: GenerateDocReq, user=Depends(get_current_user)):
+    tpl = None
+    if body.template_id not in ("rkm_donation_receipt", "krm_huf_invoice"):
+        tpl = await db.templates.find_one(
+            {"id": body.template_id, "user_id": user["id"]}, {"_id": 0}
+        )
+        if not tpl:
+            raise HTTPException(404, "Template not found")
+    filename, content = _render_template_bytes(body.template_id, body.data, tpl)
+    from fastapi.responses import Response
+    mime = "application/pdf" if filename.endswith(".pdf") else \
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    return Response(
+        content=content,
+        media_type=mime,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+class ShareDocReq(BaseModel):
+    template_id: str
+    data: Dict[str, Any]
+    caption: Optional[str] = ""
+
+
+@api.post("/documents/share-telegram")
+async def share_document_telegram(body: ShareDocReq, user=Depends(get_current_user)):
+    cid = user.get("telegram_chat_id")
+    if not cid:
+        raise HTTPException(400, "Telegram not linked. Connect in Settings.")
+    tpl = None
+    if body.template_id not in ("rkm_donation_receipt", "krm_huf_invoice"):
+        tpl = await db.templates.find_one(
+            {"id": body.template_id, "user_id": user["id"]}, {"_id": 0}
+        )
+        if not tpl:
+            raise HTTPException(404, "Template not found")
+    filename, content = _render_template_bytes(body.template_id, body.data, tpl)
+    res = await tg_send_document(cid, filename, content, caption=body.caption or "")
+    return {"ok": bool(res and res.get("ok")), "telegram": res}
+
+
+# ───────────────────── Reminders ─────────────────────
+class ReminderIn(BaseModel):
+    title: str
+    notes: Optional[str] = ""
+    fire_at: str  # ISO datetime in UTC
+    recurrence: Optional[Literal["none", "daily", "weekly", "monthly"]] = "none"
+
+
+class Reminder(BaseModel):
+    id: str
+    user_id: str
+    title: str
+    notes: str = ""
+    fire_at: str
+    recurrence: str = "none"
+    sent: bool = False
+    created_at: str
+
+
+@api.get("/reminders", response_model=List[Reminder])
+async def list_reminders(user=Depends(get_current_user)):
+    docs = await db.reminders.find({"user_id": user["id"]}, {"_id": 0}) \
+        .sort("fire_at", 1).to_list(500)
+    return [Reminder(**d) for d in docs]
+
+
+@api.post("/reminders", response_model=Reminder)
+async def create_reminder(body: ReminderIn, user=Depends(get_current_user)):
+    doc = {
+        "id": new_id(), "user_id": user["id"],
+        "title": body.title, "notes": body.notes or "",
+        "fire_at": body.fire_at, "recurrence": body.recurrence or "none",
+        "sent": False, "created_at": now_iso(),
+    }
+    await db.reminders.insert_one(dict(doc))
+    return Reminder(**doc)
+
+
+@api.patch("/reminders/{rid}", response_model=Reminder)
+async def update_reminder(rid: str, body: Dict[str, Any], user=Depends(get_current_user)):
+    allowed = {"title", "notes", "fire_at", "recurrence", "sent"}
+    body = {k: v for k, v in body.items() if k in allowed}
+    res = await db.reminders.find_one_and_update(
+        {"id": rid, "user_id": user["id"]}, {"$set": body},
+        projection={"_id": 0}, return_document=True,
+    )
+    if not res:
+        raise HTTPException(404, "Reminder not found")
+    return Reminder(**res)
+
+
+@api.delete("/reminders/{rid}")
+async def delete_reminder(rid: str, user=Depends(get_current_user)):
+    await db.reminders.delete_one({"id": rid, "user_id": user["id"]})
+    return {"ok": True}
+
+
+@api.get("/reminders/{rid}/ics")
+async def reminder_ics(rid: str, user=Depends(get_current_user)):
+    r = await db.reminders.find_one({"id": rid, "user_id": user["id"]}, {"_id": 0})
+    if not r:
+        raise HTTPException(404, "Not found")
+    dt = datetime.fromisoformat(r["fire_at"].replace("Z", "+00:00"))
+    dt_utc = dt.astimezone(timezone.utc)
+    stamp = dt_utc.strftime("%Y%m%dT%H%M%SZ")
+    end = (dt_utc + timedelta(minutes=15)).strftime("%Y%m%dT%H%M%SZ")
+    ics = (
+        "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Mind Matters//EN\r\n"
+        "CALSCALE:GREGORIAN\r\nMETHOD:PUBLISH\r\n"
+        "BEGIN:VEVENT\r\n"
+        f"UID:{r['id']}@mindmatters\r\n"
+        f"DTSTAMP:{stamp}\r\n"
+        f"DTSTART:{stamp}\r\nDTEND:{end}\r\n"
+        f"SUMMARY:{r['title']}\r\n"
+        f"DESCRIPTION:{(r.get('notes') or '').replace(chr(10), ' ')}\r\n"
+        "BEGIN:VALARM\r\nTRIGGER:-PT0M\r\nACTION:DISPLAY\r\n"
+        f"DESCRIPTION:{r['title']}\r\nEND:VALARM\r\n"
+        "END:VEVENT\r\nEND:VCALENDAR\r\n"
+    )
+    from fastapi.responses import Response
+    return Response(
+        content=ics.encode(),
+        media_type="text/calendar",
+        headers={"Content-Disposition": f'attachment; filename="reminder.ics"'},
+    )
+
+
+# ───────────────────── Telegram linking + test ─────────────────────
+@api.get("/telegram/status")
+async def tg_status(user=Depends(get_current_user)):
+    from tg import TG_TOKEN
+    me = user
+    chat_id = me.get("telegram_chat_id")
+    bot_username = None
+    if TG_TOKEN:
+        try:
+            async with httpx.AsyncClient(timeout=6) as cli:
+                r = await cli.get(f"https://api.telegram.org/bot{TG_TOKEN}/getMe")
+                bot_username = (r.json().get("result") or {}).get("username")
+        except Exception:
+            pass
+    return {"linked": bool(chat_id), "chat_id": chat_id,
+            "bot_username": bot_username,
+            "configured": bool(TG_TOKEN)}
+
+
+@api.post("/telegram/link-code")
+async def tg_link_code(user=Depends(get_current_user)):
+    code = secrets.token_urlsafe(8).replace("_", "").replace("-", "")[:10]
+    doc = {
+        "id": new_id(), "code": code, "user_id": user["id"],
+        "used": False, "created_at": now_iso(),
+    }
+    await db.tg_links.insert_one(dict(doc))
+    return {"code": code}
+
+
+@api.post("/telegram/unlink")
+async def tg_unlink(user=Depends(get_current_user)):
+    await db.users.update_one({"id": user["id"]}, {"$set": {"telegram_chat_id": None}})
+    return {"ok": True}
+
+
+class TgTestReq(BaseModel):
+    text: str = "Mind Matters test ping ✓"
+
+
+@api.post("/telegram/send-test")
+async def tg_send_test(body: TgTestReq, user=Depends(get_current_user)):
+    cid = user.get("telegram_chat_id")
+    if not cid:
+        raise HTTPException(400, "Telegram not linked")
+    res = await tg_send(cid, body.text)
+    return {"ok": bool(res and res.get("ok")), "response": res}
+
+
+# ───────────────────── Share statements via Telegram ─────────────────────
+class ShareStatementReq(BaseModel):
+    kind: Literal["loan", "tasks", "transactions"] = "loan"
+    name: Optional[str] = None  # filter by person (loan.name / task.name)
+    month: Optional[str] = None  # YYYY-MM for transactions
+
+
+@api.post("/share/statement")
+async def share_statement(body: ShareStatementReq, user=Depends(get_current_user)):
+    cid = user.get("telegram_chat_id")
+    if not cid:
+        raise HTTPException(400, "Telegram not linked. Connect in Settings.")
+
+    if body.kind == "loan":
+        q: Dict[str, Any] = {"user_id": user["id"]}
+        if body.name:
+            q["name"] = {"$regex": f"^{body.name}$", "$options": "i"}
+        loans = await db.loans.find(q, {"_id": 0}).sort("date", 1).to_list(1000)
+        if not loans:
+            raise HTTPException(404, f"No loans found{f' for {body.name}' if body.name else ''}")
+        rows = []
+        total_g = total_t = total_i = 0
+        for l in loans:
+            acc = _accrued_interest(l["amount"], l.get("interest", 0), l.get("date"))
+            rows.append([
+                str(l.get("sr_no")), l.get("date", ""), l["name"], l["status"],
+                f"₹ {l['amount']:,.0f}", f"{l.get('interest', 0)}%", f"₹ {acc:,.0f}",
+                l.get("repayment_date") or "—",
+            ])
+            if l["status"] == "Given":
+                total_g += l["amount"]
+            if l["status"] == "Taken":
+                total_t += l["amount"]
+            total_i += acc
+        pdf = render_simple_statement(
+            title=f"Loan Statement{' — ' + body.name if body.name else ''}",
+            subtitle=f"Prepared for {user['first_name']} · {datetime.now().strftime('%d %b %Y')}",
+            meta={"User": user["first_name"], "Records": len(loans),
+                  "Total Given": f"₹ {total_g:,.0f}", "Total Taken": f"₹ {total_t:,.0f}",
+                  "Net Exposure": f"₹ {total_g - total_t:,.0f}",
+                  "Interest Accrued": f"₹ {total_i:,.0f}"},
+            table_headers=["Sr", "Date", "Name", "Status", "Amount", "Rate", "Accrued", "Repay by"],
+            table_rows=rows,
+            footer="Generated by Mind Matters — personal operating system.",
+        )
+        fname = f"loan-statement{('-' + body.name) if body.name else ''}.pdf"
+        caption = f"Loan statement{' for ' + body.name if body.name else ''} · {len(loans)} record(s)"
+
+    elif body.kind == "tasks":
+        q = {"user_id": user["id"]}
+        if body.name:
+            q["name"] = {"$regex": f"^{body.name}$", "$options": "i"}
+        tasks = await db.tasks.find(q, {"_id": 0}).sort("sr_no", 1).to_list(2000)
+        rows = [[str(t.get("sr_no")), t.get("date", ""), t["name"] or "—", t["task"], t["status"]]
+                for t in tasks]
+        pdf = render_simple_statement(
+            title=f"Tasks{' — ' + body.name if body.name else ''}",
+            subtitle=f"{len(tasks)} task(s) · {datetime.now().strftime('%d %b %Y')}",
+            meta={"Pending": sum(1 for t in tasks if t["status"] == "Pending"),
+                  "Follow-Up": sum(1 for t in tasks if t["status"] == "Follow-Up"),
+                  "Done": sum(1 for t in tasks if t["status"] == "Done")},
+            table_headers=["Sr", "Date", "Person", "Task", "Status"],
+            table_rows=rows,
+            footer="Generated by Mind Matters.",
+        )
+        fname = f"tasks{('-' + body.name) if body.name else ''}.pdf"
+        caption = f"Task statement{' for ' + body.name if body.name else ''}"
+
+    else:  # transactions
+        month = body.month or datetime.now(timezone.utc).strftime("%Y-%m")
+        tx = await db.transactions.find(
+            {"user_id": user["id"], "date": {"$regex": f"^{month}"}}, {"_id": 0}
+        ).sort("date", 1).to_list(5000)
+        rows = [[t.get("date", ""), t.get("direction"), f"₹ {t['amount']:,.0f}",
+                 t.get("expense_head", ""), t.get("company", ""), t.get("mode", "")] for t in tx]
+        total_out = sum(t["amount"] for t in tx if t["direction"] == "out")
+        total_in = sum(t["amount"] for t in tx if t["direction"] == "in")
+        pdf = render_simple_statement(
+            title=f"Cash Flow — {month}",
+            subtitle=f"{len(tx)} transactions · prepared {datetime.now().strftime('%d %b %Y')}",
+            meta={"Expense": f"₹ {total_out:,.0f}", "Income": f"₹ {total_in:,.0f}",
+                  "Net": f"₹ {total_in - total_out:,.0f}"},
+            table_headers=["Date", "Dir", "Amount", "Head", "Company", "Mode"],
+            table_rows=rows,
+            footer="Generated by Mind Matters.",
+        )
+        fname = f"cashflow-{month}.pdf"
+        caption = f"Cash flow for {month}"
+
+    res = await tg_send_document(cid, fname, pdf, caption=caption)
+    return {"ok": bool(res and res.get("ok")), "telegram": res}
+
+
+# ───────────────────── Startup: Telegram poller + reminder loop ─────────────────────
+@app.on_event("startup")
+async def _mm_startup_tasks():
+    try:
+        asyncio.create_task(tg_poll_loop(
+            db, _ai_parse_text, _create_task_internal,
+            _create_expense_internal, _create_note_internal,
+        ))
+        asyncio.create_task(reminder_loop(db))
+        logger.info("Background tasks started (Telegram poller + reminders)")
+    except Exception as e:
+        logger.warning(f"Startup tasks failed: {e}")
 
 
 # ───────────────────────────── healthcheck ─────────────────────────────

@@ -63,19 +63,9 @@ export default function Login() {
           >
             {loading ? "Entering…" : "Enter Mind Matters"}
           </button>
-
-          <button
-            type="button"
-            disabled
-            className="mm-btn-ghost w-full text-sm opacity-50 cursor-not-allowed"
-            data-testid="login-google-btn"
-            title="Google OAuth — configure credentials in backend .env"
-          >
-            Continue with Google (coming soon)
-          </button>
         </form>
 
-        <div className="mt-8 text-[10px] uppercase tracking-[0.3em] text-white/30 text-center">
+        <div className="mt-8 text-[10px] uppercase tracking-[0.3em] text-[#B7A98A]/60 text-center">
           Calm · Intelligent · In control
         </div>
       </div>
