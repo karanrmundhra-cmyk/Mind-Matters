@@ -4,11 +4,12 @@ Uses long polling against api.telegram.org (no webhook needed).
 Features:
   - /start <code>   → links user's Telegram chat to their Mind Matters account
   - plain text      → AI-parses to task / expense / note automatically
-  - photo/doc       → acknowledged (future: OCR for receipts)
+  - photo / receipt → Gemini multimodal extracts amount + merchant + date → expense
   - outbound        → tg_send, tg_send_document
   - reminders       → every 30s, scans reminders collection and pings user
 """
 import asyncio
+import base64
 import logging
 import os
 import io
@@ -51,6 +52,65 @@ async def tg_send_document(chat_id, filename: str, content: bytes, caption: str 
         return None
 
 
+async def tg_download_file(file_id: str) -> bytes:
+    """Resolve a Telegram file_id and download its bytes."""
+    if not TG_TOKEN:
+        return b""
+    async with httpx.AsyncClient(timeout=30) as cli:
+        r = await cli.get(f"{TG_API}/getFile", params={"file_id": file_id})
+        data = r.json()
+        if not data.get("ok"):
+            return b""
+        path = data["result"]["file_path"]
+        f = await cli.get(f"https://api.telegram.org/file/bot{TG_TOKEN}/{path}")
+        return f.content
+
+
+async def _extract_expense_from_image(image_bytes: bytes, caption: str = "") -> dict:
+    """Use Gemini 3 Flash multimodal to extract expense fields from a receipt image."""
+    try:
+        from emergentintegrations.llm.chat import LlmChat, UserMessage, ImageContent
+    except Exception as e:
+        logger.warning(f"emergentintegrations unavailable: {e}")
+        return {}
+    api_key = os.environ.get("EMERGENT_LLM_KEY", "")
+    if not api_key:
+        return {}
+    import json as _json
+    b64 = base64.b64encode(image_bytes).decode("ascii")
+    sys_msg = (
+        "You read a photographed receipt or bill. Return ONLY a JSON object with keys: "
+        "{kind:'expense', date:'YYYY-MM-DD' or null, amount:number, "
+        "expense_head (Food/Travel/Utilities/Rent/Groceries/Salary/Misc/etc.), "
+        "company (merchant name), mode ('Card'|'Cash'|'UPI'|'Bank'), "
+        "direction:'out', notes (1 short line)}. "
+        "If a value is unclear, set null. Use INR. Do not add prose."
+    )
+    chat = LlmChat(api_key=api_key, session_id=f"recipt-{datetime.now().timestamp()}",
+                   system_message=sys_msg).with_model("gemini", "gemini-3-flash-preview")
+    msg = UserMessage(
+        text=f"User caption: {caption or '(none)'}",
+        file_contents=[ImageContent(image_base64=b64)],
+    )
+    try:
+        resp = await chat.send_message(msg)
+    except Exception as e:
+        logger.warning(f"Gemini multimodal failed: {e}")
+        return {}
+    t = (resp or "").strip()
+    if t.startswith("```"):
+        t = t.strip("`")
+        if t.startswith("json"):
+            t = t[4:]
+    try:
+        data = _json.loads(t)
+        if isinstance(data, dict):
+            return data
+    except Exception:
+        logger.warning(f"receipt JSON parse failed: {t[:200]}")
+    return {}
+
+
 async def _handle_update(db, ai_parse_fn, create_task_fn, create_expense_fn, create_note_fn, upd: dict):
     msg = upd.get("message") or upd.get("edited_message") or {}
     chat = msg.get("chat") or {}
@@ -79,6 +139,7 @@ async def _handle_update(db, ai_parse_fn, create_task_fn, create_expense_fn, cre
                     chat_id,
                     f"✨ Hello {u.get('first_name','friend')}! Mind Matters is now linked.\n\n"
                     "• Send text → I'll parse it into a task, expense, or note\n"
+                    "• Send a receipt photo → AI extracts amount & merchant → expense logged\n"
                     "• I'll ping you for reminders and daily task digests\n"
                     "• Ask Mind Matters to share statements — I'll deliver them as PDF here.",
                 )
@@ -100,13 +161,55 @@ async def _handle_update(db, ai_parse_fn, create_task_fn, create_expense_fn, cre
         )
         return
 
-    # Photo/document — ack only for now (expense OCR could be added later)
-    if msg.get("photo") or msg.get("document"):
-        if not text:
-            await tg_send(chat_id,
-                          "Got your file — attach a caption like "
-                          "'Coffee 450 at Starbucks' and I'll log it as an expense.")
-            return
+    # Photo or document — pass to Gemini multimodal for receipt OCR
+    file_id = None
+    if msg.get("photo"):
+        # photos arrive as a list of progressively higher resolutions; take the largest
+        photos = msg["photo"]
+        if photos:
+            file_id = photos[-1].get("file_id")
+    elif msg.get("document"):
+        d = msg["document"]
+        mime = (d.get("mime_type") or "").lower()
+        if mime.startswith("image/"):
+            file_id = d.get("file_id")
+
+    if file_id:
+        await tg_send(chat_id, "📷 Reading receipt…")
+        try:
+            img = await tg_download_file(file_id)
+            if not img:
+                await tg_send(chat_id, "Could not download the image, try again?")
+                return
+            extracted = await _extract_expense_from_image(img, caption=text)
+            amount = extracted.get("amount")
+            if amount and float(amount) > 0:
+                row = {
+                    "date": extracted.get("date"),
+                    "amount": float(amount),
+                    "expense_head": extracted.get("expense_head") or "Uncategorized",
+                    "company": extracted.get("company") or "",
+                    "mode": extracted.get("mode") or "Card",
+                    "direction": "out",
+                    "notes": extracted.get("notes") or text or "",
+                }
+                await create_expense_fn(user["id"], row)
+                await tg_send(
+                    chat_id,
+                    f"✓ Expense logged from receipt: ₹{int(round(float(amount))):,} · "
+                    f"{row['expense_head']}{' · ' + row['company'] if row['company'] else ''}"
+                    f"{' · ' + row['date'] if row['date'] else ''}",
+                )
+            else:
+                await tg_send(
+                    chat_id,
+                    "I couldn't read the amount on that receipt. Try a clearer photo "
+                    "or send the amount + merchant as text.",
+                )
+        except Exception as e:
+            logger.warning(f"receipt OCR failed: {e}")
+            await tg_send(chat_id, "Sorry — receipt OCR failed. Send the amount + merchant as text.")
+        return
 
     if not text:
         return
