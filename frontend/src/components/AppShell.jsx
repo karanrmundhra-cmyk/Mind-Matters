@@ -21,7 +21,7 @@ const NAV = [
   { to: "/tasks", label: "Tasks", icon: CheckSquare, testid: "nav-tasks" },
   { to: "/routines", label: "Routines", icon: Repeat, testid: "nav-routines" },
   { to: "/loans", label: "Loans", icon: Landmark, testid: "nav-loans" },
-  { to: "/cash-flow", label: "Cash Flow", icon: Wallet, testid: "nav-cash-flow" },
+  { to: "/cash-flow", label: "Cash Flow", icon: Wallet, testid: "nav-cashflow" },
   { to: "/investments", label: "Investments", icon: TrendingUp, testid: "nav-investments" },
   { to: "/notes", label: "Notes", icon: StickyNote, testid: "nav-notes" },
 ];
