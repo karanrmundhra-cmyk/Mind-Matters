@@ -1,0 +1,106 @@
+{
+  "theme": "dark",
+  "archetype": "Archetype 4 (Swiss & High-Contrast) - Pure Monochrome Variant",
+  "emotional_tone": "Calm, Intelligent, Premium, In control",
+  "colors": {
+    "background": "#09090B",
+    "surface": "rgba(255, 255, 255, 0.03)",
+    "surface_hover": "rgba(255, 255, 255, 0.08)",
+    "border": "rgba(255, 255, 255, 0.1)",
+    "border_focus": "rgba(255, 255, 255, 0.3)",
+    "text_primary": "#FFFFFF",
+    "text_secondary": "#A1A1AA",
+    "text_muted": "#71717A",
+    "accent": "#FFFFFF",
+    "danger": "#71717A",
+    "success": "#FFFFFF"
+  },
+  "typography": {
+    "logo_and_loader": {
+      "family": "Cormorant Garamond, serif",
+      "weight": "400",
+      "description": "Clean serif for the logo fade-in and premium branding moments."
+    },
+    "headings": {
+      "family": "Outfit, sans-serif",
+      "weight": "300, 400",
+      "tracking": "tracking-tight",
+      "description": "Clean, geometric sans-serif for dashboard headers. DO NOT use Inter here."
+    },
+    "body": {
+      "family": "Inter, SF Pro Text, sans-serif",
+      "weight": "400",
+      "description": "Clear legibility for tasks, notes, and finance data."
+    },
+    "scales": {
+      "h1": "text-4xl sm:text-5xl",
+      "h2": "text-2xl sm:text-3xl",
+      "h3": "text-xl",
+      "h4": "text-lg",
+      "body": "text-sm sm:text-base",
+      "small": "text-xs"
+    }
+  },
+  "spacing_and_layout": {
+    "philosophy": "Zero clutter. Generous spacing with maximum breathing room.",
+    "container_padding": "p-6 md:p-8",
+    "dashboard_grid": "grid-cols-1 md:grid-cols-4 lg:grid-cols-6 gap-6",
+    "navigation": "Sidebar on desktop, bottom nav on mobile. Max 2-level depth.",
+    "radius": "rounded-lg"
+  },
+  "surfaces_and_micro_themes": {
+    "glassmorphism": {
+      "background": "bg-white/[0.03]",
+      "blur": "backdrop-blur-xl",
+      "border": "border border-white/10",
+      "shadow": "shadow-[0_8px_32px_rgba(0,0,0,0.4)]",
+      "usage": "Dashboard cards, sticky header, floating AI chat button."
+    },
+    "panels": {
+      "background": "bg-transparent",
+      "border": "border-t border-white/10",
+      "usage": "Separators, lists."
+    }
+  },
+  "motion_and_interactions": {
+    "transitions": "transition-all duration-300 ease-out",
+    "hover_state": "hover:bg-white/[0.08] hover:border-white/20",
+    "loader": "Smooth fade-in with logo and serif 'Mind Matters' text, lingering for 1.5s.",
+    "interactions": "Inline editing everywhere. One-tap primary actions."
+  },
+  "components": {
+    "strategy": "Shadcn UI base, stripped of Vercel styling, modified to pure monochrome glass.",
+    "cards": "Glassmorphic surfaces with 8px radius. No generic solid gray backgrounds.",
+    "buttons": "Primary: bg-white text-black hover:bg-gray-200. Secondary: bg-transparent border border-white/20 text-white hover:bg-white/10.",
+    "inputs": "bg-white/[0.03] border-white/10 focus:border-white/30 text-white placeholder-gray-500.",
+    "badges": "Bordered style or extremely subtle bg-white/10, text-white. No colors."
+  },
+  "icons": {
+    "library": "lucide-react",
+    "style": "Minimal, thin stroke (1.5px), monochrome."
+  },
+  "media": {
+    "logo": {
+      "url": "https://static.prod-images.emergentagent.com/jobs/a4ee9cb2-dbe6-4eab-bd9a-7b5312bd77a3/images/38628dd48b60d3f92818e145a0b54e36c21e42b2c2ec4f7623af2fef25fde596.png",
+      "description": "Minimalist elegant logo for Mind Matters, clean serif.",
+      "usage": "Splash screen, sidebar header."
+    },
+    "background_texture": {
+      "url": "https://static.prod-images.emergentagent.com/jobs/a4ee9cb2-dbe6-4eab-bd9a-7b5312bd77a3/images/5f6a4b1533e1a88a602cc493fb6a5af13d932a70c00d82fcfc51dd7defbafcca.png",
+      "description": "Monochrome ocean wave texture.",
+      "usage": "Global fixed background behind the app, set to extremely low opacity (e.g. opacity-20) and absolute positioning/z-index -1."
+    }
+  },
+  "testing": {
+    "attributes": "Every interactive element MUST include data-testid='...' (e.g. data-testid='nav-dashboard-link')."
+  },
+  "instructions_to_main_agent": [
+    "1. Setup the animated background: Use the background_texture URL with low opacity behind everything to create the 'ocean wave' feel requested.",
+    "2. Implement a splash/loader screen first that uses the logo URL and 'Mind Matters' in serif (Cormorant Garamond) before transitioning to the dashboard.",
+    "3. Keep the color palette STRICTLY black, white, and grey. Even success/danger states should rely on grayscale contrast, icons, or subtle UI shifts rather than green/red, as per user's 'no accent colors' rule.",
+    "4. All components must utilize glassmorphism: use backdrop-blur, bg-white/[0.03], and subtle border-white/10.",
+    "5. Use Shadcn components for complex interactions but overwrite their colors/borders to match this pure monochrome aesthetic.",
+    "6. Build the floating AI chat button as a glassmorphic element fixed to the bottom right.",
+    "7. Ensure inline editing works for tasks and notes seamlessly without opening unnecessary modals."
+  ]
+}
