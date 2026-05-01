@@ -1,7 +1,11 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "@/lib/api";
 import { Card, SectionTitle, EmptyState } from "@/components/Primitives";
-import { Plus, Search, Pin, PinOff, Trash2, Tag as TagIcon } from "lucide-react";
+import AiAddBar from "@/components/AiAddBar";
+import BulkAddDialog from "@/components/BulkAddDialog";
+import {
+  Plus, Search, Pin, PinOff, Trash2, Tag as TagIcon, Image as ImageIcon, Upload,
+} from "lucide-react";
 import { toast } from "sonner";
 
 const TAG_OPTIONS = ["work", "personal", "idea", "reminder", "health", "finance"];
@@ -9,8 +13,11 @@ const TAG_OPTIONS = ["work", "personal", "idea", "reminder", "health", "finance"
 export default function Notes() {
   const [notes, setNotes] = useState([]);
   const [q, setQ] = useState("");
-  const [selected, setSelected] = useState(null);
   const [filterTag, setFilterTag] = useState("");
+  const [selected, setSelected] = useState(null);
+  const [images, setImages] = useState([]);
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const imgRef = useRef(null);
 
   const load = async () => {
     const params = {};
@@ -25,7 +32,18 @@ export default function Notes() {
     }
   };
 
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [q, filterTag]);
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line
+  }, [q, filterTag]);
+
+  useEffect(() => {
+    if (selected) {
+      api.get(`/notes/${selected.id}/images`).then(({ data }) => setImages(data));
+    } else {
+      setImages([]);
+    }
+  }, [selected?.id]);
 
   const allTags = useMemo(() => {
     const s = new Set();
@@ -33,6 +51,14 @@ export default function Notes() {
     TAG_OPTIONS.forEach((t) => s.add(t));
     return Array.from(s);
   }, [notes]);
+
+  const insertOne = async (row) => {
+    await api.post("/notes", {
+      title: row.title || "",
+      body: row.body || "",
+      tags: Array.isArray(row.tags) ? row.tags : [],
+    });
+  };
 
   const create = async () => {
     const { data } = await api.post("/notes", { title: "New note", body: "", tags: [] });
@@ -62,6 +88,34 @@ export default function Notes() {
     save({ tags: next });
   };
 
+  const uploadImage = async (file) => {
+    if (!file || !selected) return;
+    const fd = new FormData();
+    fd.append("file", file);
+    try {
+      const { data } = await api.post(`/notes/${selected.id}/images`, fd, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+      setImages((s) => [...s, data]);
+      toast.success("Image added");
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Upload failed");
+    } finally {
+      if (imgRef.current) imgRef.current.value = "";
+    }
+  };
+
+  const deleteImage = async (iid) => {
+    if (!selected) return;
+    await api.delete(`/notes/${selected.id}/images/${iid}`);
+    setImages((s) => s.filter((i) => i.id !== iid));
+  };
+
+  const describe = (r) =>
+    `${r.title || "(untitled)"}${r.tags?.length ? " · #" + r.tags.join(" #") : ""}${
+      r.body ? " · " + r.body.slice(0, 60) + (r.body.length > 60 ? "…" : "") : ""
+    }`;
+
   const pinned = notes.filter((n) => n.pinned);
   const others = notes.filter((n) => !n.pinned);
 
@@ -71,18 +125,40 @@ export default function Notes() {
         subtitle="Thoughts"
         title="Notes & Affirmations"
         right={
-          <button onClick={create} className="mm-btn-primary text-sm flex items-center gap-1.5" data-testid="new-note-btn">
-            <Plus size={14} /> New note
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setBulkOpen(true)}
+              className="mm-btn-ghost text-xs flex items-center gap-1.5"
+              data-testid="bulk-add-open"
+            >
+              <Upload size={12} /> Bulk add
+            </button>
+            <button
+              onClick={create}
+              className="mm-btn-primary text-sm flex items-center gap-1.5"
+              data-testid="new-note-btn"
+            >
+              <Plus size={14} /> New note
+            </button>
+          </div>
         }
       />
 
+      <AiAddBar
+        kind="note"
+        placeholder="e.g. Idea — start a Sunday review ritual every week #personal"
+        describe={describe}
+        onConfirm={async (rows) => {
+          for (const r of rows) await insertOne(r);
+          await load();
+        }}
+      />
+
       <div className="grid grid-cols-1 md:grid-cols-[320px_1fr] gap-4">
-        {/* Left list */}
         <div className="space-y-3">
           <Card className="p-3">
             <div className="flex items-center gap-2 px-2">
-              <Search size={14} className="text-white/50" />
+              <Search size={14} className="text-[#B7A98A]/60" />
               <input
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
@@ -97,7 +173,7 @@ export default function Notes() {
             <div className="flex flex-wrap gap-1.5">
               <button
                 onClick={() => setFilterTag("")}
-                className={`mm-chip ${!filterTag ? "bg-white text-black border-transparent" : ""}`}
+                className={`mm-chip ${!filterTag ? "mm-chip-gold" : ""}`}
               >
                 All
               </button>
@@ -105,8 +181,7 @@ export default function Notes() {
                 <button
                   key={t}
                   onClick={() => setFilterTag(t === filterTag ? "" : t)}
-                  className={`mm-chip ${filterTag === t ? "bg-white text-black border-transparent" : ""}`}
-                  data-testid={`filter-tag-${t}`}
+                  className={`mm-chip ${filterTag === t ? "mm-chip-gold" : ""}`}
                 >
                   #{t}
                 </button>
@@ -115,31 +190,26 @@ export default function Notes() {
           )}
 
           {notes.length === 0 ? (
-            <EmptyState title="No notes" hint="Capture thoughts, ideas, reminders. Pin important ones to the dashboard." />
+            <EmptyState title="No notes" hint="Capture thoughts. Pin important ones to the dashboard." />
           ) : (
             <Card className="p-0 overflow-hidden max-h-[68vh] overflow-y-auto">
               {[...pinned, ...others].map((n) => (
                 <button
                   key={n.id}
                   onClick={() => setSelected(n)}
-                  className={`w-full text-left px-4 py-3 border-b border-white/5 transition ${
-                    selected?.id === n.id ? "bg-white/[0.05]" : "hover:bg-white/[0.03]"
+                  className={`w-full text-left px-4 py-3 border-b border-[rgba(201,169,97,0.08)] transition ${
+                    selected?.id === n.id ? "bg-[rgba(201,169,97,0.08)]" : "hover:bg-[rgba(201,169,97,0.04)]"
                   }`}
                   data-testid="note-list-item"
                 >
                   <div className="flex items-center gap-2">
-                    {n.pinned && <Pin size={10} className="text-white/70" />}
-                    <div className="text-sm truncate text-white/90">{n.title || "Untitled"}</div>
+                    {n.pinned && <Pin size={10} className="mm-text-gold-bright" />}
+                    <div className="text-sm truncate mm-text-gold-bright">
+                      {n.title || "Untitled"}
+                    </div>
                   </div>
-                  <div className="text-xs text-white/45 truncate mt-1">
+                  <div className="text-xs text-[#B7A98A]/55 truncate mt-1">
                     {(n.body || "").slice(0, 80) || "—"}
-                  </div>
-                  <div className="flex items-center gap-1 mt-1.5">
-                    {(n.tags || []).slice(0, 4).map((t) => (
-                      <span key={t} className="text-[9px] uppercase tracking-[0.2em] text-white/40">
-                        #{t}
-                      </span>
-                    ))}
                   </div>
                 </button>
               ))}
@@ -147,10 +217,9 @@ export default function Notes() {
           )}
         </div>
 
-        {/* Editor */}
         <Card className="p-6 min-h-[70vh] flex flex-col" data-testid="note-editor">
           {!selected ? (
-            <div className="flex-1 flex items-center justify-center text-white/40 text-sm">
+            <div className="flex-1 flex items-center justify-center text-[#B7A98A]/55 text-sm">
               Select or create a note to start writing.
             </div>
           ) : (
@@ -161,25 +230,48 @@ export default function Notes() {
                   onChange={(e) => setSelected({ ...selected, title: e.target.value })}
                   onBlur={(e) => save({ title: e.target.value })}
                   placeholder="Title"
-                  className="flex-1 bg-transparent outline-none mm-font-display text-2xl"
+                  className="flex-1 bg-transparent outline-none mm-font-display text-2xl mm-text-gold-bright"
                   data-testid="note-title-input"
                 />
-                <button onClick={togglePin} className="text-white/50 hover:text-white transition" title="Pin" data-testid="note-pin-toggle">
+                <input
+                  ref={imgRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={(e) => uploadImage(e.target.files?.[0])}
+                  data-testid="note-image-input"
+                />
+                <button
+                  onClick={() => imgRef.current?.click()}
+                  className="text-[#B7A98A]/65 hover:text-[#E4C98C] transition"
+                  title="Add image"
+                  data-testid="note-add-image"
+                >
+                  <ImageIcon size={16} />
+                </button>
+                <button
+                  onClick={togglePin}
+                  className="text-[#B7A98A]/65 hover:text-[#E4C98C] transition"
+                  data-testid="note-pin-toggle"
+                >
                   {selected.pinned ? <Pin size={16} /> : <PinOff size={16} />}
                 </button>
-                <button onClick={() => remove(selected.id)} className="text-white/50 hover:text-white transition" title="Delete" data-testid="note-delete">
+                <button
+                  onClick={() => remove(selected.id)}
+                  className="text-[#B7A98A]/65 hover:text-[#E4C98C] transition"
+                  data-testid="note-delete"
+                >
                   <Trash2 size={16} />
                 </button>
               </div>
 
               <div className="flex items-center gap-1.5 mb-4 flex-wrap">
-                <TagIcon size={12} className="text-white/40" />
+                <TagIcon size={12} className="text-[#B7A98A]/55" />
                 {allTags.map((t) => (
                   <button
                     key={t}
                     onClick={() => toggleTag(t)}
-                    className={`mm-chip ${(selected.tags || []).includes(t) ? "bg-white text-black border-transparent" : ""}`}
-                    data-testid={`note-tag-${t}`}
+                    className={`mm-chip ${(selected.tags || []).includes(t) ? "mm-chip-gold" : ""}`}
                   >
                     #{t}
                   </button>
@@ -195,13 +287,49 @@ export default function Notes() {
                 data-testid="note-body-input"
               />
 
-              <div className="mt-4 text-[10px] uppercase tracking-[0.2em] text-white/35 text-right">
+              {images.length > 0 && (
+                <div className="mt-4 grid grid-cols-2 md:grid-cols-3 gap-3">
+                  {images.map((im) => (
+                    <div
+                      key={im.id}
+                      className="relative group rounded-lg overflow-hidden border border-[rgba(201,169,97,0.18)]"
+                      data-testid="note-image"
+                    >
+                      <img
+                        src={im.data_url}
+                        alt={im.name}
+                        className="w-full h-32 object-cover"
+                      />
+                      <button
+                        onClick={() => deleteImage(im.id)}
+                        className="absolute top-1 right-1 bg-black/60 backdrop-blur p-1 rounded text-[#E4C98C] opacity-0 group-hover:opacity-100 transition"
+                        data-testid="note-image-delete"
+                      >
+                        <Trash2 size={12} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div className="mt-4 text-[10px] uppercase tracking-[0.2em] text-[#B7A98A]/45 text-right">
                 Auto-saved · {new Date(selected.updated_at).toLocaleString()}
               </div>
             </>
           )}
         </Card>
       </div>
+
+      <BulkAddDialog
+        open={bulkOpen}
+        onClose={() => setBulkOpen(false)}
+        kind="note"
+        describe={describe}
+        onConfirm={async (rows) => {
+          for (const r of rows) await insertOne(r);
+          await load();
+        }}
+      />
     </div>
   );
 }

@@ -129,8 +129,9 @@ class Task(TaskIn):
 
 # Routine
 class RoutineIn(BaseModel):
-    category: Literal["Health", "Social", "Spiritual", "Work", "Finance"] = "Health"
+    time_block: Literal["block1", "block2", "block3", "block4"] = "block1"
     activity: str
+    details: str = ""
     frequency: Literal["Daily", "Weekly", "Monthly", "Quarterly", "Half-Yearly", "Yearly"] = "Daily"
     priority: Literal["Low", "Medium", "High"] = "Medium"
     status: Literal["Active", "Paused"] = "Active"
@@ -199,17 +200,19 @@ class Transaction(TransactionIn):
 
 # Investments
 class InvestmentIn(BaseModel):
-    type: Literal["Insurance", "Equity", "MF", "FD", "Other"] = "Equity"
+    type: str = "Equity"  # free-form: Equity / FD / Insurance / MF / custom
     provider: str
     amount_invested: float
     start_date: Optional[str] = None
     maturity_date: Optional[str] = None
+    rate_or_value: Optional[str] = None  # free-form: "8% p.a." or "₹2,40,000" maturity
     current_value: Optional[float] = None
     notes: str = ""
 
 
 class Investment(InvestmentIn):
     id: str
+    sr_no: int
     user_id: str
     created_at: str
     updated_at: str
@@ -304,6 +307,15 @@ async def _next_sr(collection: str, user_id: str) -> int:
     return (doc["sr_no"] + 1) if doc else 1
 
 
+async def _compact_sr(collection: str, user_id: str):
+    """Re-number sr_no contiguously after a delete."""
+    docs = await db[collection].find(
+        {"user_id": user_id}, {"_id": 0, "id": 1}
+    ).sort("sr_no", 1).to_list(20000)
+    for i, d in enumerate(docs, 1):
+        await db[collection].update_one({"id": d["id"]}, {"$set": {"sr_no": i}})
+
+
 @api.post("/tasks", response_model=Task)
 async def create_task(body: TaskIn, user=Depends(get_current_user)):
     sr = await _next_sr("tasks", user["id"])
@@ -360,6 +372,7 @@ async def delete_task(task_id: str, user=Depends(get_current_user)):
     r = await db.tasks.delete_one({"id": task_id, "user_id": user["id"]})
     if r.deleted_count == 0:
         raise HTTPException(404, "Task not found")
+    await _compact_sr("tasks", user["id"])
     return {"ok": True}
 
 
@@ -401,7 +414,7 @@ async def bulk_routines(body: List[RoutineIn], user=Depends(get_current_user)):
 
 @api.patch("/routines/{rid}", response_model=Routine)
 async def update_routine(rid: str, body: Dict[str, Any], user=Depends(get_current_user)):
-    body = {k: v for k, v in body.items() if k in {"category", "activity", "frequency", "priority", "status"}}
+    body = {k: v for k, v in body.items() if k in {"time_block", "activity", "details", "frequency", "priority", "status"}}
     body["updated_at"] = now_iso()
     res = await db.routines.find_one_and_update(
         {"id": rid, "user_id": user["id"]}, {"$set": body}, projection={"_id": 0}, return_document=True
@@ -490,7 +503,7 @@ async def routines_summary(user=Depends(get_current_user)):
     # per category %
     cats: Dict[str, Dict[str, int]] = {}
     for r in routines:
-        c = r["category"]
+        c = r.get("time_block") or r.get("category") or "block1"
         cats.setdefault(c, {"total": 0, "done": 0})
         cats[c]["total"] += 1
         if per_routine[r["id"]]["done_today"]:
@@ -561,6 +574,7 @@ async def update_loan(lid: str, body: Dict[str, Any], user=Depends(get_current_u
 @api.delete("/loans/{lid}")
 async def delete_loan(lid: str, user=Depends(get_current_user)):
     await db.loans.delete_one({"id": lid, "user_id": user["id"]})
+    await _compact_sr("loans", user["id"])
     return {"ok": True}
 
 
@@ -793,9 +807,11 @@ async def list_investments(user=Depends(get_current_user)):
 
 @api.post("/investments", response_model=Investment)
 async def create_investment(body: InvestmentIn, user=Depends(get_current_user)):
+    sr = await _next_sr("investments", user["id"])
     doc = {
         **body.model_dump(),
         "id": new_id(),
+        "sr_no": sr,
         "user_id": user["id"],
         "created_at": now_iso(),
         "updated_at": now_iso(),
@@ -806,7 +822,8 @@ async def create_investment(body: InvestmentIn, user=Depends(get_current_user)):
 
 @api.patch("/investments/{iid}", response_model=Investment)
 async def update_investment(iid: str, body: Dict[str, Any], user=Depends(get_current_user)):
-    allowed = {"type", "provider", "amount_invested", "start_date", "maturity_date", "current_value", "notes"}
+    allowed = {"type", "provider", "amount_invested", "start_date", "maturity_date",
+               "rate_or_value", "current_value", "notes"}
     body = {k: v for k, v in body.items() if k in allowed}
     body["updated_at"] = now_iso()
     res = await db.investments.find_one_and_update(
@@ -820,6 +837,7 @@ async def update_investment(iid: str, body: Dict[str, Any], user=Depends(get_cur
 @api.delete("/investments/{iid}")
 async def delete_investment(iid: str, user=Depends(get_current_user)):
     await db.investments.delete_one({"id": iid, "user_id": user["id"]})
+    await _compact_sr("investments", user["id"])
     return {"ok": True}
 
 
@@ -1368,7 +1386,7 @@ class ReminderIn(BaseModel):
     title: str
     notes: Optional[str] = ""
     fire_at: str  # ISO datetime in UTC
-    recurrence: Optional[Literal["none", "daily", "weekly", "monthly"]] = "none"
+    recurrence: Optional[Literal["none", "daily", "weekly", "monthly", "quarterly", "half-yearly", "yearly"]] = "none"
 
 
 class Reminder(BaseModel):
@@ -1590,6 +1608,212 @@ async def share_statement(body: ShareStatementReq, user=Depends(get_current_user
 
     res = await tg_send_document(cid, fname, pdf, caption=caption)
     return {"ok": bool(res and res.get("ok")), "telegram": res}
+
+
+# ───────────────────── Deadlines (countdown) ─────────────────────
+class DeadlineIn(BaseModel):
+    title: str
+    due_date: str  # YYYY-MM-DD
+    notes: Optional[str] = ""
+
+
+class Deadline(BaseModel):
+    id: str
+    user_id: str
+    title: str
+    due_date: str
+    notes: str = ""
+    created_at: str
+
+
+@api.get("/deadlines", response_model=List[Deadline])
+async def list_deadlines(user=Depends(get_current_user)):
+    docs = await db.deadlines.find({"user_id": user["id"]}, {"_id": 0}) \
+        .sort("due_date", 1).to_list(200)
+    return [Deadline(**d) for d in docs]
+
+
+@api.post("/deadlines", response_model=Deadline)
+async def create_deadline(body: DeadlineIn, user=Depends(get_current_user)):
+    doc = {
+        "id": new_id(), "user_id": user["id"],
+        "title": body.title, "due_date": body.due_date, "notes": body.notes or "",
+        "created_at": now_iso(),
+    }
+    await db.deadlines.insert_one(dict(doc))
+    return Deadline(**doc)
+
+
+@api.patch("/deadlines/{did}", response_model=Deadline)
+async def update_deadline(did: str, body: Dict[str, Any], user=Depends(get_current_user)):
+    body = {k: v for k, v in body.items() if k in {"title", "due_date", "notes"}}
+    res = await db.deadlines.find_one_and_update(
+        {"id": did, "user_id": user["id"]}, {"$set": body},
+        projection={"_id": 0}, return_document=True,
+    )
+    if not res:
+        raise HTTPException(404, "Deadline not found")
+    return Deadline(**res)
+
+
+@api.delete("/deadlines/{did}")
+async def delete_deadline(did: str, user=Depends(get_current_user)):
+    await db.deadlines.delete_one({"id": did, "user_id": user["id"]})
+    return {"ok": True}
+
+
+# ───────────────────── AI bulk parse (paste text or upload file) ─────────────────────
+class BulkParseReq(BaseModel):
+    kind: Literal["task", "routine", "expense", "loan", "investment", "note", "reminder", "deadline"]
+    text: str  # could be tab-separated paste OR free text
+
+
+def _parse_excel_to_rows(content: bytes) -> List[Dict[str, Any]]:
+    import pandas as pd
+    df = pd.read_excel(io.BytesIO(content))
+    df.columns = [str(c).strip() for c in df.columns]
+    return df.fillna("").to_dict(orient="records")
+
+
+def _parse_csv_to_rows(content: bytes) -> List[Dict[str, Any]]:
+    import csv
+    f = io.StringIO(content.decode("utf-8", errors="ignore"))
+    return list(csv.DictReader(f))
+
+
+SCHEMA_BY_KIND = {
+    "task": "{name (person), task, details, date:'YYYY-MM-DD' or null, status:'Pending'|'Done'|'Follow-Up'}",
+    "routine": "{time_block:'block1'|'block2'|'block3'|'block4', activity, details, frequency:'Daily'|'Weekly'|'Monthly'|'Quarterly'|'Half-Yearly'|'Yearly'}",
+    "expense": "{date:'YYYY-MM-DD', amount:number, expense_head, company, mode, direction:'out'|'in', notes}",
+    "loan": "{date:'YYYY-MM-DD', name, amount:number, interest:number, reason, status:'Given'|'Taken'|'Pending'|'Closed', repayment_date}",
+    "investment": "{type, provider, amount_invested:number, start_date, maturity_date, rate_or_value, notes}",
+    "note": "{title, body, tags:[string]}",
+    "reminder": "{title, fire_at_local:'YYYY-MM-DDTHH:MM', notes, recurrence:'none'|'daily'|'weekly'|'monthly'|'quarterly'|'half-yearly'|'yearly'}",
+    "deadline": "{title, due_date:'YYYY-MM-DD', notes}",
+}
+
+
+async def _ai_parse_bulk(text: str, kind: str) -> List[Dict[str, Any]]:
+    if not EMERGENT_LLM_KEY:
+        return []
+    schema = SCHEMA_BY_KIND.get(kind, "{}")
+    system = (
+        "You are a data normalizer. Extract a JSON ARRAY of objects from the user's input. "
+        f"Each object follows this schema for kind={kind}: {schema}\n"
+        "If input has multiple lines, treat each as one record. "
+        "Return ONLY a JSON array, no prose."
+    )
+    chat = LlmChat(api_key=EMERGENT_LLM_KEY, session_id=f"bp-{new_id()}",
+                   system_message=system).with_model("gemini", "gemini-3-flash-preview")
+    resp = await chat.send_message(UserMessage(text=text[:8000]))
+    t = resp.strip()
+    if t.startswith("```"):
+        t = t.strip("`")
+        if t.startswith("json"):
+            t = t[4:]
+    try:
+        arr = json.loads(t)
+        return arr if isinstance(arr, list) else []
+    except Exception:
+        return []
+
+
+@api.post("/parse/bulk")
+async def parse_bulk(body: BulkParseReq, user=Depends(get_current_user)):
+    """Parse pasted text into a JSON array for the given kind. UI confirms before insert."""
+    rows = await _ai_parse_bulk(body.text, body.kind)
+    return {"rows": rows}
+
+
+@api.post("/parse/bulk-file")
+async def parse_bulk_file(
+    kind: str = Form(...),
+    file: UploadFile = File(...),
+    user=Depends(get_current_user),
+):
+    content = await file.read()
+    name = (file.filename or "").lower()
+    raw: List[Dict[str, Any]] = []
+    if name.endswith((".xlsx", ".xls")):
+        raw = _parse_excel_to_rows(content)
+    elif name.endswith(".csv"):
+        raw = _parse_csv_to_rows(content)
+    else:
+        raise HTTPException(400, "Upload .xlsx, .xls or .csv")
+    # ask AI to normalize column names per schema
+    schema = SCHEMA_BY_KIND.get(kind, "{}")
+    sample = json.dumps(raw[:30], default=str)
+    system = (
+        "Normalize raw spreadsheet rows to a JSON array per the schema. "
+        f"Schema for kind={kind}: {schema}\nReturn ONLY JSON array."
+    )
+    if not EMERGENT_LLM_KEY:
+        return {"rows": []}
+    chat = LlmChat(api_key=EMERGENT_LLM_KEY, session_id=f"bf-{new_id()}",
+                   system_message=system).with_model("gemini", "gemini-3-flash-preview")
+    resp = await chat.send_message(UserMessage(text=sample))
+    t = resp.strip()
+    if t.startswith("```"):
+        t = t.strip("`")
+        if t.startswith("json"):
+            t = t[4:]
+    try:
+        rows = json.loads(t)
+        if not isinstance(rows, list):
+            rows = []
+    except Exception:
+        rows = []
+    return {"rows": rows, "raw_count": len(raw)}
+
+
+# ───────────────────── Notes — image attachments (base64) ─────────────────────
+class NoteImage(BaseModel):
+    id: str
+    note_id: str
+    user_id: str
+    name: str
+    mime: str
+    data_b64: str
+    created_at: str
+
+
+@api.post("/notes/{nid}/images")
+async def upload_note_image(
+    nid: str,
+    file: UploadFile = File(...),
+    user=Depends(get_current_user),
+):
+    note = await db.notes.find_one({"id": nid, "user_id": user["id"]}, {"_id": 0})
+    if not note:
+        raise HTTPException(404, "Note not found")
+    content = await file.read()
+    if len(content) > 4 * 1024 * 1024:
+        raise HTTPException(400, "Image too large (max 4 MB)")
+    import base64
+    doc = {
+        "id": new_id(), "note_id": nid, "user_id": user["id"],
+        "name": file.filename or "image", "mime": file.content_type or "image/png",
+        "data_b64": base64.b64encode(content).decode("ascii"),
+        "created_at": now_iso(),
+    }
+    await db.note_images.insert_one(dict(doc))
+    return {k: v for k, v in doc.items() if k != "data_b64"} | {
+        "data_url": f"data:{doc['mime']};base64,{doc['data_b64']}"
+    }
+
+
+@api.get("/notes/{nid}/images")
+async def list_note_images(nid: str, user=Depends(get_current_user)):
+    imgs = await db.note_images.find(
+        {"note_id": nid, "user_id": user["id"]}, {"_id": 0}
+    ).sort("created_at", 1).to_list(50)
+    return [{**i, "data_url": f"data:{i['mime']};base64,{i['data_b64']}"} for i in imgs]
+
+
+@api.delete("/notes/{nid}/images/{iid}")
+async def delete_note_image(nid: str, iid: str, user=Depends(get_current_user)):
+    await db.note_images.delete_one({"id": iid, "note_id": nid, "user_id": user["id"]})
+    return {"ok": True}
 
 
 # ───────────────────── Startup: Telegram poller + reminder loop ─────────────────────

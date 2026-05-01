@@ -1,7 +1,9 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { Card, SectionTitle, EmptyState, Stat } from "@/components/Primitives";
-import { Upload, Plus, Trash2, ArrowUpRight, ArrowDownLeft, Sparkles } from "lucide-react";
+import AiAddBar from "@/components/AiAddBar";
+import BulkAddDialog from "@/components/BulkAddDialog";
+import { Plus, Trash2, Upload, ArrowUpRight, ArrowDownLeft } from "lucide-react";
 import { toast } from "sonner";
 
 const fmtINR = (n) =>
@@ -14,11 +16,16 @@ export default function CashFlow() {
   const [transactions, setTransactions] = useState([]);
   const [summary, setSummary] = useState(null);
   const [month, setMonth] = useState(monthStr());
-  const [uploading, setUploading] = useState(false);
-  const fileRef = useRef(null);
+  const [bulkOpen, setBulkOpen] = useState(false);
 
   const [draft, setDraft] = useState({
-    amount: "", mode: "Bank", expense_head: "", company: "", direction: "out", notes: "",
+    date: "",
+    amount: "",
+    notes: "",
+    company: "",
+    expense_head: "",
+    direction: "out",
+    mode: "Bank",
   });
 
   const load = async () => {
@@ -29,36 +36,72 @@ export default function CashFlow() {
     setTransactions(t.data);
     setSummary(s.data);
   };
+  useEffect(() => {
+    load();
+  }, [month]);
 
-  useEffect(() => { load(); }, [month]);
+  const insertOne = async (row) => {
+    await api.post("/transactions", {
+      date: row.date || null,
+      amount: Number(row.amount) || 0,
+      notes: row.notes || row.details || "",
+      company: row.company || "",
+      expense_head: row.expense_head || "Uncategorized",
+      direction: row.direction || "out",
+      mode: row.mode || "Bank",
+    });
+  };
+
+  // AI auto-categorize the head when user provides only a description
+  const autoFillHead = async () => {
+    if (!draft.notes && !draft.company) return;
+    try {
+      const { data } = await api.post("/parse/bulk", {
+        kind: "expense",
+        text: `${draft.date || ""} ${draft.amount || ""} ${draft.notes || ""} ${draft.company || ""}`.trim(),
+      });
+      const r = data.rows?.[0];
+      if (r) {
+        setDraft((d) => ({
+          ...d,
+          expense_head: d.expense_head || r.expense_head || "Uncategorized",
+          company: d.company || r.company || "",
+          direction: d.direction || r.direction || "out",
+          mode: d.mode || r.mode || "Bank",
+        }));
+        toast.success("AI auto-filled fields");
+      }
+    } catch {}
+  };
 
   const add = async () => {
     if (!Number(draft.amount)) return;
     try {
-      await api.post("/transactions", { ...draft, amount: Number(draft.amount) });
-      setDraft({ amount: "", mode: "Bank", expense_head: "", company: "", direction: "out", notes: "" });
+      // if no head, ask AI quickly (silent)
+      let head = draft.expense_head;
+      if (!head || head === "Uncategorized") {
+        try {
+          const { data } = await api.post("/parse/bulk", {
+            kind: "expense",
+            text: `${draft.date || ""} ${draft.amount} ${draft.notes || ""} ${draft.company || ""}`.trim(),
+          });
+          head = data.rows?.[0]?.expense_head || "Uncategorized";
+        } catch {}
+      }
+      await api.post("/transactions", { ...draft, amount: Number(draft.amount), expense_head: head });
+      setDraft({
+        date: "",
+        amount: "",
+        notes: "",
+        company: "",
+        expense_head: "",
+        direction: "out",
+        mode: "Bank",
+      });
       await load();
       toast.success("Transaction added");
-    } catch { toast.error("Failed"); }
-  };
-
-  const upload = async (file) => {
-    if (!file) return;
-    const fd = new FormData();
-    fd.append("file", file);
-    fd.append("account", "Personal");
-    setUploading(true);
-    try {
-      const { data } = await api.post("/transactions/upload", fd, {
-        headers: { "Content-Type": "multipart/form-data" },
-      });
-      toast.success(`AI imported ${data.inserted} transactions`);
-      await load();
-    } catch (e) {
-      toast.error(e?.response?.data?.detail || "Upload failed");
-    } finally {
-      setUploading(false);
-      if (fileRef.current) fileRef.current.value = "";
+    } catch {
+      toast.error("Failed");
     }
   };
 
@@ -71,36 +114,72 @@ export default function CashFlow() {
     await load();
   };
 
+  const describe = (r) =>
+    `${r.date || ""} · ${r.direction === "in" ? "+" : "-"}₹${Number(r.amount || 0).toLocaleString(
+      "en-IN"
+    )} · ${r.expense_head || "Uncategorized"}${r.company ? " · " + r.company : ""}${
+      r.notes ? " · " + r.notes : ""
+    }`;
+
   return (
     <div className="space-y-6 mm-fade-in" data-testid="cashflow-page">
       <SectionTitle
         subtitle="AI Accountant"
         title="Cash Flow"
         right={
-          <input
-            type="month"
-            value={month}
-            onChange={(e) => setMonth(e.target.value)}
-            className="mm-input max-w-[160px] text-sm"
-            data-testid="cashflow-month"
-          />
+          <div className="flex items-center gap-2">
+            <input
+              type="month"
+              value={month}
+              onChange={(e) => setMonth(e.target.value)}
+              className="mm-input max-w-[160px] text-sm"
+              data-testid="cashflow-month"
+            />
+            <button
+              onClick={() => setBulkOpen(true)}
+              className="mm-btn-ghost text-xs flex items-center gap-1.5"
+              data-testid="bulk-add-open"
+            >
+              <Upload size={12} /> Bulk add
+            </button>
+          </div>
         }
       />
 
+      <AiAddBar
+        kind="expense"
+        placeholder="e.g. 450 coffee at Starbucks · 12000 office rent paid via NEFT"
+        describe={describe}
+        onConfirm={async (rows) => {
+          for (const r of rows) await insertOne(r);
+          await load();
+        }}
+      />
+
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <Stat testid="cf-out" label="Expenses" value={fmtINR(summary?.total_out ?? 0)} hint={`${summary?.count ?? 0} entries`} />
+        <Stat
+          testid="cf-out"
+          label="Expenses"
+          value={fmtINR(summary?.total_out ?? 0)}
+          hint={`${summary?.count ?? 0} entries`}
+        />
         <Stat testid="cf-in" label="Income" value={fmtINR(summary?.total_in ?? 0)} />
         <Stat testid="cf-net" label="Net" value={fmtINR(summary?.net ?? 0)} />
-        <Stat testid="cf-change" label="vs last month"
-          value={summary?.change_vs_prev_month_percent != null ? `${summary.change_vs_prev_month_percent > 0 ? "+" : ""}${summary.change_vs_prev_month_percent}%` : "—"}
+        <Stat
+          testid="cf-change"
+          label="vs last month"
+          value={
+            summary?.change_vs_prev_month_percent != null
+              ? `${summary.change_vs_prev_month_percent > 0 ? "+" : ""}${summary.change_vs_prev_month_percent}%`
+              : "—"
+          }
           hint="Expense delta"
         />
       </div>
 
-      {/* Top heads */}
       {summary?.top_expense_heads?.length > 0 && (
         <Card className="p-5" data-testid="top-heads">
-          <div className="mm-font-display uppercase tracking-[0.2em] text-xs text-white/60 mb-4">
+          <div className="text-[10px] uppercase tracking-[0.3em] text-[#B7A98A]/65 mb-4">
             Top expense heads
           </div>
           <div className="space-y-3">
@@ -110,10 +189,15 @@ export default function CashFlow() {
               return (
                 <div key={h.head} className="flex items-center gap-4">
                   <div className="w-32 text-sm">{h.head}</div>
-                  <div className="flex-1 h-1.5 rounded-full bg-white/10 overflow-hidden">
-                    <div className="h-full bg-white/70" style={{ width: `${w}%`, transition: "width 400ms ease" }} />
+                  <div className="flex-1 h-1.5 rounded-full bg-[rgba(201,169,97,0.12)] overflow-hidden">
+                    <div
+                      className="h-full bg-gradient-to-r from-[#E4C98C] to-[#C9A961]"
+                      style={{ width: `${w}%`, transition: "width 400ms ease" }}
+                    />
                   </div>
-                  <div className="w-28 text-right text-sm text-white/80">{fmtINR(h.amount)}</div>
+                  <div className="w-28 text-right text-sm mm-text-gold-bright">
+                    {fmtINR(h.amount)}
+                  </div>
                 </div>
               );
             })}
@@ -121,94 +205,92 @@ export default function CashFlow() {
         </Card>
       )}
 
-      {/* Upload + manual add */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <Card className="p-5 lg:col-span-1" data-testid="upload-card">
-          <div className="mm-font-display uppercase tracking-[0.2em] text-xs text-white/60 mb-2 flex items-center gap-2">
-            <Sparkles size={12} /> AI upload
-          </div>
-          <div className="text-xs text-white/50 mb-4">
-            Drop a bank statement (Excel/CSV/PDF). Gemini 3 Flash reads and categorises each line.
-          </div>
+      {/* Manual entry */}
+      <Card className="p-5" data-testid="manual-add">
+        <div className="text-[10px] uppercase tracking-[0.3em] text-[#B7A98A]/65 mb-4">
+          Manual entry — AI auto-categorises into a personal balance-sheet head
+        </div>
+        <div className="grid grid-cols-2 md:grid-cols-7 gap-3">
           <input
-            ref={fileRef}
-            type="file"
-            accept=".xlsx,.xls,.csv,.pdf"
-            onChange={(e) => upload(e.target.files?.[0])}
-            className="hidden"
-            data-testid="upload-input"
+            type="date"
+            value={draft.date}
+            onChange={(e) => setDraft({ ...draft, date: e.target.value })}
+            className="mm-input text-sm"
           />
-          <button
-            onClick={() => fileRef.current?.click()}
-            disabled={uploading}
-            className="mm-btn-ghost w-full text-sm flex items-center justify-center gap-2"
-            data-testid="upload-btn"
+          <input
+            type="number"
+            placeholder="Amount"
+            value={draft.amount}
+            onChange={(e) => setDraft({ ...draft, amount: e.target.value })}
+            className="mm-input text-sm"
+            data-testid="new-tx-amount"
+          />
+          <input
+            placeholder="Details"
+            value={draft.notes}
+            onChange={(e) => setDraft({ ...draft, notes: e.target.value })}
+            className="mm-input text-sm md:col-span-2"
+          />
+          <input
+            placeholder="Company"
+            value={draft.company}
+            onChange={(e) => setDraft({ ...draft, company: e.target.value })}
+            className="mm-input text-sm"
+          />
+          <input
+            placeholder="Head (auto)"
+            value={draft.expense_head}
+            onChange={(e) => setDraft({ ...draft, expense_head: e.target.value })}
+            className="mm-input text-sm"
+          />
+          <select
+            value={draft.direction}
+            onChange={(e) => setDraft({ ...draft, direction: e.target.value })}
+            className="mm-input text-sm"
           >
-            <Upload size={14} /> {uploading ? "AI parsing…" : "Upload & auto-categorize"}
+            <option value="out">Expense</option>
+            <option value="in">Income</option>
+          </select>
+          <button
+            onClick={autoFillHead}
+            className="mm-btn-ghost text-xs"
+            data-testid="autofill-head"
+          >
+            ✨ Auto-fill
           </button>
-        </Card>
-
-        <Card className="p-5 lg:col-span-2" data-testid="manual-add">
-          <div className="mm-font-display uppercase tracking-[0.2em] text-xs text-white/60 mb-4">Manual entry</div>
-          <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
-            <select
-              value={draft.direction}
-              onChange={(e) => setDraft({ ...draft, direction: e.target.value })}
-              className="mm-input text-sm"
-            >
-              <option value="out">Expense</option>
-              <option value="in">Income</option>
-            </select>
-            <input
-              type="number"
-              placeholder="Amount"
-              value={draft.amount}
-              onChange={(e) => setDraft({ ...draft, amount: e.target.value })}
-              className="mm-input text-sm"
-              data-testid="new-tx-amount"
-            />
-            <input
-              placeholder="Head"
-              value={draft.expense_head}
-              onChange={(e) => setDraft({ ...draft, expense_head: e.target.value })}
-              className="mm-input text-sm"
-            />
-            <input
-              placeholder="Company"
-              value={draft.company}
-              onChange={(e) => setDraft({ ...draft, company: e.target.value })}
-              className="mm-input text-sm"
-            />
-            <input
-              placeholder="Mode"
-              value={draft.mode}
-              onChange={(e) => setDraft({ ...draft, mode: e.target.value })}
-              className="mm-input text-sm"
-            />
-            <button
-              onClick={add}
-              disabled={!Number(draft.amount)}
-              className="mm-btn-primary text-sm disabled:opacity-40 flex items-center justify-center gap-1.5"
-              data-testid="new-tx-submit"
-            >
-              <Plus size={14} /> Add
-            </button>
-          </div>
-        </Card>
-      </div>
+          <button
+            onClick={add}
+            disabled={!Number(draft.amount)}
+            className="mm-btn-primary text-sm disabled:opacity-40 flex items-center justify-center gap-1.5 md:col-span-6"
+            data-testid="new-tx-submit"
+          >
+            <Plus size={14} /> Add
+          </button>
+        </div>
+      </Card>
 
       {/* List */}
       {transactions.length === 0 ? (
-        <EmptyState title="No transactions this month" hint="Upload a statement or add manually." />
+        <EmptyState
+          title="No transactions this month"
+          hint="Type into the AI bar, fill the manual row, paste rows via Bulk add, or send your bot a Telegram message."
+        />
       ) : (
         <Card className="p-0 overflow-hidden" data-testid="tx-table">
-          <div className="hidden md:grid grid-cols-[90px_40px_110px_1fr_1fr_120px_100px_40px] gap-3 px-5 py-3 border-b border-white/5 text-[10px] uppercase tracking-[0.2em] text-white/40">
-            <div>Date</div><div /><div>Amount</div><div>Head</div><div>Company</div><div>Mode</div><div>Source</div><div />
+          <div className="hidden md:grid grid-cols-[100px_50px_120px_1.4fr_1fr_140px_100px_40px] gap-3 px-5 py-3 border-b border-[rgba(201,169,97,0.18)] text-[10px] uppercase tracking-[0.2em] text-[#B7A98A]/60">
+            <div>Date</div>
+            <div />
+            <div>Amount</div>
+            <div>Details</div>
+            <div>Company</div>
+            <div>Head</div>
+            <div>Source</div>
+            <div />
           </div>
           {transactions.map((t) => (
             <div
               key={t.id}
-              className="grid grid-cols-2 md:grid-cols-[90px_40px_110px_1fr_1fr_120px_100px_40px] gap-3 px-5 py-3 border-b border-white/5 hover:bg-white/[0.03] transition items-center"
+              className="grid grid-cols-2 md:grid-cols-[100px_50px_120px_1.4fr_1fr_140px_100px_40px] gap-3 px-5 py-3 border-b border-[rgba(201,169,97,0.08)] hover:bg-[rgba(201,169,97,0.04)] items-center"
               data-testid="tx-row"
             >
               <input
@@ -217,7 +299,7 @@ export default function CashFlow() {
                 onChange={(e) => patch(t.id, { date: e.target.value })}
                 className="mm-input text-xs !py-1.5"
               />
-              <div className="text-white/60">
+              <div className="mm-text-gold/75">
                 {t.direction === "in" ? <ArrowDownLeft size={14} /> : <ArrowUpRight size={14} />}
               </div>
               <input
@@ -227,26 +309,27 @@ export default function CashFlow() {
                 className="mm-input text-sm !py-1.5"
               />
               <input
-                defaultValue={t.expense_head}
-                onBlur={(e) => patch(t.id, { expense_head: e.target.value })}
+                defaultValue={t.notes || ""}
+                onBlur={(e) => patch(t.id, { notes: e.target.value })}
+                placeholder="—"
                 className="mm-input text-sm !py-1.5"
               />
               <input
-                defaultValue={t.company}
+                defaultValue={t.company || ""}
                 onBlur={(e) => patch(t.id, { company: e.target.value })}
                 className="mm-input text-sm !py-1.5"
               />
               <input
-                defaultValue={t.mode}
-                onBlur={(e) => patch(t.id, { mode: e.target.value })}
+                defaultValue={t.expense_head || ""}
+                onBlur={(e) => patch(t.id, { expense_head: e.target.value })}
                 className="mm-input text-sm !py-1.5"
               />
-              <div className="text-[10px] uppercase tracking-[0.2em] text-white/40">
+              <div className="text-[10px] uppercase tracking-[0.2em] text-[#B7A98A]/55">
                 {t.source}
               </div>
               <button
                 onClick={() => remove(t.id)}
-                className="text-white/40 hover:text-white transition justify-self-end"
+                className="text-[#B7A98A]/55 hover:text-[#E4C98C] transition justify-self-end"
                 data-testid="tx-delete"
               >
                 <Trash2 size={14} />
@@ -255,6 +338,17 @@ export default function CashFlow() {
           ))}
         </Card>
       )}
+
+      <BulkAddDialog
+        open={bulkOpen}
+        onClose={() => setBulkOpen(false)}
+        kind="expense"
+        describe={describe}
+        onConfirm={async (rows) => {
+          for (const r of rows) await insertOne(r);
+          await load();
+        }}
+      />
     </div>
   );
 }

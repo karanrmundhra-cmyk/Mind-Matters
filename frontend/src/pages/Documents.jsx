@@ -226,7 +226,7 @@ export default function Documents() {
     <div className="space-y-6 mm-fade-in" data-testid="documents-page">
       <SectionTitle
         subtitle="Generator"
-        title="Documents"
+        title="Invoices"
         right={
           <>
             <input

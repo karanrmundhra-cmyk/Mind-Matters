@@ -17,9 +17,7 @@ import Investments from "@/pages/Investments";
 import Notes from "@/pages/Notes";
 import Documents from "@/pages/Documents";
 import Reminders from "@/pages/Reminders";
-import Settings from "@/pages/Settings";
-
-function RequireAuth({ children }) {
+import Settings from "@/pages/Settings";function RequireAuth({ children }) {
   const { user, loading } = useAuth();
   const location = useLocation();
   if (loading) return <SplashScreen />;
@@ -52,6 +50,7 @@ function Root() {
         <Route path="cash-flow" element={<CashFlow />} />
         <Route path="investments" element={<Investments />} />
         <Route path="notes" element={<Notes />} />
+        <Route path="invoices" element={<Documents />} />
         <Route path="documents" element={<Documents />} />
         <Route path="reminders" element={<Reminders />} />
         <Route path="settings" element={<Settings />} />

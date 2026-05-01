@@ -1,0 +1,50 @@
+{
+  "summary": "v1.2 testing. Backend: 23/23 pytest cases pass against the public REACT_APP_BACKEND_URL — covers (a) deadlines CRUD, (b) /api/parse/bulk for kind=task (AI returns array, sample row inserted into /api/tasks successfully) and /api/parse/bulk-file CSV→expense (AI normalisation, raw_count=2), (c) sr_no compaction after delete on tasks/loans/investments (middle-row delete → remaining sr_no contiguous Δ=1), (d) routine new schema (time_block:'block2' accepted, /routines/summary.category_percent keyed by 'block2'), (e) reminder recurrence enum extended (quarterly/half-yearly/yearly all accepted by POST /api/reminders), (f) note image upload — tiny PNG returns data_url=data:image/png;base64,...; GET lists it; DELETE removes; >4MB rejected with 400, (g) non-regression: dashboard/snapshot has routine_percent_today, GNews returns real headlines (key 'headlines'), Telegram /status configured:true, /documents/templates lists rkm_donation_receipt + krm_huf_invoice, /documents/generate produces a 3.2KB %PDF, affirmation PUT works. Frontend: 11/14 critical flows pass — login as 'Karan' lands on dashboard; greet name renders with linear-gradient(135deg, …) and -webkit-background-clip:text (gold gradient confirmed); stat-routine-today + deadlines-card visible; deadline add+list+delete works; Insights/Jump-in/Pending-tasks/Cash/Loans/Quick-row all REMOVED (no forbidden testids); sidebar order Dashboard→Tasks→Routines→Cash Flow→Loans→Investments→Invoices→Notes→Reminders→Settings exact match; Tasks page has AiAddBar+Bulk; AiAddBar 'Remind Rahul to send invoice tomorrow' → Parse → ai-preview-row appears → Confirm inserts a real task (toast 'Added 1 task'); Routines page shows 4 block cards with Hour/Frequency columns; Cash Flow shows AiAddBar+Bulk+Auto-fill; Invoices page lists rkm/krm built-ins; Notes AiAddBar+Bulk visible (note-add-image testid present).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/documents/generate (rkm_donation_receipt)", "issue": "docs_gen.py:148 does float(data['sum_rupees']) directly — passing '1,000' (the natural Indian number format the receipt actually displays) raises ValueError → backend logs 500. Strip commas/whitespace before float()."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "Reminders.jsx — recurrence <select>", "issue": "Dropdown only offers none/daily/weekly/monthly. The backend ReminderIn already accepts 'quarterly'/'half-yearly'/'yearly' (verified via 3 backend tests) but the UI never lists them, so v1.2 spec point (11) is half-done — user cannot pick the new options. Add three <option> entries at /app/frontend/src/pages/Reminders.jsx:173-176.", "selector": "[data-testid=\"reminder-add-row\"] select", "priority": "HIGH"},
+      {"component": "Investments.jsx", "issue": "Column header strip (Sr Number / Type / Date / Provider / Amount / % or Maturity Value / Maturity) lives inside [data-testid=\"inv-table\"] which only renders when ≥1 investment exists. On an empty account the user sees no headers, just the +Add row. Consider rendering the header even when items=[] for layout stability.", "selector": "[data-testid=\"inv-table\"]", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Routines", "issues": ["Console hydration warning: <span> inside <option> (the Emergent dev-marker injects an x-excluded <span> into <option> which React 18 hydration flags). Pure dev-time noise, not user-facing, but worth pinning."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_v12.py",
+    "/app/backend/tests/test_phase2.py",
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/v12_results.xml"
+  ],
+  "action_items": [
+    "Add <option value=\"quarterly\">Quarterly</option>, <option value=\"half-yearly\">Half-Yearly</option>, <option value=\"yearly\">Yearly</option> to Reminders.jsx select (around line 176) — backend already supports them.",
+    "(Minor) docs_gen.render_rkm_receipt: parse sum_rupees via float(str(v).replace(',','').strip() or 0) so Indian-style '1,00,000' inputs don't 500.",
+    "(Minor) Render Investments table column-header bar even when items.length===0 so users see column intent before adding the first row.",
+    "(Carry-over from iter_2) server.py is now 1854 lines — split into routers (deadlines, parse, notes_images, etc.).",
+    "(Awareness) Demo user 'Karan' is already Telegram-linked to a real chat (chat_id 8642642015). The 'send-test 400 unlinked' assertion from the spec no longer applies — tests are now branch-tolerant (200/400 both pass)."
+  ],
+  "critical_code_review_comments": [
+    "Reminders recurrence: backend Pydantic Literal extended (server.py:1389) but frontend select (Reminders.jsx:173-176) NOT extended → contract drift. Add the 3 options or downgrade backend Literal until UI is ready.",
+    "/api/parse/bulk and /api/parse/bulk-file silently swallow JSON parsing errors and return rows=[] on any exception — UI then shows an empty preview with no clue why. Surface a {error: 'AI did not return JSON', raw: <truncated>} so the AiAddBar can show 'AI couldn't read that — try simpler text'.",
+    "_compact_sr issues N UPDATE_ONE round-trips per delete — works fine for the current data sizes but for users with hundreds of loans/investments/tasks this is an obvious bulk_write candidate.",
+    "POST /api/notes/{nid}/images stores base64 in MongoDB; a single 4MB image inflates to ~5.6MB BSON per doc — fine for v1 but document this and consider GridFS once a user attaches >5 images per note.",
+    "Investments still ships current_value & growth on the Pydantic model even though the spec says they're removed from required UI — the API still accepts/persists them. Either drop from InvestmentIn or document that they're optional/legacy.",
+    "Routines summary fall-back `c = r.get('time_block') or r.get('category') or 'block1'` is good for migration, but old rows with category in {Health,Social,Spiritual,Work,Finance} all collapse into 'block1' which under-counts blocks 2-4 percentages. Either run a one-shot migration script or expose old categories as their own group."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_v12.py"
+  ],
+  "success_rate": {"backend": "100% (23/23 v1.2 + carry-over phase2 12/12)", "frontend": "11/14 (3 failures = 1 real UI bug Reminders recurrence + 1 layout-on-empty + 1 originally-wrong testid in my script)"},
+  "test_credentials": "Demo login: POST /api/auth/demo-login {first_name:'Karan'} or any name. Frontend: /login → type 'Karan' → click 'Enter Mind Matters' (data-testid=login-submit-btn). Note: this user already has chat_id=8642642015 linked from a previous testing session, so /telegram/send-test now returns 200 (real Telegram ping) instead of 400 unlinked.",
+  "seed_data_creation": "Backend tests prefix all created data with 'TEST_v12' and clean up in-test (deadlines, tasks, loans, investments, routines, reminders, notes, note_images all deleted). UI test left one 'TEST_UI Reminder' visible (matches iter_2 pattern). No data persisted across test runs.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Run: REACT_APP_BACKEND_URL=$(grep REACT_APP_BACKEND_URL /app/frontend/.env|cut -d= -f2) pytest /app/backend/tests/test_v12.py -v. v1.2 testids confirmed present and used: dashboard-greet-name (gold gradient), stat-routine-today, deadlines-card, deadline-title/date/add/row/delete, news-card, ai-add-bar/ai-add-input/ai-add-parse/ai-preview-row/ai-add-confirm, bulk-add-open, nav-{dashboard,tasks,routines,cashflow,loans,investments,invoices,notes,reminders,settings}, investments-page/inv-table/inv-row/inv-delete/new-inv-{provider,amount,submit}, reminders-page/reminder-add-row/new-reminder-{title,time,submit}/reminder-row/reminder-ics-btn/reminder-delete/tg-status-chip, note-add-image/note-image-input/note-image. Telegram is LIVE-linked for demo user — adapt unlinked-branch tests accordingly. Two real fixes pending: Reminders recurrence options + docs_gen comma-amount float coercion.",
+  "rca of the issue": "Reminders recurrence dropdown bug — single-line root cause: backend Literal at server.py:1389 was extended to include 'quarterly'/'half-yearly'/'yearly' but the frontend Reminders.jsx <select> at lines 173-176 was not. Reproduction: log in → /reminders → click the recurrence dropdown — only One-time/Daily/Weekly/Monthly are listed. Mitigation: add the three <option> tags (values 'quarterly', 'half-yearly', 'yearly'; labels 'Quarterly', 'Half-Yearly', 'Yearly') to Reminders.jsx — 3-line patch."
+}

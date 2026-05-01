@@ -1,7 +1,9 @@
 import React, { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { Card, SectionTitle, EmptyState, Stat } from "@/components/Primitives";
-import { Plus, Trash2 } from "lucide-react";
+import AiAddBar from "@/components/AiAddBar";
+import BulkAddDialog from "@/components/BulkAddDialog";
+import { Plus, Trash2, Upload } from "lucide-react";
 import { toast } from "sonner";
 
 const STATUSES = ["Given", "Taken", "Pending", "Closed"];
@@ -11,20 +13,55 @@ const fmtINR = (n) =>
 export default function Loans() {
   const [loans, setLoans] = useState([]);
   const [summary, setSummary] = useState(null);
-  const [draft, setDraft] = useState({ name: "", amount: "", interest: 0, status: "Given", reason: "", repayment_date: "" });
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const [draft, setDraft] = useState({
+    name: "",
+    amount: "",
+    interest: 0,
+    status: "Given",
+    reason: "",
+    date: "",
+    repayment_date: "",
+  });
 
   const load = async () => {
     const [l, s] = await Promise.all([api.get("/loans"), api.get("/loans/summary")]);
     setLoans(l.data);
     setSummary(s.data);
   };
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    load();
+  }, []);
+
+  const insertOne = async (row) => {
+    await api.post("/loans", {
+      name: row.name || "",
+      amount: Number(row.amount) || 0,
+      interest: Number(row.interest) || 0,
+      status: row.status || "Given",
+      reason: row.reason || "",
+      date: row.date || null,
+      repayment_date: row.repayment_date || null,
+    });
+  };
 
   const add = async () => {
     if (!draft.name.trim() || !Number(draft.amount)) return;
     try {
-      await api.post("/loans", { ...draft, amount: Number(draft.amount), interest: Number(draft.interest) || 0 });
-      setDraft({ name: "", amount: "", interest: 0, status: "Given", reason: "", repayment_date: "" });
+      await api.post("/loans", {
+        ...draft,
+        amount: Number(draft.amount),
+        interest: Number(draft.interest) || 0,
+      });
+      setDraft({
+        name: "",
+        amount: "",
+        interest: 0,
+        status: "Given",
+        reason: "",
+        date: "",
+        repayment_date: "",
+      });
       await load();
       toast.success("Loan recorded");
     } catch {
@@ -42,19 +79,63 @@ export default function Loans() {
     await load();
   };
 
+  const describe = (r) =>
+    `${r.status || "Given"} · ${r.name || "—"} · ₹${Number(r.amount || 0).toLocaleString("en-IN")} @ ${
+      r.interest || 0
+    }%${r.date ? " · " + r.date : ""}${r.reason ? " · " + r.reason : ""}`;
+
   return (
     <div className="space-y-6 mm-fade-in" data-testid="loans-page">
-      <SectionTitle subtitle="Credit" title="Loan Tracker" />
+      <SectionTitle
+        subtitle="Credit"
+        title="Loan Tracker"
+        right={
+          <button
+            onClick={() => setBulkOpen(true)}
+            className="mm-btn-ghost text-xs flex items-center gap-1.5"
+            data-testid="bulk-add-open"
+          >
+            <Upload size={12} /> Bulk add
+          </button>
+        }
+      />
+
+      <AiAddBar
+        kind="loan"
+        placeholder="e.g. Lent Brinda 50000 at 9% on 1 Jan, repayment 30 Jun"
+        describe={describe}
+        onConfirm={async (rows) => {
+          for (const r of rows) await insertOne(r);
+          await load();
+        }}
+      />
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <Stat testid="loan-given" label="Total given" value={fmtINR(summary?.total_given ?? 0)} />
         <Stat testid="loan-taken" label="Total taken" value={fmtINR(summary?.total_taken ?? 0)} />
-        <Stat testid="loan-net" label="Net exposure" value={fmtINR(summary?.net_exposure ?? 0)} hint={`${summary?.count ?? 0} record${(summary?.count ?? 0) !== 1 ? "s" : ""}`} />
-        <Stat testid="loan-interest" label="Interest accrued" value={fmtINR(summary?.total_interest_accrued ?? 0)} hint={`${summary?.overdue_count ?? 0} overdue`} />
+        <Stat
+          testid="loan-net"
+          label="Net exposure"
+          value={fmtINR(summary?.net_exposure ?? 0)}
+          hint={`${summary?.count ?? 0} record${(summary?.count ?? 0) !== 1 ? "s" : ""}`}
+        />
+        <Stat
+          testid="loan-interest"
+          label="Interest accrued"
+          value={fmtINR(summary?.total_interest_accrued ?? 0)}
+          hint={`${summary?.overdue_count ?? 0} overdue`}
+        />
       </div>
 
       <Card className="p-4" data-testid="loan-add-row">
-        <div className="grid grid-cols-1 md:grid-cols-7 gap-3">
+        <div className="grid grid-cols-2 md:grid-cols-7 gap-3">
+          <input
+            type="date"
+            value={draft.date}
+            onChange={(e) => setDraft({ ...draft, date: e.target.value })}
+            className="mm-input text-sm"
+            placeholder="Date"
+          />
           <input
             placeholder="Name"
             value={draft.name}
@@ -77,45 +158,65 @@ export default function Loans() {
             onChange={(e) => setDraft({ ...draft, interest: e.target.value })}
             className="mm-input text-sm"
           />
+          <input
+            placeholder="Details / reason"
+            value={draft.reason}
+            onChange={(e) => setDraft({ ...draft, reason: e.target.value })}
+            className="mm-input text-sm md:col-span-2"
+          />
           <select
             value={draft.status}
             onChange={(e) => setDraft({ ...draft, status: e.target.value })}
             className="mm-input text-sm"
           >
-            {STATUSES.map((s) => <option key={s}>{s}</option>)}
+            {STATUSES.map((s) => (
+              <option key={s}>{s}</option>
+            ))}
           </select>
           <input
             type="date"
             value={draft.repayment_date}
             onChange={(e) => setDraft({ ...draft, repayment_date: e.target.value })}
             className="mm-input text-sm"
+            placeholder="Repay by"
             title="Repayment date"
           />
           <button
             onClick={add}
             disabled={!draft.name.trim() || !Number(draft.amount)}
-            className="mm-btn-primary text-sm disabled:opacity-40 flex items-center justify-center gap-1.5"
+            className="mm-btn-primary text-sm disabled:opacity-40 flex items-center justify-center gap-1.5 md:col-span-7"
             data-testid="new-loan-submit"
           >
-            <Plus size={14} /> Add
+            <Plus size={14} /> Add loan
           </button>
         </div>
       </Card>
 
       {loans.length === 0 ? (
-        <EmptyState title="No loans tracked" hint="Record money given or taken to see net exposure and interest accrual." />
+        <EmptyState
+          title="No loans tracked"
+          hint="Add via AI bar, the row above, or paste a list via Bulk add."
+        />
       ) : (
         <Card className="p-0 overflow-hidden" data-testid="loans-table">
-          <div className="hidden md:grid grid-cols-[50px_110px_1fr_120px_120px_140px_120px_120px_40px] gap-3 px-5 py-3 border-b border-white/5 text-[10px] uppercase tracking-[0.2em] text-white/40">
-            <div>Sr</div><div>Date</div><div>Name</div><div>Amount</div><div>Interest</div><div>Accrued</div><div>Repay by</div><div>Status</div><div />
+          <div className="hidden md:grid grid-cols-[50px_110px_1fr_120px_120px_1fr_120px_120px_40px] gap-3 px-5 py-3 border-b border-[rgba(201,169,97,0.18)] text-[10px] uppercase tracking-[0.2em] text-[#B7A98A]/60">
+            <div>Sr Number</div>
+            <div>Date</div>
+            <div>Name</div>
+            <div>Amount</div>
+            <div>Interest</div>
+            <div>Details</div>
+            <div>Repay by</div>
+            <div>Status</div>
+            <div />
           </div>
           {loans.map((l) => (
             <div
               key={l.id}
-              className="grid grid-cols-2 md:grid-cols-[50px_110px_1fr_120px_120px_140px_120px_120px_40px] gap-3 px-5 py-3 border-b border-white/5 hover:bg-white/[0.03] transition items-center"
+              className="grid grid-cols-2 md:grid-cols-[50px_110px_1fr_120px_120px_1fr_120px_120px_40px] gap-3 px-5 py-3 border-b border-[rgba(201,169,97,0.08)] hover:bg-[rgba(201,169,97,0.04)] items-center"
               data-testid="loan-row"
             >
-              <div className="text-white/40 text-xs">#{l.sr_no}</div>
+              <div className="mm-text-gold/80 text-xs">#{l.sr_no}</div>
               <input
                 type="date"
                 value={l.date || ""}
@@ -139,7 +240,12 @@ export default function Loans() {
                 onBlur={(e) => patch(l.id, { interest: Number(e.target.value) })}
                 className="mm-input text-sm !py-1.5"
               />
-              <div className="text-sm text-white/75">{fmtINR(l.accrued_interest || 0)}</div>
+              <input
+                defaultValue={l.reason || ""}
+                onBlur={(e) => patch(l.id, { reason: e.target.value })}
+                placeholder="—"
+                className="mm-input text-sm !py-1.5"
+              />
               <input
                 type="date"
                 value={l.repayment_date || ""}
@@ -150,13 +256,14 @@ export default function Loans() {
                 value={l.status}
                 onChange={(e) => patch(l.id, { status: e.target.value })}
                 className="mm-input text-xs !py-1.5"
-                data-testid="loan-status-select"
               >
-                {STATUSES.map((s) => <option key={s}>{s}</option>)}
+                {STATUSES.map((s) => (
+                  <option key={s}>{s}</option>
+                ))}
               </select>
               <button
                 onClick={() => remove(l.id)}
-                className="text-white/40 hover:text-white transition justify-self-end"
+                className="text-[#B7A98A]/55 hover:text-[#E4C98C] transition justify-self-end"
                 data-testid="loan-delete"
               >
                 <Trash2 size={14} />
@@ -165,6 +272,17 @@ export default function Loans() {
           ))}
         </Card>
       )}
+
+      <BulkAddDialog
+        open={bulkOpen}
+        onClose={() => setBulkOpen(false)}
+        kind="loan"
+        describe={describe}
+        onConfirm={async (rows) => {
+          for (const r of rows) await insertOne(r);
+          await load();
+        }}
+      />
     </div>
   );
 }

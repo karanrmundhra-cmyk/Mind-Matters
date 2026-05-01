@@ -148,13 +148,13 @@ def render_rkm_receipt(data: dict) -> bytes:
     amount = float(data.get("sum_rupees") or 0)
     body = Table(
         [
-            [Paragraph("Received with thanks from", ss["Label"])],
+            [Paragraph("RECEIVED With Thanks From", ss["Label"])],
             [Paragraph(f"<b>{data.get('donor_name') or '—'}</b>", ss["Val"])],
-            [Paragraph("The sum of Rupees", ss["Label"])],
+            [Paragraph("The Sum Of Rupees", ss["Label"])],
             [Paragraph(f"<b>{_num_to_words_in(amount)} Only</b>  (₹ {amount:,.2f})", ss["Val"])],
-            [Paragraph("For payment of", ss["Label"])],
+            [Paragraph("For Payment Of", ss["Label"])],
             [Paragraph(data.get("for_payment_of") or "—", ss["Val"])],
-            [Paragraph("By (Mode of Payment)", ss["Label"])],
+            [Paragraph("By", ss["Label"])],
             [Paragraph(data.get("by") or "—", ss["Val"])],
         ],
         colWidths=[175 * mm],
@@ -167,6 +167,12 @@ def render_rkm_receipt(data: dict) -> bytes:
     ]))
     story.append(body)
     story.append(Spacer(1, 14))
+
+    # Donor heading
+    story.append(Paragraph("DONOR", ParagraphStyle(
+        name="dn", fontName="Helvetica-Bold", fontSize=10, textColor=GOLD, letterSpacing=4,
+    )))
+    story.append(Spacer(1, 4))
 
     # Donor details box
     dd = Table(
@@ -191,16 +197,19 @@ def render_rkm_receipt(data: dict) -> bytes:
     story.append(dd)
     story.append(Spacer(1, 16))
 
-    # Total band
+    # Total band — shows "TOTAL  RKM Foundation  ₹ amount"
     total = Table(
-        [[Paragraph("TOTAL", ss["Label"]), Paragraph(f"<b>₹ {amount:,.2f}</b>", ss["H2"])]],
-        colWidths=[130 * mm, 45 * mm],
+        [[Paragraph("TOTAL", ss["Label"]),
+          Paragraph("<b>RKM Foundation</b>", ParagraphStyle(name="rkm", fontName="Helvetica-Bold",
+                                                            fontSize=11, textColor=colors.white, alignment=1)),
+          Paragraph(f"<b>₹ {amount:,.2f}</b>", ParagraphStyle(name="tot", fontName="Helvetica-Bold",
+                                                              fontSize=14, textColor=colors.white, alignment=2))]],
+        colWidths=[35 * mm, 95 * mm, 45 * mm],
     )
     total.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, -1), GOLD),
         ("TEXTCOLOR", (0, 0), (-1, -1), colors.white),
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        ("ALIGN", (1, 0), (1, 0), "RIGHT"),
         ("LEFTPADDING", (0, 0), (-1, -1), 10),
         ("RIGHTPADDING", (0, 0), (-1, -1), 10),
         ("TOPPADDING", (0, 0), (-1, -1), 10),
@@ -253,31 +262,34 @@ def render_krm_invoice(data: dict) -> bytes:
     ss = _styles()
     story = []
 
-    # Header block
+    # Header block — INDIGO-style invoice
     hdr = Table(
         [
             [
-                Paragraph("KARAN RAMESH MUNDHRA HUF", ss["H1"]),
-                Paragraph("<b>INVOICE</b>", ParagraphStyle(
-                    name="INV", fontName="Helvetica-Bold", fontSize=24,
-                    textColor=GOLD, alignment=2, letterSpacing=4,
+                Paragraph("Hello, THIS IS YOUR INVOICE", ParagraphStyle(
+                    name="hello", fontName="Helvetica", fontSize=10,
+                    textColor=MUTED, leading=12,
+                )),
+                Paragraph("INVOICE", ParagraphStyle(
+                    name="INV", fontName="Helvetica-Bold", fontSize=28,
+                    textColor=GOLD, alignment=2, letterSpacing=6,
                 )),
             ],
         ],
         colWidths=[100 * mm, 78 * mm],
     )
-    hdr.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "MIDDLE")]))
+    hdr.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "BOTTOM")]))
     story.append(hdr)
     story.append(Spacer(1, 2))
     story.append(HRFlowable(width="100%", thickness=1, color=GOLD))
-    story.append(Spacer(1, 8))
+    story.append(Spacer(1, 10))
 
     # Meta row
     meta = Table(
         [
-            [Paragraph("Invoice No.", ss["Label"]), Paragraph(data.get("invoice_no") or "—", ss["Val"]),
-             Paragraph("Date", ss["Label"]), Paragraph(str(data.get("date") or datetime.now().strftime("%d-%m-%Y")), ss["Val"]),
-             Paragraph("Reference", ss["Label"]), Paragraph(data.get("reference") or "—", ss["Val"])],
+            [Paragraph("INVOICE#", ss["Label"]), Paragraph(data.get("invoice_no") or "—", ss["Val"]),
+             Paragraph("DATE", ss["Label"]), Paragraph(str(data.get("date") or datetime.now().strftime("%d / %m / %Y")), ss["Val"]),
+             Paragraph("REFERENCE", ss["Label"]), Paragraph(data.get("reference") or "—", ss["Val"])],
         ],
         colWidths=[24 * mm, 38 * mm, 15 * mm, 30 * mm, 22 * mm, 49 * mm],
     )
@@ -319,7 +331,7 @@ def render_krm_invoice(data: dict) -> bytes:
 
     # Line items
     items = data.get("items") or []
-    head = ["Sr.", "Description", "HSN", "Qty", "Unit Price (₹)", "Total (₹)"]
+    head = ["SR.NO.", "DESCRIPTION OF GOODS", "HSN Code", "QUANTITY", "UNIT PRICE", "TOTAL"]
     rows = [head]
     sub = 0.0
     for i, it in enumerate(items, 1):
@@ -361,9 +373,9 @@ def render_krm_invoice(data: dict) -> bytes:
     total_due = sub + gst + round_off
     totals = Table(
         [
-            ["", "", "Sub Total", f"₹ {sub:,.2f}"],
-            ["", "", "GST", f"₹ {gst:,.2f}"],
-            ["", "", "Round Off", f"₹ {round_off:,.2f}"],
+            ["", "", "SUBTOTAL", f"₹ {sub:,.2f}"],
+            ["", "", "GST (GST NO. N/A)", f"₹ {gst:,.2f}"],
+            ["", "", "ROUND OFF", f"₹ {round_off:,.2f}"],
             ["", "", "TOTAL DUE", f"₹ {total_due:,.2f}"],
         ],
         colWidths=[70 * mm, 28 * mm, 40 * mm, 40 * mm],

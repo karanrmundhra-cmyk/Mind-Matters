@@ -1,7 +1,9 @@
 import React, { useEffect, useState } from "react";
 import { api, BACKEND_URL } from "@/lib/api";
 import { Card, SectionTitle, EmptyState } from "@/components/Primitives";
-import { BellRing, Plus, Trash2, Download, Check, Clock } from "lucide-react";
+import AiAddBar from "@/components/AiAddBar";
+import BulkAddDialog from "@/components/BulkAddDialog";
+import { BellRing, Plus, Trash2, Download, Check, Clock, Upload } from "lucide-react";
 import { toast } from "sonner";
 
 const isoLocalNowPlusHour = () => {
@@ -98,19 +100,53 @@ export default function Reminders() {
   const upcoming = items.filter((r) => !r.sent);
   const past = items.filter((r) => r.sent);
 
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const insertOne = async (row) => {
+    let fire_iso = row.fire_at;
+    if (!fire_iso && row.fire_at_local) fire_iso = new Date(row.fire_at_local).toISOString();
+    if (!fire_iso) return;
+    await api.post("/reminders", {
+      title: row.title || "Reminder",
+      notes: row.notes || "",
+      fire_at: fire_iso,
+      recurrence: row.recurrence || "none",
+    });
+  };
+  const describe = (r) =>
+    `${r.title || "Reminder"} · ${r.fire_at_local || r.fire_at || ""} · ${r.recurrence || "none"}`;
+
   return (
     <div className="space-y-6 mm-fade-in" data-testid="reminders-page">
       <SectionTitle
         subtitle="Pings"
         title="Reminders & Alarms"
         right={
-          <span
-            className={`mm-chip ${tgLinked ? "mm-chip-gold" : ""}`}
-            data-testid="tg-status-chip"
-          >
-            {tgLinked ? "Telegram linked" : "Link Telegram in Settings"}
-          </span>
+          <div className="flex items-center gap-2">
+            <span
+              className={`mm-chip ${tgLinked ? "mm-chip-gold" : ""}`}
+              data-testid="tg-status-chip"
+            >
+              {tgLinked ? "Telegram linked" : "Link Telegram in Settings"}
+            </span>
+            <button
+              onClick={() => setBulkOpen(true)}
+              className="mm-btn-ghost text-xs flex items-center gap-1.5"
+              data-testid="bulk-add-open"
+            >
+              <Upload size={12} /> Bulk add
+            </button>
+          </div>
         }
+      />
+
+      <AiAddBar
+        kind="reminder"
+        placeholder="e.g. Remind me to call Brinda every Monday at 9am"
+        describe={describe}
+        onConfirm={async (rows) => {
+          for (const r of rows) await insertOne(r);
+          await load();
+        }}
       />
 
       <Card className="p-4" data-testid="reminder-add-row">
@@ -245,6 +281,17 @@ export default function Reminders() {
           )}
         </>
       )}
+
+      <BulkAddDialog
+        open={bulkOpen}
+        onClose={() => setBulkOpen(false)}
+        kind="reminder"
+        describe={describe}
+        onConfirm={async (rows) => {
+          for (const r of rows) await insertOne(r);
+          await load();
+        }}
+      />
     </div>
   );
 }

@@ -23,11 +23,11 @@ const NAV = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard, end: true, testid: "nav-dashboard" },
   { to: "/tasks", label: "Tasks", icon: CheckSquare, testid: "nav-tasks" },
   { to: "/routines", label: "Routines", icon: Repeat, testid: "nav-routines" },
-  { to: "/loans", label: "Loans", icon: Landmark, testid: "nav-loans" },
   { to: "/cash-flow", label: "Cash Flow", icon: Wallet, testid: "nav-cashflow" },
+  { to: "/loans", label: "Loans", icon: Landmark, testid: "nav-loans" },
   { to: "/investments", label: "Investments", icon: TrendingUp, testid: "nav-investments" },
+  { to: "/invoices", label: "Invoices", icon: FileText, testid: "nav-invoices" },
   { to: "/notes", label: "Notes", icon: StickyNote, testid: "nav-notes" },
-  { to: "/documents", label: "Documents", icon: FileText, testid: "nav-documents" },
   { to: "/reminders", label: "Reminders", icon: BellRing, testid: "nav-reminders" },
   { to: "/settings", label: "Settings", icon: SettingsIcon, testid: "nav-settings" },
 ];
