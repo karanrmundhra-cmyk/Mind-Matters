@@ -1,25 +1,22 @@
 import React, { useState } from "react";
-import { Sparkles, Check, X, Loader2 } from "lucide-react";
+import { Sparkles, Check, X, Loader2, Trash2 } from "lucide-react";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
 
 /**
- * Universal NL input bar.
- * - placed at the top of any module page
- * - user types in natural language
- * - calls /api/parse/bulk with kind
- * - shows preview chip(s)
- * - "Confirm" → onConfirm(parsedRows)  (parent handles inserting via its CRUD)
+ * Universal NL input bar with editable confirmation preview.
  *
  * Props:
  *   kind: "task" | "routine" | "expense" | "loan" | "investment" | "note" | "reminder" | "deadline"
  *   placeholder
- *   onConfirm: async (rows[]) => void  // rows is JSON array
- *   describe: (row) => string  (renders a one-line preview for a row)
+ *   onConfirm: async (rows[]) => void
+ *   columns: [{key,label,type,width,options?}]  (optional but preferred)
+ *           type: "text" | "date" | "number" | "select" | "icon"
+ *   describe: (row) => string  (fallback if columns is missing)
  */
-export default function AiAddBar({ kind, placeholder, onConfirm, describe }) {
+export default function AiAddBar({ kind, placeholder, onConfirm, describe, columns }) {
   const [text, setText] = useState("");
-  const [rows, setRows] = useState(null); // null = no preview
+  const [rows, setRows] = useState(null); // null = no preview, otherwise editable
   const [busy, setBusy] = useState(false);
 
   const parse = async () => {
@@ -42,7 +39,7 @@ export default function AiAddBar({ kind, placeholder, onConfirm, describe }) {
   };
 
   const confirm = async () => {
-    if (!rows) return;
+    if (!rows?.length) return;
     setBusy(true);
     try {
       await onConfirm(rows);
@@ -56,15 +53,29 @@ export default function AiAddBar({ kind, placeholder, onConfirm, describe }) {
     }
   };
 
-  const cancel = () => {
-    setRows(null);
+  const cancel = () => setRows(null);
+
+  const updateCell = (i, key, val) => {
+    setRows((rs) => rs.map((r, idx) => (idx === i ? { ...r, [key]: val } : r)));
   };
+
+  const removeRow = (i) => {
+    setRows((rs) => {
+      const next = rs.filter((_, idx) => idx !== i);
+      return next.length ? next : null;
+    });
+  };
+
+  // Build a CSS grid template that mirrors the page's table layout
+  const gridTemplate = columns
+    ? columns.map((c) => c.width || "1fr").join(" ") + " 40px"
+    : null;
 
   return (
     <div className="mm-glass p-4" data-testid="ai-add-bar">
       <div className="flex items-center gap-2 text-[10px] uppercase tracking-[0.3em] text-[#B7A98A]/70 mb-2">
         <Sparkles size={11} className="mm-text-gold" />
-        <span>Type in plain English — AI will fill the right fields.</span>
+        <span>Type in plain English — review before saving.</span>
       </div>
       <div className="flex gap-2">
         <input
@@ -93,10 +104,10 @@ export default function AiAddBar({ kind, placeholder, onConfirm, describe }) {
           <>
             <button
               onClick={cancel}
-              className="mm-btn-ghost text-sm"
+              className="mm-btn-ghost text-sm flex items-center gap-1.5"
               data-testid="ai-add-cancel"
             >
-              <X size={14} />
+              <X size={14} /> Discard
             </button>
             <button
               onClick={confirm}
@@ -105,27 +116,123 @@ export default function AiAddBar({ kind, placeholder, onConfirm, describe }) {
               data-testid="ai-add-confirm"
             >
               {busy ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
-              Confirm
+              Confirm & save
             </button>
           </>
         )}
       </div>
 
       {rows && (
-        <div className="mt-3 space-y-2" data-testid="ai-add-preview">
-          <div className="text-[10px] uppercase tracking-[0.3em] text-[#B7A98A]/70">
-            AI parsed {rows.length} {kind}
-            {rows.length > 1 ? "s" : ""} — confirm to add
-          </div>
-          {rows.map((r, i) => (
-            <div
-              key={i}
-              className="text-sm rounded-lg border border-[rgba(201,169,97,0.25)] bg-[rgba(201,169,97,0.04)] px-3 py-2 mm-text-gold-bright"
-              data-testid="ai-preview-row"
-            >
-              {describe ? describe(r) : JSON.stringify(r)}
+        <div className="mt-4 rounded-xl border border-[rgba(201,169,97,0.28)] bg-[rgba(201,169,97,0.04)] overflow-hidden" data-testid="ai-add-preview">
+          <div className="flex items-center justify-between px-4 py-2.5 border-b border-[rgba(201,169,97,0.18)]">
+            <div className="text-[10px] uppercase tracking-[0.3em] mm-text-gold">
+              AI parsed {rows.length} record{rows.length > 1 ? "s" : ""} — edit if needed, then confirm
             </div>
-          ))}
+          </div>
+
+          {columns ? (
+            <div className="overflow-x-auto">
+              {/* Header */}
+              <div
+                className="hidden md:grid gap-3 px-4 py-2 border-b border-[rgba(201,169,97,0.14)] text-[10px] uppercase tracking-[0.2em] text-[#B7A98A]/60"
+                style={{ gridTemplateColumns: gridTemplate }}
+              >
+                {columns.map((c) => (
+                  <div key={c.key}>{c.label}</div>
+                ))}
+                <div />
+              </div>
+              {rows.map((r, i) => (
+                <div
+                  key={i}
+                  className="grid grid-cols-2 md:gap-3 gap-2 px-4 py-2.5 border-b border-[rgba(201,169,97,0.08)] last:border-b-0 items-center"
+                  style={{ gridTemplateColumns: gridTemplate ? gridTemplate : undefined }}
+                  data-testid="ai-preview-row"
+                >
+                  {columns.map((c) => {
+                    const val = r[c.key] ?? "";
+                    const common =
+                      "mm-input text-xs !py-1.5 w-full";
+                    if (c.type === "date") {
+                      return (
+                        <input
+                          key={c.key}
+                          type="date"
+                          value={val || ""}
+                          onChange={(e) => updateCell(i, c.key, e.target.value)}
+                          className={common}
+                        />
+                      );
+                    }
+                    if (c.type === "number") {
+                      return (
+                        <input
+                          key={c.key}
+                          type="number"
+                          value={val || ""}
+                          onChange={(e) => updateCell(i, c.key, e.target.value)}
+                          className={common}
+                          placeholder={c.label}
+                        />
+                      );
+                    }
+                    if (c.type === "select") {
+                      return (
+                        <select
+                          key={c.key}
+                          value={val || ""}
+                          onChange={(e) => updateCell(i, c.key, e.target.value)}
+                          className={common}
+                        >
+                          {(c.options || []).map((o) => (
+                            <option key={o} value={o}>
+                              {o}
+                            </option>
+                          ))}
+                        </select>
+                      );
+                    }
+                    return (
+                      <input
+                        key={c.key}
+                        type="text"
+                        value={val || ""}
+                        onChange={(e) => updateCell(i, c.key, e.target.value)}
+                        className={common}
+                        placeholder={c.label}
+                      />
+                    );
+                  })}
+                  <button
+                    onClick={() => removeRow(i)}
+                    className="text-[#B7A98A]/55 hover:text-[#E4C98C] transition justify-self-end"
+                    data-testid="ai-preview-remove"
+                    title="Remove row"
+                  >
+                    <Trash2 size={13} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="p-3 space-y-2">
+              {rows.map((r, i) => (
+                <div
+                  key={i}
+                  className="text-sm rounded-lg border border-[rgba(201,169,97,0.25)] bg-[rgba(201,169,97,0.04)] px-3 py-2 mm-text-gold-bright flex items-center justify-between"
+                  data-testid="ai-preview-row"
+                >
+                  <span>{describe ? describe(r) : JSON.stringify(r)}</span>
+                  <button
+                    onClick={() => removeRow(i)}
+                    className="text-[#B7A98A]/55 hover:text-[#E4C98C]"
+                  >
+                    <Trash2 size={13} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>

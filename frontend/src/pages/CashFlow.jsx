@@ -3,8 +3,9 @@ import { api } from "@/lib/api";
 import { Card, SectionTitle, EmptyState, Stat } from "@/components/Primitives";
 import AiAddBar from "@/components/AiAddBar";
 import BulkAddDialog from "@/components/BulkAddDialog";
-import { Plus, Trash2, Upload, ArrowUpRight, ArrowDownLeft } from "lucide-react";
+import { Plus, Trash2, Upload, ArrowUpRight, ArrowDownLeft, Check, X } from "lucide-react";
 import { toast } from "sonner";
+import { capWords } from "@/lib/format";
 
 const fmtINR = (n) =>
   new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 }).format(n || 0);
@@ -12,11 +13,26 @@ const fmtINR = (n) =>
 const monthStr = (d = new Date()) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 
+const TX_COLUMNS = [
+  { key: "date", label: "Date", type: "date", width: "120px" },
+  { key: "direction", label: "Dir", type: "select", options: ["out", "in"], width: "80px" },
+  { key: "amount", label: "Amount", type: "number", width: "110px" },
+  { key: "notes", label: "Details", type: "text", width: "1.4fr" },
+  { key: "company", label: "Company", type: "text", width: "1fr" },
+  { key: "expense_head", label: "Head", type: "text", width: "120px" },
+  { key: "mode", label: "Mode", type: "select",
+    options: ["Bank", "Card", "Cash", "UPI", "Cheque"], width: "100px" },
+];
+
 export default function CashFlow() {
   const [transactions, setTransactions] = useState([]);
   const [summary, setSummary] = useState(null);
   const [month, setMonth] = useState(monthStr());
   const [bulkOpen, setBulkOpen] = useState(false);
+  const [stmtFile, setStmtFile] = useState(null);
+  const [duplicates, setDuplicates] = useState([]); // pending duplicates from upload
+  const [stmtBusy, setStmtBusy] = useState(false);
+  const stmtRef = React.useRef(null);
 
   const [draft, setDraft] = useState({
     date: "",
@@ -44,11 +60,11 @@ export default function CashFlow() {
     await api.post("/transactions", {
       date: row.date || null,
       amount: Number(row.amount) || 0,
-      notes: row.notes || row.details || "",
-      company: row.company || "",
-      expense_head: row.expense_head || "Uncategorized",
+      notes: capWords(row.notes || row.details || ""),
+      company: capWords(row.company || ""),
+      expense_head: capWords(row.expense_head || "Uncategorized"),
       direction: row.direction || "out",
-      mode: row.mode || "Bank",
+      mode: capWords(row.mode || "Bank"),
     });
   };
 
@@ -88,7 +104,13 @@ export default function CashFlow() {
           head = data.rows?.[0]?.expense_head || "Uncategorized";
         } catch {}
       }
-      await api.post("/transactions", { ...draft, amount: Number(draft.amount), expense_head: head });
+      await api.post("/transactions", {
+        ...draft,
+        amount: Number(draft.amount),
+        notes: capWords(draft.notes),
+        company: capWords(draft.company),
+        expense_head: capWords(head),
+      });
       setDraft({
         date: "",
         amount: "",
@@ -114,6 +136,58 @@ export default function CashFlow() {
     await load();
   };
 
+  // Upload bank statement (.xlsx / .csv / .pdf) — triggers duplicate detection
+  const uploadStatement = async (file) => {
+    if (!file) return;
+    setStmtBusy(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      fd.append("skip_duplicates", "true");
+      const { data } = await api.post("/transactions/upload", fd, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+      const dupCount = data.duplicate_count || 0;
+      const newCount = data.inserted || 0;
+      if (newCount) toast.success(`${newCount} new transaction${newCount !== 1 ? "s" : ""} added`);
+      if (dupCount) {
+        toast(`${dupCount} possible duplicate${dupCount !== 1 ? "s" : ""} — review below`);
+        setDuplicates(data.duplicates || []);
+      } else if (!newCount) {
+        toast.error("Nothing parsed — try a different file format.");
+      }
+      await load();
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Upload failed");
+    } finally {
+      setStmtBusy(false);
+      if (stmtRef.current) stmtRef.current.value = "";
+    }
+  };
+
+  const keepDup = async (idx) => {
+    const d = duplicates[idx];
+    if (!d) return;
+    try {
+      const payload = {
+        date: d.date,
+        amount: d.amount,
+        notes: d.notes,
+        company: d.company,
+        expense_head: d.expense_head,
+        direction: d.direction,
+        mode: d.mode,
+      };
+      await api.post("/transactions", payload);
+      setDuplicates((arr) => arr.filter((_, i) => i !== idx));
+      toast.success("Added");
+      await load();
+    } catch {
+      toast.error("Failed to add");
+    }
+  };
+  const skipDup = (idx) => setDuplicates((arr) => arr.filter((_, i) => i !== idx));
+
   const describe = (r) =>
     `${r.date || ""} · ${r.direction === "in" ? "+" : "-"}₹${Number(r.amount || 0).toLocaleString(
       "en-IN"
@@ -135,6 +209,23 @@ export default function CashFlow() {
               className="mm-input max-w-[160px] text-sm"
               data-testid="cashflow-month"
             />
+            <input
+              ref={stmtRef}
+              type="file"
+              accept=".xlsx,.xls,.csv,.pdf"
+              className="hidden"
+              onChange={(e) => uploadStatement(e.target.files?.[0])}
+              data-testid="stmt-file-input"
+            />
+            <button
+              onClick={() => stmtRef.current?.click()}
+              disabled={stmtBusy}
+              className="mm-btn-ghost text-xs flex items-center gap-1.5 disabled:opacity-40"
+              data-testid="stmt-upload-btn"
+              title="Upload bank statement (.xlsx / .csv / .pdf) — duplicates will be flagged"
+            >
+              <Upload size={12} /> {stmtBusy ? "Reading…" : "Upload statement"}
+            </button>
             <button
               onClick={() => setBulkOpen(true)}
               className="mm-btn-ghost text-xs flex items-center gap-1.5"
@@ -149,12 +240,71 @@ export default function CashFlow() {
       <AiAddBar
         kind="expense"
         placeholder="e.g. 450 coffee at Starbucks · 12000 office rent paid via NEFT"
+        columns={TX_COLUMNS}
         describe={describe}
         onConfirm={async (rows) => {
           for (const r of rows) await insertOne(r);
           await load();
         }}
       />
+
+      {/* Duplicate confirmation block from bank-statement upload */}
+      {duplicates.length > 0 && (
+        <Card className="p-0 overflow-hidden border-[#C9A961]/40" data-testid="duplicates-review">
+          <div className="px-5 py-3 border-b border-[rgba(201,169,97,0.18)] flex items-center justify-between">
+            <div>
+              <div className="text-[10px] uppercase tracking-[0.3em] mm-text-gold">
+                {duplicates.length} possible duplicate{duplicates.length !== 1 ? "s" : ""} from upload
+              </div>
+              <div className="text-xs text-[#B7A98A]/65 mt-1">
+                Each row matches an existing transaction (same date, amount, company). Review one-by-one.
+              </div>
+            </div>
+            <button
+              onClick={() => setDuplicates([])}
+              className="mm-btn-ghost text-xs"
+              data-testid="dup-discard-all"
+            >
+              Discard all
+            </button>
+          </div>
+          {duplicates.map((d, idx) => (
+            <div
+              key={idx}
+              className="grid grid-cols-1 md:grid-cols-[110px_90px_120px_1.4fr_1fr_120px_180px] gap-3 px-5 py-3 border-b border-[rgba(201,169,97,0.08)] items-center"
+              data-testid="dup-row"
+            >
+              <div className="text-xs text-[#B7A98A]/75">{d.date}</div>
+              <div className={`text-xs font-medium ${d.direction === "in" ? "text-emerald-300" : "mm-text-gold-bright"}`}>
+                {d.direction === "in" ? "+" : "-"}
+                {fmtINR(d.amount)}
+              </div>
+              <div className="text-xs">{d.expense_head}</div>
+              <div className="text-xs text-[#B7A98A]/85 truncate" title={d.notes}>{d.notes || "—"}</div>
+              <div className="text-xs text-[#B7A98A]/65 truncate">{d.company || "—"}</div>
+              <div className="text-[10px] uppercase tracking-[0.2em] text-[#B7A98A]/55">
+                {d.mode}
+              </div>
+              <div className="flex items-center gap-2 justify-self-end">
+                <button
+                  onClick={() => skipDup(idx)}
+                  className="mm-btn-ghost text-xs flex items-center gap-1"
+                  data-testid="dup-skip"
+                >
+                  <X size={12} /> Skip
+                </button>
+                <button
+                  onClick={() => keepDup(idx)}
+                  className="mm-btn-primary text-xs flex items-center gap-1"
+                  data-testid="dup-keep"
+                >
+                  <Check size={12} /> Keep
+                </button>
+              </div>
+            </div>
+          ))}
+        </Card>
+      )}
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <Stat

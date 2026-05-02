@@ -5,10 +5,23 @@ import AiAddBar from "@/components/AiAddBar";
 import BulkAddDialog from "@/components/BulkAddDialog";
 import { Plus, Trash2, Upload } from "lucide-react";
 import { toast } from "sonner";
+import { capWords } from "@/lib/format";
 
 const STATUSES = ["Given", "Taken", "Pending", "Closed"];
+const INTEREST_TYPES = ["percent", "fixed"];
 const fmtINR = (n) =>
   new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 }).format(n || 0);
+
+const LOAN_COLUMNS = [
+  { key: "date", label: "Date", type: "date", width: "120px" },
+  { key: "name", label: "Name", type: "text", width: "1fr" },
+  { key: "amount", label: "Amount", type: "number", width: "110px" },
+  { key: "interest", label: "Interest", type: "number", width: "100px" },
+  { key: "interest_type", label: "Type", type: "select", options: INTEREST_TYPES, width: "100px" },
+  { key: "reason", label: "Details", type: "text", width: "1fr" },
+  { key: "repayment_date", label: "Repay by", type: "date", width: "120px" },
+  { key: "status", label: "Status", type: "select", options: STATUSES, width: "100px" },
+];
 
 export default function Loans() {
   const [loans, setLoans] = useState([]);
@@ -18,6 +31,7 @@ export default function Loans() {
     name: "",
     amount: "",
     interest: 0,
+    interest_type: "percent",
     status: "Given",
     reason: "",
     date: "",
@@ -35,11 +49,12 @@ export default function Loans() {
 
   const insertOne = async (row) => {
     await api.post("/loans", {
-      name: row.name || "",
+      name: capWords(row.name || ""),
       amount: Number(row.amount) || 0,
       interest: Number(row.interest) || 0,
+      interest_type: row.interest_type === "fixed" ? "fixed" : "percent",
       status: row.status || "Given",
-      reason: row.reason || "",
+      reason: capWords(row.reason || ""),
       date: row.date || null,
       repayment_date: row.repayment_date || null,
     });
@@ -50,6 +65,8 @@ export default function Loans() {
     try {
       await api.post("/loans", {
         ...draft,
+        name: capWords(draft.name),
+        reason: capWords(draft.reason),
         amount: Number(draft.amount),
         interest: Number(draft.interest) || 0,
       });
@@ -57,6 +74,7 @@ export default function Loans() {
         name: "",
         amount: "",
         interest: 0,
+        interest_type: "percent",
         status: "Given",
         reason: "",
         date: "",
@@ -103,6 +121,7 @@ export default function Loans() {
       <AiAddBar
         kind="loan"
         placeholder="e.g. Lent Brinda 50000 at 9% on 1 Jan, repayment 30 Jun"
+        columns={LOAN_COLUMNS}
         describe={describe}
         onConfirm={async (rows) => {
           for (const r of rows) await insertOne(r);
@@ -128,7 +147,7 @@ export default function Loans() {
       </div>
 
       <Card className="p-4" data-testid="loan-add-row">
-        <div className="grid grid-cols-2 md:grid-cols-7 gap-3">
+        <div className="grid grid-cols-2 md:grid-cols-8 gap-3">
           <input
             type="date"
             value={draft.date}
@@ -153,11 +172,21 @@ export default function Loans() {
           />
           <input
             type="number"
-            placeholder="Interest %"
+            placeholder={draft.interest_type === "fixed" ? "Interest ₹" : "Interest %"}
             value={draft.interest}
             onChange={(e) => setDraft({ ...draft, interest: e.target.value })}
             className="mm-input text-sm"
           />
+          <select
+            value={draft.interest_type}
+            onChange={(e) => setDraft({ ...draft, interest_type: e.target.value })}
+            className="mm-input text-sm"
+            data-testid="new-loan-interest-type"
+            title="Interest type"
+          >
+            <option value="percent">% rate</option>
+            <option value="fixed">Fixed ₹</option>
+          </select>
           <input
             placeholder="Details / reason"
             value={draft.reason}
@@ -184,7 +213,7 @@ export default function Loans() {
           <button
             onClick={add}
             disabled={!draft.name.trim() || !Number(draft.amount)}
-            className="mm-btn-primary text-sm disabled:opacity-40 flex items-center justify-center gap-1.5 md:col-span-7"
+            className="mm-btn-primary text-sm disabled:opacity-40 flex items-center justify-center gap-1.5 md:col-span-8"
             data-testid="new-loan-submit"
           >
             <Plus size={14} /> Add loan
@@ -199,12 +228,13 @@ export default function Loans() {
         />
       ) : (
         <Card className="p-0 overflow-hidden" data-testid="loans-table">
-          <div className="hidden md:grid grid-cols-[50px_110px_1fr_120px_120px_1fr_120px_120px_40px] gap-3 px-5 py-3 border-b border-[rgba(201,169,97,0.18)] text-[10px] uppercase tracking-[0.2em] text-[#B7A98A]/60">
-            <div>Sr Number</div>
+          <div className="hidden md:grid grid-cols-[50px_110px_1fr_120px_100px_90px_1fr_120px_100px_40px] gap-3 px-5 py-3 border-b border-[rgba(201,169,97,0.18)] text-[10px] uppercase tracking-[0.2em] text-[#B7A98A]/60">
+            <div>Sr</div>
             <div>Date</div>
             <div>Name</div>
             <div>Amount</div>
             <div>Interest</div>
+            <div>Type</div>
             <div>Details</div>
             <div>Repay by</div>
             <div>Status</div>
@@ -213,7 +243,7 @@ export default function Loans() {
           {loans.map((l) => (
             <div
               key={l.id}
-              className="grid grid-cols-2 md:grid-cols-[50px_110px_1fr_120px_120px_1fr_120px_120px_40px] gap-3 px-5 py-3 border-b border-[rgba(201,169,97,0.08)] hover:bg-[rgba(201,169,97,0.04)] items-center"
+              className="grid grid-cols-2 md:grid-cols-[50px_110px_1fr_120px_100px_90px_1fr_120px_100px_40px] gap-3 px-5 py-3 border-b border-[rgba(201,169,97,0.08)] hover:bg-[rgba(201,169,97,0.04)] items-center"
               data-testid="loan-row"
             >
               <div className="mm-text-gold/80 text-xs">#{l.sr_no}</div>
@@ -225,7 +255,7 @@ export default function Loans() {
               />
               <input
                 defaultValue={l.name}
-                onBlur={(e) => patch(l.id, { name: e.target.value })}
+                onBlur={(e) => patch(l.id, { name: capWords(e.target.value) })}
                 className="mm-input text-sm !py-1.5"
               />
               <input
@@ -239,10 +269,20 @@ export default function Loans() {
                 defaultValue={l.interest}
                 onBlur={(e) => patch(l.id, { interest: Number(e.target.value) })}
                 className="mm-input text-sm !py-1.5"
+                title={(l.interest_type || "percent") === "fixed" ? "Fixed ₹" : "% rate"}
               />
+              <select
+                value={l.interest_type || "percent"}
+                onChange={(e) => patch(l.id, { interest_type: e.target.value })}
+                className="mm-input text-xs !py-1.5"
+                data-testid="loan-interest-type"
+              >
+                <option value="percent">%</option>
+                <option value="fixed">Fixed ₹</option>
+              </select>
               <input
                 defaultValue={l.reason || ""}
-                onBlur={(e) => patch(l.id, { reason: e.target.value })}
+                onBlur={(e) => patch(l.id, { reason: capWords(e.target.value) })}
                 placeholder="—"
                 className="mm-input text-sm !py-1.5"
               />

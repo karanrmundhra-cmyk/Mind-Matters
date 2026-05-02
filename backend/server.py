@@ -844,8 +844,8 @@ async def create_investment(body: InvestmentIn, user=Depends(get_current_user)):
 
 @api.patch("/investments/{iid}", response_model=Investment)
 async def update_investment(iid: str, body: Dict[str, Any], user=Depends(get_current_user)):
-    allowed = {"type", "provider", "amount_invested", "start_date", "maturity_date",
-               "rate_or_value", "current_value", "notes"}
+    allowed = {"kind", "type", "provider", "amount_invested", "start_date", "maturity_date",
+               "rate_or_value", "current_value", "insured_for", "notes"}
     body = {k: v for k, v in body.items() if k in allowed}
     body["updated_at"] = now_iso()
     res = await db.investments.find_one_and_update(
@@ -1257,8 +1257,10 @@ async def _create_note_internal(user_id: str, parsed: Dict[str, Any]):
 async def _ai_parse_text(text: str, kind: str = "auto") -> Dict[str, Any]:
     if not EMERGENT_LLM_KEY:
         return {}
+    today = today_key()
     system = (
         "Extract structured data from a short natural-language instruction. Return ONLY JSON.\n"
+        f"TODAY'S DATE is {today} — use it for relative phrases (today, tomorrow, last week).\n"
         "task: {kind:'task', name, task, details, date:'YYYY-MM-DD' or null, status:'Pending'}\n"
         "expense: {kind:'expense', amount:number, expense_head, company, direction:'out'|'in', date, mode, notes}\n"
         "note: {kind:'note', title, body, tags:[string]}\n"
@@ -1790,8 +1792,11 @@ async def _ai_parse_bulk(text: str, kind: str) -> List[Dict[str, Any]]:
     if not EMERGENT_LLM_KEY:
         return []
     schema = SCHEMA_BY_KIND.get(kind, "{}")
+    today = today_key()
     system = (
         "You are a data normalizer. Extract a JSON ARRAY of objects from the user's input. "
+        f"TODAY'S DATE is {today} — use this for any 'today', 'tomorrow', 'yesterday', "
+        f"'next week' references. If no date is given, leave it null (do NOT guess).\n"
         f"Each object follows this schema for kind={kind}: {schema}\n"
         "If input has multiple lines, treat each as one record. "
         "Return ONLY a JSON array, no prose."
@@ -1859,6 +1864,58 @@ async def parse_bulk_file(
     except Exception:
         rows = []
     return {"rows": rows, "raw_count": len(raw)}
+
+
+# ───────────────────── Invoice AI fill ─────────────────────
+class InvoiceParseReq(BaseModel):
+    template_id: str
+    text: str
+
+
+@api.post("/parse/invoice")
+async def parse_invoice(body: InvoiceParseReq, user=Depends(get_current_user)):
+    """Free-text → structured field-dict matching the template's required_fields."""
+    if not EMERGENT_LLM_KEY:
+        raise HTTPException(500, "LLM not configured")
+    # find template (built-in or user)
+    tpl = None
+    if body.template_id in ("rkm_donation_receipt", "krm_huf_invoice"):
+        tpl = next((t for t in BUILTIN_TEMPLATES if t["id"] == body.template_id), None)
+    else:
+        tpl = await db.templates.find_one(
+            {"id": body.template_id, "user_id": user["id"]}, {"_id": 0}
+        )
+    if not tpl:
+        raise HTTPException(404, "Template not found")
+    fields = tpl.get("required_fields") or []
+    field_keys = [f.get("key") for f in fields if f.get("key")]
+
+    schema = ", ".join(f"'{k}'" for k in field_keys) or "(no fields)"
+    sys_msg = (
+        "Extract invoice / receipt fields from the user's input. "
+        f"Return ONLY a JSON object whose keys are a subset of: {schema}. "
+        "If a value is unknown, omit the key. For amounts, return numbers only. "
+        "For dates, use ISO 'YYYY-MM-DD'. For line_items, return an array of "
+        "{description, hsn, quantity, unit_price}. Numbers may be in words "
+        "(e.g. 'fifty thousand') — convert. Capitalize proper nouns."
+    )
+    chat = LlmChat(api_key=EMERGENT_LLM_KEY, session_id=f"inv-{new_id()}",
+                   system_message=sys_msg).with_model("gemini", "gemini-3-flash-preview")
+    resp = await chat.send_message(UserMessage(text=body.text[:8000]))
+    t = resp.strip()
+    if t.startswith("```"):
+        t = t.strip("`")
+        if t.startswith("json"):
+            t = t[4:]
+    try:
+        data = json.loads(t)
+        if not isinstance(data, dict):
+            data = {}
+    except Exception:
+        data = {}
+    # filter to known keys only
+    out = {k: v for k, v in data.items() if k in field_keys}
+    return {"data": out, "raw": resp}
 
 
 # ───────────────────── Notes — image attachments (base64) ─────────────────────

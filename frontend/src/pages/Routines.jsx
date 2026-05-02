@@ -5,6 +5,7 @@ import AiAddBar from "@/components/AiAddBar";
 import BulkAddDialog from "@/components/BulkAddDialog";
 import { Plus, Trash2, Flame, Check, Upload } from "lucide-react";
 import { toast } from "sonner";
+import { capWords } from "@/lib/format";
 
 const BLOCKS = [
   { key: "block1", label: "4 Hours", index: 1 },
@@ -14,6 +15,14 @@ const BLOCKS = [
 ];
 
 const FREQS = ["Daily", "Weekly", "Monthly", "Quarterly", "Half-Yearly", "Yearly"];
+
+const ROUTINE_COLUMNS = [
+  { key: "time_block", label: "Block", type: "select",
+    options: ["block1", "block2", "block3", "block4"], width: "120px" },
+  { key: "activity", label: "Activity", type: "text", width: "1.4fr" },
+  { key: "details", label: "Details", type: "text", width: "1.4fr" },
+  { key: "frequency", label: "Frequency", type: "select", options: FREQS, width: "120px" },
+];
 
 export default function Routines() {
   const [routines, setRoutines] = useState([]);
@@ -38,8 +47,8 @@ export default function Routines() {
   const insertOne = async (row) => {
     await api.post("/routines", {
       time_block: row.time_block || "block1",
-      activity: row.activity || "",
-      details: row.details || "",
+      activity: capWords(row.activity || ""),
+      details: capWords(row.details || ""),
       frequency: row.frequency || "Daily",
     });
   };
@@ -47,7 +56,11 @@ export default function Routines() {
   const add = async () => {
     if (!draft.activity.trim()) return;
     try {
-      await api.post("/routines", draft);
+      await api.post("/routines", {
+        ...draft,
+        activity: capWords(draft.activity),
+        details: capWords(draft.details),
+      });
       setDraft({ time_block: draft.time_block, activity: "", details: "", frequency: "Daily" });
       await load();
       toast.success("Routine added to master");
@@ -110,6 +123,7 @@ export default function Routines() {
       <AiAddBar
         kind="routine"
         placeholder="e.g. Morning walk 30 min in 4-hour block, daily"
+        columns={ROUTINE_COLUMNS}
         describe={describe}
         onConfirm={async (rows) => {
           for (const r of rows) await insertOne(r);

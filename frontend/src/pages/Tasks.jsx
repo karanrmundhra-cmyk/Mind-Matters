@@ -3,10 +3,19 @@ import { api } from "@/lib/api";
 import { Card, SectionTitle, EmptyState } from "@/components/Primitives";
 import AiAddBar from "@/components/AiAddBar";
 import BulkAddDialog from "@/components/BulkAddDialog";
-import { Plus, Trash2, Filter, Upload } from "lucide-react";
+import { Plus, Trash2, Filter, Upload, BellRing } from "lucide-react";
 import { toast } from "sonner";
+import { capWords } from "@/lib/format";
 
 const STATUSES = ["Pending", "Done", "Follow-Up"];
+
+const TASK_COLUMNS = [
+  { key: "date", label: "Date", type: "date", width: "120px" },
+  { key: "name", label: "Person", type: "text", width: "140px" },
+  { key: "task", label: "Task", type: "text", width: "1.2fr" },
+  { key: "details", label: "Details", type: "text", width: "1fr" },
+  { key: "status", label: "Status", type: "select", options: STATUSES, width: "120px" },
+];
 
 export default function Tasks() {
   const [tasks, setTasks] = useState([]);
@@ -37,9 +46,9 @@ export default function Tasks() {
 
   const insertOne = async (row) => {
     await api.post("/tasks", {
-      task: row.task || "",
-      name: row.name || "",
-      details: row.details || "",
+      task: capWords(row.task || ""),
+      name: capWords(row.name || ""),
+      details: capWords(row.details || ""),
       status: row.status || "Pending",
       date: row.date || null,
     });
@@ -48,7 +57,14 @@ export default function Tasks() {
   const create = async () => {
     if (!draft.task.trim()) return;
     try {
-      const { data } = await api.post("/tasks", draft);
+      const payload = {
+        ...draft,
+        task: capWords(draft.task),
+        name: capWords(draft.name),
+        details: capWords(draft.details),
+        date: draft.date || null,
+      };
+      const { data } = await api.post("/tasks", payload);
       setTasks((t) => [...t, data]);
       setDraft({ name: "", task: "", details: "", status: "Pending", date: "" });
       toast.success("Task added");
@@ -72,6 +88,25 @@ export default function Tasks() {
       await load();
     } catch {
       toast.error("Delete failed");
+    }
+  };
+
+  // Add this task to Reminders/Alarms (default: tomorrow 9am, or task date 9am)
+  const addAsReminder = async (t) => {
+    try {
+      const base = t.date ? new Date(t.date + "T09:00:00") : new Date(Date.now() + 24 * 60 * 60 * 1000);
+      if (!t.date) {
+        base.setHours(9, 0, 0, 0);
+      }
+      await api.post("/reminders", {
+        title: t.task || "Task",
+        notes: [t.name && `For ${t.name}`, t.details].filter(Boolean).join(" — "),
+        fire_at: base.toISOString(),
+        recurrence: "none",
+      });
+      toast.success("Reminder created");
+    } catch {
+      toast.error("Failed to create reminder");
     }
   };
 
@@ -105,6 +140,7 @@ export default function Tasks() {
       <AiAddBar
         kind="task"
         placeholder="e.g. Remind Rahul to send invoice tomorrow"
+        columns={TASK_COLUMNS}
         describe={describe}
         onConfirm={async (rows) => {
           for (const r of rows) await insertOne(r);
@@ -210,7 +246,7 @@ export default function Tasks() {
         />
       ) : (
         <Card className="p-0 overflow-hidden" data-testid="tasks-table">
-          <div className="hidden md:grid grid-cols-[60px_120px_160px_1.4fr_1fr_140px_40px] gap-3 px-5 py-3 border-b border-[rgba(201,169,97,0.18)] text-[10px] uppercase tracking-[0.2em] text-[#B7A98A]/60">
+          <div className="hidden md:grid grid-cols-[60px_120px_160px_1.4fr_1fr_140px_32px_40px] gap-3 px-5 py-3 border-b border-[rgba(201,169,97,0.18)] text-[10px] uppercase tracking-[0.2em] text-[#B7A98A]/60">
             <div>Sr</div>
             <div>Date</div>
             <div>Person</div>
@@ -218,11 +254,12 @@ export default function Tasks() {
             <div>Details</div>
             <div>Status</div>
             <div />
+            <div />
           </div>
           {tasks.map((t) => (
             <div
               key={t.id}
-              className="grid grid-cols-2 md:grid-cols-[60px_120px_160px_1.4fr_1fr_140px_40px] gap-3 px-5 py-3 border-b border-[rgba(201,169,97,0.08)] hover:bg-[rgba(201,169,97,0.04)] transition items-center"
+              className="grid grid-cols-2 md:grid-cols-[60px_120px_160px_1.4fr_1fr_140px_32px_40px] gap-3 px-5 py-3 border-b border-[rgba(201,169,97,0.08)] hover:bg-[rgba(201,169,97,0.04)] transition items-center"
               data-testid="task-row"
             >
               <div className="mm-text-gold/80 text-xs">#{t.sr_no}</div>
@@ -268,6 +305,14 @@ export default function Tasks() {
                   <option key={s}>{s}</option>
                 ))}
               </select>
+              <button
+                onClick={() => addAsReminder(t)}
+                className="text-[#B7A98A]/55 hover:text-[#E4C98C] transition justify-self-end"
+                data-testid="task-to-reminder"
+                title="Also add as reminder/alarm"
+              >
+                <BellRing size={14} />
+              </button>
               <button
                 onClick={() => remove(t.id)}
                 className="text-[#B7A98A]/55 hover:text-[#E4C98C] transition justify-self-end"

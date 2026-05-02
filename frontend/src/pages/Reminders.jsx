@@ -5,6 +5,15 @@ import AiAddBar from "@/components/AiAddBar";
 import BulkAddDialog from "@/components/BulkAddDialog";
 import { BellRing, Plus, Trash2, Download, Check, Clock, Upload } from "lucide-react";
 import { toast } from "sonner";
+import { capWords } from "@/lib/format";
+
+const REMINDER_COLUMNS = [
+  { key: "title", label: "Title", type: "text", width: "1.4fr" },
+  { key: "fire_at_local", label: "When", type: "text", width: "200px" },
+  { key: "recurrence", label: "Recurrence", type: "select",
+    options: ["none", "daily", "weekly", "monthly", "quarterly", "half-yearly", "yearly"], width: "140px" },
+  { key: "notes", label: "Notes", type: "text", width: "1fr" },
+];
 
 const isoLocalNowPlusHour = () => {
   const d = new Date(Date.now() + 60 * 60 * 1000);
@@ -53,8 +62,8 @@ export default function Reminders() {
     if (!draft.title.trim() || !draft.fire_at_local) return;
     try {
       await api.post("/reminders", {
-        title: draft.title,
-        notes: draft.notes,
+        title: capWords(draft.title),
+        notes: capWords(draft.notes),
         fire_at: toUTC(draft.fire_at_local),
         recurrence: draft.recurrence,
       });
@@ -106,8 +115,8 @@ export default function Reminders() {
     if (!fire_iso && row.fire_at_local) fire_iso = new Date(row.fire_at_local).toISOString();
     if (!fire_iso) return;
     await api.post("/reminders", {
-      title: row.title || "Reminder",
-      notes: row.notes || "",
+      title: capWords(row.title || "Reminder"),
+      notes: capWords(row.notes || ""),
       fire_at: fire_iso,
       recurrence: row.recurrence || "none",
     });
@@ -142,6 +151,7 @@ export default function Reminders() {
       <AiAddBar
         kind="reminder"
         placeholder="e.g. Remind me to call Brinda every Monday at 9am"
+        columns={REMINDER_COLUMNS}
         describe={describe}
         onConfirm={async (rows) => {
           for (const r of rows) await insertOne(r);

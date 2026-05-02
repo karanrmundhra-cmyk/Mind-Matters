@@ -7,8 +7,14 @@ import {
   Plus, Search, Pin, PinOff, Trash2, Tag as TagIcon, Image as ImageIcon, Upload,
 } from "lucide-react";
 import { toast } from "sonner";
+import { capWords } from "@/lib/format";
 
 const TAG_OPTIONS = ["work", "personal", "idea", "reminder", "health", "finance"];
+
+const NOTE_COLUMNS = [
+  { key: "title", label: "Title", type: "text", width: "1fr" },
+  { key: "body", label: "Body", type: "text", width: "2fr" },
+];
 
 export default function Notes() {
   const [notes, setNotes] = useState([]);
@@ -54,7 +60,7 @@ export default function Notes() {
 
   const insertOne = async (row) => {
     await api.post("/notes", {
-      title: row.title || "",
+      title: capWords(row.title || ""),
       body: row.body || "",
       tags: Array.isArray(row.tags) ? row.tags : [],
     });
@@ -147,6 +153,7 @@ export default function Notes() {
       <AiAddBar
         kind="note"
         placeholder="e.g. Idea — start a Sunday review ritual every week #personal"
+        columns={NOTE_COLUMNS}
         describe={describe}
         onConfirm={async (rows) => {
           for (const r of rows) await insertOne(r);

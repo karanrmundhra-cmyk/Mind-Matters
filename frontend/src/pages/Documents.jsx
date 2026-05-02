@@ -1,8 +1,118 @@
 import React, { useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
 import { Card, SectionTitle, EmptyState } from "@/components/Primitives";
-import { FileText, Sparkles, Send, Download, Upload, Trash2, Plus, Minus } from "lucide-react";
+import { FileText, Sparkles, Send, Download, Upload, Trash2, Plus, Minus, Check, X, Loader2 } from "lucide-react";
 import { toast } from "sonner";
+
+/**
+ * AI bar for the Invoice editor: paste/type free text → AI fills the
+ * template's required fields. Shows a confirmation preview before applying.
+ */
+function InvoiceAiBar({ templateId, fieldKeys, onApply }) {
+  const [text, setText] = useState("");
+  const [parsed, setParsed] = useState(null);
+  const [busy, setBusy] = useState(false);
+
+  const reset = () => {
+    setText("");
+    setParsed(null);
+  };
+
+  const parse = async () => {
+    if (!text.trim()) return;
+    setBusy(true);
+    try {
+      const { data } = await api.post("/parse/invoice", {
+        template_id: templateId,
+        text,
+      });
+      const p = data?.data || {};
+      if (Object.keys(p).length === 0) {
+        toast.error("Could not extract any fields — rephrase?");
+      } else {
+        setParsed(p);
+      }
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "AI failed");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const apply = () => {
+    if (!parsed) return;
+    onApply(parsed);
+    toast.success(`Filled ${Object.keys(parsed).length} field(s)`);
+    reset();
+  };
+
+  return (
+    <div
+      className="rounded-xl border border-[rgba(201,169,97,0.25)] bg-[rgba(201,169,97,0.04)] p-4 mb-2"
+      data-testid="invoice-ai-bar"
+    >
+      <div className="flex items-center gap-2 text-[10px] uppercase tracking-[0.3em] text-[#B7A98A]/70 mb-2">
+        <Sparkles size={11} className="mm-text-gold" />
+        <span>Paste or describe the invoice — AI auto-fills the form. You confirm before applying.</span>
+      </div>
+      <div className="flex gap-2">
+        <textarea
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          placeholder="e.g. Invoice for ABC Pvt Ltd, GSTIN 27ABCDE1234F1Z5, services rendered Jan 2026, ₹50,000 + 18% GST, due 15 Mar 2026"
+          rows={2}
+          className="mm-input text-sm flex-1"
+          data-testid="invoice-ai-input"
+          disabled={busy}
+        />
+        {!parsed ? (
+          <button
+            onClick={parse}
+            disabled={busy || !text.trim()}
+            className="mm-btn-primary text-sm flex items-center gap-2 disabled:opacity-40 self-start"
+            data-testid="invoice-ai-parse"
+          >
+            {busy ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
+            Parse
+          </button>
+        ) : (
+          <div className="flex flex-col gap-2 self-start">
+            <button
+              onClick={apply}
+              className="mm-btn-primary text-sm flex items-center gap-2"
+              data-testid="invoice-ai-apply"
+            >
+              <Check size={14} /> Apply
+            </button>
+            <button
+              onClick={reset}
+              className="mm-btn-ghost text-xs flex items-center gap-1"
+            >
+              <X size={12} /> Discard
+            </button>
+          </div>
+        )}
+      </div>
+      {parsed && (
+        <div className="mt-3 rounded-lg border border-[rgba(201,169,97,0.18)] bg-black/30 p-3 space-y-1.5" data-testid="invoice-ai-preview">
+          <div className="text-[10px] uppercase tracking-[0.3em] mm-text-gold mb-2">
+            AI extracted {Object.keys(parsed).length} field(s) — review &amp; apply
+          </div>
+          {Object.entries(parsed).map(([k, v]) => (
+            <div key={k} className="flex items-start gap-3 text-xs">
+              <div className="text-[#B7A98A]/60 w-32 shrink-0 uppercase tracking-[0.18em] text-[10px]">
+                {k}
+              </div>
+              <div className="mm-text-gold-bright flex-1 break-words">
+                {Array.isArray(v) ? `${v.length} line item(s)` : String(v)}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function useTemplates() {
   const [templates, setTemplates] = useState([]);
@@ -314,6 +424,15 @@ export default function Documents() {
                 </div>
                 <FileText size={20} className="mm-text-gold opacity-60" />
               </div>
+
+              {/* AI invoice fill bar */}
+              <InvoiceAiBar
+                templateId={selected.id}
+                fieldKeys={(selected.required_fields || []).map((f) => f.key)}
+                onApply={(parsed) => setData((d) => ({ ...d, ...parsed }))}
+              />
+
+              <div className="mm-gold-line my-6" />
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {(selected.required_fields || []).map((f) => (

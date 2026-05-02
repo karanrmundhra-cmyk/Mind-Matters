@@ -1,0 +1,48 @@
+{
+  "summary": "v1.3 testing — Universal AI confirmation row + Loans interest_type + Investments tabs + Cash Flow upload-duplicates + Invoice AI parse + Tasks bell-to-reminder. Backend: 9/9 pytest cases pass against the public REACT_APP_BACKEND_URL — (1) /api/parse/bulk kind=task returns rows with one-word Title-Cased verb in 'task', remainder in 'details', auto-today date when missing; (2) /api/parse/bulk kind=loan correctly classifies '50000 with 1500 fixed' → interest_type='fixed' and '100000 at 12% per annum' → interest_type='percent'; (3) /api/parse/bulk kind=investment with 'LIC term policy 5000 for wife' returns kind='insurance' + insured_for='Wife'; (4) POST /api/investments accepts {kind:'insurance', insured_for:'Mother'} and PATCH allowlist includes kind+insured_for (verified by patching back to 'investment'); (5) GET /api/investments/summary returns total_invested, total_insurance, investments_count, insurance_count separately; (6) POST /api/transactions/upload with skip_duplicates=true returns duplicate_count + duplicates[] when the same (date+amount+company) row is uploaded twice; (7) POST /api/parse/invoice for template_id='krm_huf_invoice' with free text returns data dict whose keys are a STRICT SUBSET of the template's required_fields (verified bill_to.name, items, gst, date all valid keys); (8) POST /api/loans accepts interest_type and GET returns accrued_interest correctly — fixed='1500 flat'→accrued≈1500, percent='12% on 100k for >1yr'→accrued≥11000. Server starts cleanly with Telegram poller running (no import crash on tg.py inline-keyboard handlers). Frontend: 7/7 critical UI flows pass via Playwright — login as 'Karan', Tasks AI bar parse → preview row appears with EDITABLE inputs (Date|Person|Task|Details|Status) + Discard + 'Confirm & save' buttons; verified live editability by typing 'EditedValue123' into Person input and confirming the value persisted in the DOM; bell icon (data-testid=task-to-reminder) present on every existing task row (11 found); Loans page shows preview row with interest_type column AND manual-add row has interest_type selector; Investments page shows Investment vs Insurance tabs, clicking Insurance switches table, draft-kind-insurance toggle reveals new-inv-insured-for input field; Cash Flow at /cash-flow has stmt-upload-btn + stmt-file-input — uploaded duplicate CSV → duplicates-review card with dup-row + dup-skip + dup-keep buttons rendered correctly; Invoices page selecting K.R.M. HUF template reveals invoice-ai-bar, parsing 'Invoice for ABC Pvt Ltd, 1 unit Wireless Mouse 600, GST 18%, today' shows invoice-ai-preview with 4 extracted fields (date=2024-05-22, bill_to.name=ABC Pvt Ltd, items=1 line item, gst=18) + 'Apply' button. Auto-today on Tasks confirmed visually — 'buy milk tomorrow' resolved to date 05/03/2026 (correct, server today=2026-05-02).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/parse/bulk task — date inference", "issue": "AI prompt resolves 'tomorrow/today/yesterday' relative to server today() correctly, but spec says 'auto-today when missing'. Currently when text contains NO date hint at all, AI sometimes returns date=null and _normalize_row falls back to today_key() — works in our test, but if AI ever returns a stale date (e.g. '2024-…') the fallback won't trigger. Consider also forcing today on tasks where row['date']<today_key()-7days as a safety net."},
+      {"endpoint": "/api/parse/invoice", "issue": "Returns {data, raw} where 'raw' contains the full LLM response including fenced code blocks. Frontend doesn't use 'raw' but it adds ~2KB to every response. Drop 'raw' for prod or guard behind ?debug=1."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "App.js routing", "issue": "Cash Flow route is /cash-flow but the task spec / context note says '/cashflow'. Both are functional once the right URL is used (sidebar uses /cash-flow correctly), but external scripts/Telegram deeplinks pasted with /cashflow will hit the catch-all route and get bounced to /. Consider adding <Route path='cashflow' element={<Navigate to='/cash-flow' replace/>}/> for resilience.", "selector": "App.js:50", "priority": "LOW"},
+      {"component": "AiAddBar (universal)", "issue": "Console emits 'Encountered two children with the same key' React warning every time the preview row mounts on Investments page. Likely the Investment vs Insurance tab change re-renders without unique keys per draft column. Pure dev warning — no functional impact — but worth fixing.", "selector": "[data-testid=ai-preview-row]", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_v13.py",
+    "/app/backend/tests/test_v12.py",
+    "/app/backend/tests/test_phase2.py",
+    "/app/test_reports/pytest/v13_results.xml"
+  ],
+  "action_items": [
+    "(LOW) AiAddBar: ensure unique React keys on preview-row column inputs (warning during Investments tab toggle).",
+    "(LOW) App.js: add a redirect alias /cashflow → /cash-flow so external Telegram/email links don't 404 to root.",
+    "(LOW) /api/parse/invoice: consider not echoing the raw LLM response (~2KB savings per call).",
+    "(Carry-over) iter_3 items still pending: Reminders.jsx recurrence dropdown missing quarterly/half-yearly/yearly options (backend already accepts), docs_gen.py float() crash on Indian-comma sum_rupees, server.py >2000 lines → router split."
+  ],
+  "critical_code_review_comments": [
+    "_ai_parse_bulk swallows JSON parse failures and returns rows=[] silently — the AiAddBar will then show no preview with no error explanation. Surface a {error: 'AI returned non-JSON', raw_excerpt: …} so the UI can render 'AI couldn't read that — please simplify your text'.",
+    "/api/transactions/upload duplicate detection uses exact (date+amount+company) match. Real-world bank statements often have slight company-name variations ('UPI/AMAZON' vs 'UPI/AMAZON PAY'). Consider a fuzzy match (token-set ratio ≥ 90) or at least case-insensitive .strip().",
+    "Investment InvestmentIn still allows 'rate_or_value' as free-form string and 'amount_invested' as plain float — there's no constraint that insurance_for must be present when kind='insurance'. Add a Pydantic root_validator to enforce 'insured_for required when kind == insurance' (or default to 'Self').",
+    "_normalize_row title-cases known string fields BUT does not strip leading/trailing whitespace. AI returns ' Brinda ' occasionally — leading space preserves through Title-Case. Add .strip() before _title_case_smart.",
+    "server.py is now 2006 lines (was 1854 last iter). The carry-over recommendation to split into routers (deadlines, parse, txns, investments, loans, etc.) is increasingly urgent — current file mixes 14+ resource domains.",
+    "/api/parse/invoice LLM call has no fallback for an offline LLM key — returns 500 with 'LLM not configured'. UI should detect this and disable the AI bar instead of letting Parse hang."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_v13.py"
+  ],
+  "success_rate": {"backend": "100% (9/9 v1.3 + carry-over 23/23 v1.2 + 12/12 phase2)", "frontend": "100% (7/7 critical v1.3 flows: login, tasks editable preview, tasks bell, loans interest_type, investments tabs+insured_for, cashflow duplicates, invoices AI fill)"},
+  "test_credentials": "Demo login: POST /api/auth/demo-login {first_name:'Karan'} or any name. Frontend: /login → type 'Karan' → click 'Enter Mind Matters' (data-testid=login-submit-btn). Karan is Telegram-linked from prior runs (chat_id 8642642015).",
+  "seed_data_creation": "test_v13.py prefixes all rows with 'TEST_v13' and cleans up loans/investments/transactions in-test. Frontend test left ONE residual transaction TEST_v13_DupCo (intentionally — needed for the duplicate-detection assertion). Run a single curl DELETE /api/transactions/<id> to remove it, OR just ignore (it's tiny).",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Run: REACT_APP_BACKEND_URL=$(grep REACT_APP_BACKEND_URL /app/frontend/.env|cut -d= -f2) pytest /app/backend/tests/test_v13.py -v. v1.3 testids confirmed present and used by playwright: ai-add-input/ai-add-parse/ai-preview-row/ai-add-confirm/ai-add-discard, task-to-reminder (bell), tab-investment/tab-insurance, draft-kind-investment/draft-kind-insurance, new-inv-insured-for, stmt-upload-btn/stmt-file-input, duplicates-review/dup-row/dup-skip/dup-keep/dup-discard-all, invoice-ai-bar/invoice-ai-input/invoice-ai-parse/invoice-ai-preview/invoice-ai-apply. CRITICAL ROUTE NOTE: Cash Flow lives at /cash-flow (hyphen), NOT /cashflow — the catch-all in App.js bounces /cashflow to /. For Investments, table testid is dynamic: 'inv-table' on Investment tab and 'ins-table' on Insurance tab. Telegram bot inline-keyboard handlers verified to NOT crash on import (server starts cleanly, poller log line 'Telegram poller starting at offset…' confirms). Telegram callback Yes/No flow + 'pending tasks of <name>' PDF intent could not be e2e tested without a real chat — main agent should manual-test in the linked Telegram chat.",
+  "rca of the issue": "No bugs found — all v1.3 features pass. Two MINOR observations (non-blocking): (1) Investments preview row triggers React duplicate-key warning on tab toggle — root cause: AiAddBar re-renders preview rows without unique React keys per column when the columns prop changes. Mitigation: wrap each preview cell's <input> with a key={`${rowId}-${col.key}`}. (2) /cashflow vs /cash-flow URL mismatch — root cause: spec uses one form, code uses the hyphenated form. Mitigation: add redirect alias in App.js. Neither blocks shipping."
+}
