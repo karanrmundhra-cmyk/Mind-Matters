@@ -17,6 +17,31 @@ with the R.K.M. brand logo. AI-first input on every page (type → confirm → d
 - **Frontend**: React + Tailwind + Shadcn UI. Cormorant Garamond (serif), Outfit
   (display), Inter (body). Pure black + rich gold (#C9A961 / #E4C98C).
 
+### v1.3 — AI confirmation everywhere + Insurance + Telegram 2-way (2026-02)
+- **Universal AI confirmation row**: AiAddBar now renders an EDITABLE preview row
+  matching every page's exact table headers. User edits before saving — no more
+  blind auto-save. Backwards-compat via `describe` fallback for legacy callers.
+- **Tasks**: parser forces a one-word verb in `task` (rest → `details`); auto-fills
+  today's date when missing; bell icon (`task-to-reminder`) on each row creates
+  an aligned reminder/alarm.
+- **Loans**: new `interest_type` field (`percent` | `fixed`). Fixed = flat ₹ amount,
+  percent = pro-rated daily. Manual UI selector + inline column.
+- **Investments**: split into Investment vs Insurance tabs with their own totals.
+  New `insured_for` field (Self / Wife / Mother / Father / Children / Medical / …).
+  Manual add toggles between Investment and Insurance kinds.
+- **Cash Flow**: bank-statement upload (`/api/transactions/upload`) returns flagged
+  duplicates; UI renders a one-by-one Keep / Skip review card.
+- **Invoices**: AI bar (`/api/parse/invoice`) extracts fields from free text and
+  shows a confirmation preview before applying to the form.
+- **Telegram bot**: inline-keyboard ✓ Add / ✗ Discard confirmation before saving;
+  parses statement queries ("pending tasks of Brinda", "loan statement of Rakesh",
+  "cash flow this month") → returns a generated PDF.
+- **Title-case smart**: backend + frontend both Title-Case strings; preserve
+  ALL-CAPS abbreviations (LIC, HDFC, GST, …).
+- **Routes**: `/cashflow` aliased to `/cash-flow` for resilience.
+- **Tests**: 9/9 v1.3 backend pytest pass; 7/7 critical Playwright frontend flows
+  green; carry-over 23/23 v1.2 + 12/12 phase2 still passing.
+
 ## What's implemented
 
 ### v1 (initial, 2026-02)
@@ -63,16 +88,19 @@ with the R.K.M. brand logo. AI-first input on every page (type → confirm → d
 ## Prioritized Backlog
 ### P0 — None blocking.
 ### P1
-- [ ] Refactor `server.py` (~1850 lines) into routers (deadlines, parse, notes_images, etc.)
-- [ ] Surface AI parse errors with `{error, raw}` so AiAddBar can hint the user.
-- [ ] Bulk-write sr_no compaction (faster for >100 rows).
-- [ ] `.docx` → PDF conversion for custom templates (libreoffice or web service).
-- [ ] Telegram photo OCR for receipts → expense.
+- [ ] Refactor `server.py` (~2000 lines) into routers (deadlines, parse, txns, investments, etc.)
+- [ ] Fuzzy duplicate detection in `/api/transactions/upload` (token-set ratio ≥ 90 on company)
+- [ ] Pydantic root_validator: enforce `insured_for` when investment.kind == 'insurance'
+- [ ] `_normalize_row` should `.strip()` before Title-Case (AI sometimes returns leading spaces)
+- [ ] Surface AI parse errors with `{error, raw_excerpt}` so AiAddBar can hint the user
+- [ ] Drop `raw` field from `/api/parse/invoice` response (≈2KB savings)
+- [ ] `.docx` → PDF conversion for custom templates (libreoffice or web service)
 ### P2
-- [ ] Multi-user accounts + Google OAuth.
-- [ ] Real investment NAV feeds.
-- [ ] PWA / offline queue.
-- [ ] Migrate old routines (`category` → `time_block`).
+- [ ] Multi-user accounts + Google OAuth
+- [ ] Real investment NAV feeds
+- [ ] Proactive dashboard anomaly insights
+- [ ] PWA / offline queue
+- [ ] Migrate old routines (`category` → `time_block`)
 
 ## Environment
 - `MONGO_URL`, `DB_NAME`, `JWT_SECRET`, `EMERGENT_LLM_KEY`,

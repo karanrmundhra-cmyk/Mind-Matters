@@ -144,7 +144,7 @@ export default function AiAddBar({ kind, placeholder, onConfirm, describe, colum
               </div>
               {rows.map((r, i) => (
                 <div
-                  key={i}
+                  key={`row-${i}`}
                   className="grid grid-cols-2 md:gap-3 gap-2 px-4 py-2.5 border-b border-[rgba(201,169,97,0.08)] last:border-b-0 items-center"
                   style={{ gridTemplateColumns: gridTemplate ? gridTemplate : undefined }}
                   data-testid="ai-preview-row"
@@ -153,10 +153,11 @@ export default function AiAddBar({ kind, placeholder, onConfirm, describe, colum
                     const val = r[c.key] ?? "";
                     const common =
                       "mm-input text-xs !py-1.5 w-full";
+                    const cellKey = `${i}-${c.key}`;
                     if (c.type === "date") {
                       return (
                         <input
-                          key={c.key}
+                          key={cellKey}
                           type="date"
                           value={val || ""}
                           onChange={(e) => updateCell(i, c.key, e.target.value)}
@@ -167,7 +168,7 @@ export default function AiAddBar({ kind, placeholder, onConfirm, describe, colum
                     if (c.type === "number") {
                       return (
                         <input
-                          key={c.key}
+                          key={cellKey}
                           type="number"
                           value={val || ""}
                           onChange={(e) => updateCell(i, c.key, e.target.value)}
@@ -179,7 +180,7 @@ export default function AiAddBar({ kind, placeholder, onConfirm, describe, colum
                     if (c.type === "select") {
                       return (
                         <select
-                          key={c.key}
+                          key={cellKey}
                           value={val || ""}
                           onChange={(e) => updateCell(i, c.key, e.target.value)}
                           className={common}
@@ -194,7 +195,7 @@ export default function AiAddBar({ kind, placeholder, onConfirm, describe, colum
                     }
                     return (
                       <input
-                        key={c.key}
+                        key={cellKey}
                         type="text"
                         value={val || ""}
                         onChange={(e) => updateCell(i, c.key, e.target.value)}
@@ -204,6 +205,7 @@ export default function AiAddBar({ kind, placeholder, onConfirm, describe, colum
                     );
                   })}
                   <button
+                    key={`rm-${i}`}
                     onClick={() => removeRow(i)}
                     className="text-[#B7A98A]/55 hover:text-[#E4C98C] transition justify-self-end"
                     data-testid="ai-preview-remove"

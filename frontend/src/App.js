@@ -48,6 +48,7 @@ function Root() {
         <Route path="routines" element={<Routines />} />
         <Route path="loans" element={<Loans />} />
         <Route path="cash-flow" element={<CashFlow />} />
+        <Route path="cashflow" element={<Navigate to="/cash-flow" replace />} />
         <Route path="investments" element={<Investments />} />
         <Route path="notes" element={<Notes />} />
         <Route path="invoices" element={<Documents />} />
