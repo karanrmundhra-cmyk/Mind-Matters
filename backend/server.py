@@ -164,7 +164,8 @@ class LoanIn(BaseModel):
     date: Optional[str] = None
     name: str
     amount: float
-    interest: float = 0.0  # p.a. %
+    interest: float = 0.0  # value (rate% if interest_type='percent', flat ₹ if 'fixed')
+    interest_type: Literal["percent", "fixed"] = "percent"
     reason: str = ""
     status: Literal["Given", "Taken", "Pending", "Closed"] = "Given"
     repayment_date: Optional[str] = None
@@ -200,13 +201,15 @@ class Transaction(TransactionIn):
 
 # Investments
 class InvestmentIn(BaseModel):
+    kind: Literal["investment", "insurance"] = "investment"
     type: str = "Equity"  # free-form: Equity / FD / Insurance / MF / custom
     provider: str
     amount_invested: float
     start_date: Optional[str] = None
     maturity_date: Optional[str] = None
-    rate_or_value: Optional[str] = None  # free-form: "8% p.a." or "₹2,40,000" maturity
+    rate_or_value: Optional[str] = None
     current_value: Optional[float] = None
+    insured_for: Optional[str] = None  # only when kind='insurance'
     notes: str = ""
 
 
@@ -521,9 +524,12 @@ async def routines_summary(user=Depends(get_current_user)):
 
 
 # ───────────────────────────── loans ─────────────────────────────
-def _accrued_interest(amount: float, rate: float, start_iso: Optional[str]) -> float:
+def _accrued_interest(amount: float, rate: float, start_iso: Optional[str], itype: str = "percent") -> float:
     if not start_iso or not rate:
         return 0.0
+    if itype == "fixed":
+        # flat interest amount (treat as already-accrued total)
+        return round(float(rate), 2)
     try:
         start = datetime.fromisoformat(start_iso).date() if "T" in start_iso else date.fromisoformat(start_iso)
     except Exception:
@@ -538,7 +544,9 @@ def _accrued_interest(amount: float, rate: float, start_iso: Optional[str]) -> f
 async def list_loans(user=Depends(get_current_user)):
     docs = await db.loans.find({"user_id": user["id"]}, {"_id": 0}).sort("sr_no", 1).to_list(5000)
     for d in docs:
-        d["accrued_interest"] = _accrued_interest(d["amount"], d.get("interest", 0), d.get("date"))
+        d["accrued_interest"] = _accrued_interest(
+            d["amount"], d.get("interest", 0), d.get("date"), d.get("interest_type", "percent")
+        )
     return docs
 
 
@@ -560,7 +568,7 @@ async def create_loan(body: LoanIn, user=Depends(get_current_user)):
 
 @api.patch("/loans/{lid}", response_model=Loan)
 async def update_loan(lid: str, body: Dict[str, Any], user=Depends(get_current_user)):
-    allowed = {"date", "name", "amount", "interest", "reason", "status", "repayment_date"}
+    allowed = {"date", "name", "amount", "interest", "interest_type", "reason", "status", "repayment_date"}
     body = {k: v for k, v in body.items() if k in allowed}
     body["updated_at"] = now_iso()
     res = await db.loans.find_one_and_update(
@@ -585,7 +593,8 @@ async def loans_summary(user=Depends(get_current_user)):
     taken = sum(l["amount"] for l in loans if l["status"] == "Taken")
     pending = [l for l in loans if l["status"] in ("Given", "Taken", "Pending")]
     total_interest = sum(
-        _accrued_interest(l["amount"], l.get("interest", 0), l.get("date")) for l in pending
+        _accrued_interest(l["amount"], l.get("interest", 0), l.get("date"), l.get("interest_type", "percent"))
+        for l in pending
     )
     overdue = 0
     today = datetime.now(timezone.utc).date()
@@ -712,6 +721,7 @@ async def _ai_categorize(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 async def upload_transactions(
     file: UploadFile = File(...),
     account: str = Form("Personal"),
+    skip_duplicates: bool = Form(True),
     user=Depends(get_current_user),
 ):
     content = await file.read()
@@ -724,7 +734,6 @@ async def upload_transactions(
             raise HTTPException(400, f"Failed to parse Excel: {e}")
     elif name.endswith(".pdf"):
         text = _parse_pdf(content)
-        # break into lines as pseudo-rows
         raw_rows = [{"line": line} for line in text.split("\n") if line.strip()][:100]
     elif name.endswith(".csv"):
         import csv
@@ -735,6 +744,7 @@ async def upload_transactions(
 
     categorized = await _ai_categorize(raw_rows)
     inserted = []
+    pending = []  # duplicates - to be confirmed by user
     for row in categorized:
         try:
             amount = float(row.get("amount", 0) or 0)
@@ -742,13 +752,21 @@ async def upload_transactions(
             continue
         if amount == 0:
             continue
+        d = str(row.get("date") or today_key())[:10]
+        amt = abs(amount)
+        company = str(row.get("company") or "")[:80]
+        # duplicate check: same user + date + amount + similar company
+        existing = await db.transactions.find_one({
+            "user_id": user["id"], "date": d, "amount": amt,
+            "company": company,
+        }, {"_id": 0})
         doc = {
             "id": new_id(),
             "user_id": user["id"],
-            "date": str(row.get("date") or today_key())[:10],
-            "amount": abs(amount),
+            "date": d,
+            "amount": amt,
             "mode": str(row.get("mode") or "Bank")[:40],
-            "company": str(row.get("company") or "")[:80],
+            "company": company,
             "expense_head": str(row.get("expense_head") or "Uncategorized")[:60],
             "direction": "in" if str(row.get("direction", "out")).lower() == "in" else "out",
             "account": account,
@@ -757,9 +775,13 @@ async def upload_transactions(
             "created_at": now_iso(),
             "updated_at": now_iso(),
         }
+        if existing and skip_duplicates:
+            pending.append({**doc, "duplicate_of": existing["id"], "duplicate_existing": existing})
+            continue
         await db.transactions.insert_one(dict(doc))
         inserted.append({k: v for k, v in doc.items() if k != "_id"})
-    return {"inserted": len(inserted), "transactions": inserted}
+    return {"inserted": len(inserted), "transactions": inserted,
+            "duplicate_count": len(pending), "duplicates": pending}
 
 
 @api.get("/transactions/summary")
@@ -844,12 +866,12 @@ async def delete_investment(iid: str, user=Depends(get_current_user)):
 @api.get("/investments/summary")
 async def investments_summary(user=Depends(get_current_user)):
     docs = await db.investments.find({"user_id": user["id"]}, {"_id": 0}).to_list(1000)
-    total_invested = sum(d["amount_invested"] for d in docs)
+    total_invested = sum(d["amount_invested"] for d in docs if (d.get("kind") or "investment") == "investment")
+    total_insurance = sum(d["amount_invested"] for d in docs if (d.get("kind") or "investment") == "insurance")
     total_value = sum((d.get("current_value") or d["amount_invested"]) for d in docs)
     by_type: Dict[str, float] = {}
     for d in docs:
         by_type[d["type"]] = by_type.get(d["type"], 0) + (d.get("current_value") or d["amount_invested"])
-    # upcoming maturities (next 90 days)
     today = datetime.now(timezone.utc).date()
     upcoming = []
     for d in docs:
@@ -864,11 +886,14 @@ async def investments_summary(user=Depends(get_current_user)):
                 pass
     return {
         "total_invested": round(total_invested, 2),
+        "total_insurance": round(total_insurance, 2),
         "total_value": round(total_value, 2),
         "growth_percent": round(((total_value - total_invested) / total_invested) * 100, 2) if total_invested else 0,
         "allocation": [{"type": k, "value": round(v, 2)} for k, v in by_type.items()],
         "upcoming_maturities": upcoming,
         "count": len(docs),
+        "investments_count": sum(1 for d in docs if (d.get("kind") or "investment") == "investment"),
+        "insurance_count": sum(1 for d in docs if (d.get("kind") or "investment") == "insurance"),
     }
 
 
@@ -1682,15 +1707,83 @@ def _parse_csv_to_rows(content: bytes) -> List[Dict[str, Any]]:
 
 
 SCHEMA_BY_KIND = {
-    "task": "{name (person), task, details, date:'YYYY-MM-DD' or null, status:'Pending'|'Done'|'Follow-Up'}",
-    "routine": "{time_block:'block1'|'block2'|'block3'|'block4', activity, details, frequency:'Daily'|'Weekly'|'Monthly'|'Quarterly'|'Half-Yearly'|'Yearly'}",
-    "expense": "{date:'YYYY-MM-DD', amount:number, expense_head, company, mode, direction:'out'|'in', notes}",
-    "loan": "{date:'YYYY-MM-DD', name, amount:number, interest:number, reason, status:'Given'|'Taken'|'Pending'|'Closed', repayment_date}",
-    "investment": "{type, provider, amount_invested:number, start_date, maturity_date, rate_or_value, notes}",
-    "note": "{title, body, tags:[string]}",
-    "reminder": "{title, fire_at_local:'YYYY-MM-DDTHH:MM', notes, recurrence:'none'|'daily'|'weekly'|'monthly'|'quarterly'|'half-yearly'|'yearly'}",
-    "deadline": "{title, due_date:'YYYY-MM-DD', notes}",
+    "task": (
+        "{name (responsible person — Title-Case proper noun, e.g. 'Brinda'), "
+        "task (ONE-WORD verb, Title-Case, e.g. 'Repair', 'Call', 'Follow-Up', 'Buy', 'Sell', 'Inform', 'Share', 'Pay'), "
+        "details (everything else, Title-Case for proper nouns, e.g. 'Bar Unit'), "
+        "date:'YYYY-MM-DD' or null (default to today's date if missing), "
+        "status:'Pending'|'Done'|'Follow-Up' (default 'Pending')}"
+    ),
+    "routine": (
+        "{time_block:'block1'|'block2'|'block3'|'block4'|'block5'|... (use 'block1' if unsure), "
+        "activity (Title-Case), details (Title-Case), "
+        "frequency:'Daily'|'Weekly'|'Monthly'|'Quarterly'|'Half-Yearly'|'Yearly'}"
+    ),
+    "expense": (
+        "{date:'YYYY-MM-DD', amount:number, expense_head (one word, Title-Case, e.g. 'Food','Travel','Utilities'), "
+        "company (Title-Case merchant), mode ('Card'|'Cash'|'UPI'|'Bank'|'Cheque'), "
+        "direction:'out'|'in', notes}"
+    ),
+    "loan": (
+        "{date:'YYYY-MM-DD', name (Title-Case), amount:number, "
+        "interest:number, interest_type:'percent'|'fixed' "
+        "(use 'fixed' if user wrote a flat amount like '15k', '1500', '50000 fixed' — "
+        "use 'percent' if user wrote a rate like '9%', '12 percent p.a.', or no unit), "
+        "reason (Title-Case), status:'Given'|'Taken'|'Pending'|'Closed', repayment_date}"
+    ),
+    "investment": (
+        "{kind:'investment'|'insurance' (use 'insurance' if user mentioned LIC/term/health/ULIP/policy/cover, "
+        "else 'investment'), "
+        "type (Title-Case e.g. 'Equity','FD','Insurance','MF','Bond'), "
+        "provider (Title-Case), amount_invested:number, start_date, maturity_date, "
+        "rate_or_value (a string like '8% p.a.' or '₹2,40,000'), "
+        "insured_for (Title-Case e.g. 'Self','Wife','Mother','Father','Medical' — only when kind='insurance'; else null), "
+        "notes}"
+    ),
+    "note": "{title (Title-Case), body, tags:[string lower-case]}",
+    "reminder": (
+        "{title (Title-Case), fire_at_local:'YYYY-MM-DDTHH:MM' (interpret 'tomorrow 9am' etc. relative to today), "
+        "notes, recurrence:'none'|'daily'|'weekly'|'monthly'|'quarterly'|'half-yearly'|'yearly'}"
+    ),
+    "deadline": "{title (Title-Case), due_date:'YYYY-MM-DD', notes}",
 }
+
+
+def _title_case_smart(s: str) -> str:
+    if not isinstance(s, str) or not s:
+        return s
+    # Smart Title Case: capitalize first letter of each word, keep ALL-CAPS abbreviations
+    words = s.split()
+    out = []
+    for w in words:
+        if len(w) > 1 and w.isupper():
+            out.append(w)  # keep abbreviations like LIC, HDFC
+        else:
+            out.append(w[:1].upper() + w[1:].lower())
+    return " ".join(out)
+
+
+def _normalize_row(kind: str, row: Dict[str, Any]) -> Dict[str, Any]:
+    """Apply Title-Case to known string fields after AI parse."""
+    if not isinstance(row, dict):
+        return row
+    fields = {
+        "task": ["name", "task", "details", "status"],
+        "routine": ["activity", "details"],
+        "expense": ["expense_head", "company", "mode", "notes"],
+        "loan": ["name", "reason", "status"],
+        "investment": ["type", "provider", "insured_for"],
+        "note": ["title"],
+        "reminder": ["title"],
+        "deadline": ["title"],
+    }.get(kind, [])
+    for f in fields:
+        if f in row and isinstance(row[f], str):
+            row[f] = _title_case_smart(row[f])
+    # default date = today for tasks if missing
+    if kind == "task" and not row.get("date"):
+        row["date"] = today_key()
+    return row
 
 
 async def _ai_parse_bulk(text: str, kind: str) -> List[Dict[str, Any]]:
@@ -1713,7 +1806,8 @@ async def _ai_parse_bulk(text: str, kind: str) -> List[Dict[str, Any]]:
             t = t[4:]
     try:
         arr = json.loads(t)
-        return arr if isinstance(arr, list) else []
+        if isinstance(arr, list):
+            return [_normalize_row(kind, r) for r in arr]
     except Exception:
         return []
 
@@ -1761,6 +1855,7 @@ async def parse_bulk_file(
         rows = json.loads(t)
         if not isinstance(rows, list):
             rows = []
+        rows = [_normalize_row(kind, r) for r in rows]
     except Exception:
         rows = []
     return {"rows": rows, "raw_count": len(raw)}
