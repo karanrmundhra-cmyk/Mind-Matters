@@ -1,35 +1,33 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/api";
 import { Card, SectionTitle, EmptyState } from "@/components/Primitives";
 import AiAddBar from "@/components/AiAddBar";
 import BulkAddDialog from "@/components/BulkAddDialog";
-import { Plus, Trash2, Flame, Check, Upload } from "lucide-react";
+import GroupTabs from "@/components/GroupTabs";
+import RowActions from "@/components/RowActions";
+import { useReorder } from "@/lib/useReorder";
+import { Plus, Flame, Check, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { capWords } from "@/lib/format";
 
-const BLOCKS = [
-  { key: "block1", label: "4 Hours", index: 1 },
-  { key: "block2", label: "8 Hours", index: 2 },
-  { key: "block3", label: "4 Hours", index: 3 },
-  { key: "block4", label: "8 Hours", index: 4 },
-];
-
-const FREQS = ["Daily", "Weekly", "Monthly", "Quarterly", "Half-Yearly", "Yearly"];
+const DEFAULT_FREQS = ["Daily", "Weekly", "Monthly", "Quarterly", "Half-Yearly", "Yearly"];
 
 const ROUTINE_COLUMNS = [
-  { key: "time_block", label: "Block", type: "select",
-    options: ["block1", "block2", "block3", "block4"], width: "120px" },
-  { key: "activity", label: "Activity", type: "text", width: "1.4fr" },
-  { key: "details", label: "Details", type: "text", width: "1.4fr" },
-  { key: "frequency", label: "Frequency", type: "select", options: FREQS, width: "120px" },
+  { key: "group", label: "Group", type: "text", width: "140px" },
+  { key: "activity", label: "Task", type: "text", width: "1.3fr" },
+  { key: "details", label: "Details", type: "text", width: "1.3fr" },
+  { key: "frequency", label: "Frequency", type: "text", width: "140px" },
 ];
+
+const GRID = "grid-cols-[50px_140px_1.2fr_1.2fr_140px_150px]";
 
 export default function Routines() {
   const [routines, setRoutines] = useState([]);
   const [summary, setSummary] = useState(null);
+  const [activeGroup, setActiveGroup] = useState("");
   const [bulkOpen, setBulkOpen] = useState(false);
   const [draft, setDraft] = useState({
-    time_block: "block1",
+    group: "",
     activity: "",
     details: "",
     frequency: "Daily",
@@ -44,9 +42,25 @@ export default function Routines() {
     load();
   }, []);
 
+  const { move, onDragStart, onDragOver, onDrop, onDragEnd, draggingId } =
+    useReorder("routines", routines, setRoutines);
+
+  const groups = useMemo(
+    () => Array.from(new Set(routines.map((r) => r.group).filter(Boolean))).sort(),
+    [routines],
+  );
+  const freqs = useMemo(
+    () => Array.from(new Set([...DEFAULT_FREQS, ...routines.map((r) => r.frequency).filter(Boolean)])),
+    [routines],
+  );
+  const visible = useMemo(
+    () => routines.filter((r) => !activeGroup || r.group === activeGroup),
+    [routines, activeGroup],
+  );
+
   const insertOne = async (row) => {
     await api.post("/routines", {
-      time_block: row.time_block || "block1",
+      group: capWords(row.group || activeGroup || "General"),
       activity: capWords(row.activity || ""),
       details: capWords(row.details || ""),
       frequency: row.frequency || "Daily",
@@ -56,14 +70,10 @@ export default function Routines() {
   const add = async () => {
     if (!draft.activity.trim()) return;
     try {
-      await api.post("/routines", {
-        ...draft,
-        activity: capWords(draft.activity),
-        details: capWords(draft.details),
-      });
-      setDraft({ time_block: draft.time_block, activity: "", details: "", frequency: "Daily" });
+      await insertOne(draft);
+      setDraft({ group: draft.group, activity: "", details: "", frequency: draft.frequency });
       await load();
-      toast.success("Routine added to master");
+      toast.success("Routine added");
     } catch {
       toast.error("Failed");
     }
@@ -78,24 +88,37 @@ export default function Routines() {
     await api.patch(`/routines/${id}`, body);
     await load();
   };
-
   const remove = async (id) => {
     await api.delete(`/routines/${id}`);
     await load();
   };
 
-  const groupedByBlock = BLOCKS.reduce((acc, b) => {
-    acc[b.key] = routines.filter((r) => (r.time_block || "block1") === b.key);
-    return acc;
-  }, {});
+  const addAsReminder = async (r) => {
+    try {
+      const base = new Date(Date.now() + 60 * 60 * 1000);
+      await api.post("/reminders", {
+        title: r.activity || "Routine",
+        notes: [r.group && `Group: ${r.group}`, r.details, `Frequency: ${r.frequency}`]
+          .filter(Boolean)
+          .join(" — "),
+        fire_at: base.toISOString(),
+        recurrence: (r.frequency || "").toLowerCase().includes("daily") ? "daily" : "none",
+        source_page: "routines",
+        source_context: { group: r.group, activity: r.activity, details: r.details, frequency: r.frequency },
+      });
+      toast.success("Reminder created");
+    } catch {
+      toast.error("Reminder failed");
+    }
+  };
 
-  const describe = (r) =>
-    `[${(BLOCKS.find((b) => b.key === r.time_block) || BLOCKS[0]).label}] ${r.activity}${
-      r.details ? " — " + r.details : ""
-    } · ${r.frequency || "Daily"}`;
+  const newGroupPrompt = () => {
+    const g = window.prompt("New group name (e.g. Morning, 4-Hour Focus, Evening)?", "");
+    if (g && g.trim()) setActiveGroup(g.trim());
+  };
 
   return (
-    <div className="space-y-6 mm-fade-in" data-testid="routines-page">
+    <div className="space-y-5 mm-fade-in" data-testid="routines-page">
       <SectionTitle
         subtitle="Discipline"
         title="Routine Engine"
@@ -114,198 +137,174 @@ export default function Routines() {
           </div>
         }
       />
-
-      <div className="text-xs text-[#B7A98A]/55">
-        The list below is your <span className="mm-text-gold-bright">master routine</span>.
-        Ticks reset every day automatically — your master never disappears.
-      </div>
+      <p className="text-xs sm:text-sm text-[#B7A98A]/65 -mt-3 max-w-2xl">
+        Your daily rituals — the master list never disappears, the ticks reset every morning.
+      </p>
 
       <AiAddBar
         kind="routine"
-        placeholder="e.g. Morning walk 30 min in 4-hour block, daily"
+        placeholder="e.g. Morning walk 30 min, group Morning, daily"
         columns={ROUTINE_COLUMNS}
-        describe={describe}
         onConfirm={async (rows) => {
           for (const r of rows) await insertOne(r);
           await load();
         }}
       />
 
-      <Card className="p-4" data-testid="routine-add-row">
-        <div className="grid grid-cols-1 md:grid-cols-6 gap-3">
-          <select
-            value={draft.time_block}
-            onChange={(e) => setDraft({ ...draft, time_block: e.target.value })}
-            className="mm-input text-sm"
-          >
-            {BLOCKS.map((b) => (
-              <option key={b.key} value={b.key}>
-                Block {b.index} · {b.label}
-              </option>
-            ))}
-          </select>
+      <GroupTabs
+        groups={groups}
+        active={activeGroup}
+        onChange={setActiveGroup}
+        onAdd={newGroupPrompt}
+      />
+
+      <Card className="p-0 overflow-hidden" data-testid="routines-table">
+        <div className={`hidden md:grid ${GRID} gap-3 px-4 py-3 border-b border-[rgba(201,169,97,0.2)] text-[10px] uppercase tracking-[0.2em] text-[#B7A98A]/60`}>
+          <div>Sr</div>
+          <div>Group</div>
+          <div>Task</div>
+          <div>Details</div>
+          <div>Frequency</div>
+          <div />
+        </div>
+
+        {/* Manual entry bar BELOW headers */}
+        <div
+          className={`hidden md:grid ${GRID} gap-3 px-4 py-3 border-b border-[rgba(201,169,97,0.12)] bg-[rgba(201,169,97,0.04)] items-center`}
+          data-testid="routine-add-row"
+        >
+          <div className="mm-text-gold/60 text-xs">#new</div>
           <input
-            className="mm-input text-sm md:col-span-2"
-            placeholder="Activity"
+            list="routine-groups"
+            placeholder={activeGroup || "Group"}
+            value={draft.group}
+            onChange={(e) => setDraft({ ...draft, group: e.target.value })}
+            className="mm-input text-xs !py-1.5"
+            data-testid="new-routine-group"
+          />
+          <input
+            className="mm-input text-xs !py-1.5"
+            placeholder="Task / activity"
             value={draft.activity}
             onChange={(e) => setDraft({ ...draft, activity: e.target.value })}
             data-testid="new-routine-activity"
           />
           <input
-            className="mm-input text-sm md:col-span-2"
-            placeholder="Details (optional)"
+            className="mm-input text-xs !py-1.5"
+            placeholder="Details"
             value={draft.details}
             onChange={(e) => setDraft({ ...draft, details: e.target.value })}
           />
-          <select
+          <input
+            list="routine-freqs"
             value={draft.frequency}
             onChange={(e) => setDraft({ ...draft, frequency: e.target.value })}
-            className="mm-input text-sm"
-          >
-            {FREQS.map((f) => (
-              <option key={f}>{f}</option>
-            ))}
-          </select>
+            className="mm-input text-xs !py-1.5"
+            placeholder="Daily / custom"
+          />
           <button
             onClick={add}
             disabled={!draft.activity.trim()}
-            className="mm-btn-primary text-sm disabled:opacity-40 flex items-center justify-center gap-1.5 md:col-span-6"
+            className="mm-btn-primary text-xs flex items-center justify-center gap-1.5 disabled:opacity-40 !py-1.5"
             data-testid="new-routine-submit"
           >
-            <Plus size={14} /> Add to master
+            <Plus size={13} /> Add
           </button>
         </div>
+
+        {visible.length === 0 ? (
+          <EmptyState
+            title={activeGroup ? `No routines in "${activeGroup}"` : "No routines yet"}
+            hint="Add to your daily master via AI, the row above, or Bulk add."
+          />
+        ) : (
+          visible.map((r, idx) => {
+            const info = summary?.per_routine?.[r.id];
+            const done = info?.done_today;
+            const streak = info?.streak || 0;
+            return (
+              <div
+                key={r.id}
+                className={`grid grid-cols-2 md:${GRID} gap-3 px-4 py-2.5 border-b border-[rgba(201,169,97,0.08)] hover:bg-[rgba(201,169,97,0.04)] items-center ${
+                  draggingId === r.id ? "opacity-40" : ""
+                }`}
+                data-testid="routine-row"
+              >
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => toggleToday(r.id, !done)}
+                    className={`w-5 h-5 rounded-full border flex items-center justify-center transition ${
+                      done
+                        ? "bg-gradient-to-br from-[#E4C98C] to-[#C9A961] border-[#C9A961] text-black"
+                        : "border-[rgba(201,169,97,0.35)] hover:border-[#E4C98C]"
+                    }`}
+                    data-testid="routine-tick"
+                  >
+                    {done && <Check size={12} strokeWidth={2.5} />}
+                  </button>
+                  <span className="mm-text-gold/70 text-xs">#{r.sr_no || idx + 1}</span>
+                </div>
+                <input
+                  list="routine-groups"
+                  defaultValue={r.group || ""}
+                  onBlur={(e) => patch(r.id, { group: capWords(e.target.value) })}
+                  placeholder="—"
+                  className="mm-input text-xs !py-1.5"
+                />
+                <input
+                  defaultValue={r.activity}
+                  onBlur={(e) => patch(r.id, { activity: capWords(e.target.value) })}
+                  className="mm-input text-xs !py-1.5"
+                />
+                <input
+                  defaultValue={r.details || ""}
+                  onBlur={(e) => patch(r.id, { details: capWords(e.target.value) })}
+                  placeholder="—"
+                  className="mm-input text-xs !py-1.5"
+                />
+                <input
+                  list="routine-freqs"
+                  defaultValue={r.frequency || "Daily"}
+                  onBlur={(e) => patch(r.id, { frequency: e.target.value })}
+                  className="mm-input text-xs !py-1.5"
+                />
+                <div className="flex items-center gap-1">
+                  {streak > 0 && (
+                    <div className="mm-chip mm-chip-gold flex items-center gap-1 text-[10px]">
+                      <Flame size={9} /> {streak}
+                    </div>
+                  )}
+                  <RowActions
+                    testId="routine"
+                    draggable
+                    onDragStart={onDragStart(r.id)}
+                    onDragOver={onDragOver(r.id)}
+                    onDrop={onDrop(r.id)}
+                    onDragEnd={onDragEnd}
+                    onUp={idx > 0 ? () => move(r.id, -1) : undefined}
+                    onDown={idx < visible.length - 1 ? () => move(r.id, 1) : undefined}
+                    onReminder={() => addAsReminder(r)}
+                    onDelete={() => remove(r.id)}
+                  />
+                </div>
+              </div>
+            );
+          })
+        )}
       </Card>
 
-      {routines.length === 0 ? (
-        <EmptyState
-          title="No routines yet"
-          hint="Add to your daily master via AI or the row above. The daily checklist refreshes every day."
-        />
-      ) : (
-        <div className="space-y-4">
-          {BLOCKS.map((b) => {
-            const items = groupedByBlock[b.key] || [];
-            const blockKey = b.key;
-            const totalThis = items.length;
-            const doneThis = items.filter((r) => summary?.per_routine?.[r.id]?.done_today).length;
-            const pct = totalThis ? Math.round((doneThis / totalThis) * 100) : 0;
-            return (
-              <Card key={blockKey} className="p-0 overflow-hidden" data-testid={`block-${blockKey}`}>
-                <div className="flex items-center justify-between px-5 py-3 border-b border-[rgba(201,169,97,0.18)]">
-                  <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-full flex items-center justify-center bg-[rgba(201,169,97,0.12)] border border-[rgba(201,169,97,0.35)] mm-text-gold-bright text-xs font-bold">
-                      {b.index}
-                    </div>
-                    <div>
-                      <div className="mm-font-display text-base mm-text-gold-bright">
-                        {b.label}
-                      </div>
-                      <div className="text-[10px] uppercase tracking-[0.2em] text-[#B7A98A]/55">
-                        Block {b.index} · {totalThis} item{totalThis !== 1 ? "s" : ""}
-                      </div>
-                    </div>
-                  </div>
-                  <div className="text-xs mm-text-gold">{pct}%</div>
-                </div>
-
-                {/* Header row */}
-                <div className="hidden md:grid grid-cols-[40px_120px_1.6fr_1.6fr_120px_40px] gap-3 px-5 py-2 border-b border-[rgba(201,169,97,0.1)] text-[10px] uppercase tracking-[0.25em] text-[#B7A98A]/55">
-                  <div />
-                  <div>Hour</div>
-                  <div>Task</div>
-                  <div>Details</div>
-                  <div>Frequency</div>
-                  <div />
-                </div>
-
-                {items.length === 0 ? (
-                  <div className="px-5 py-5 text-sm text-[#B7A98A]/45">
-                    No routines in this block yet.
-                  </div>
-                ) : (
-                  items.map((r) => {
-                    const info = summary?.per_routine?.[r.id];
-                    const done = info?.done_today;
-                    const streak = info?.streak || 0;
-                    return (
-                      <div
-                        key={r.id}
-                        className="grid grid-cols-2 md:grid-cols-[40px_120px_1.6fr_1.6fr_120px_40px] gap-3 px-5 py-2.5 border-b border-[rgba(201,169,97,0.06)] hover:bg-[rgba(201,169,97,0.04)] items-center"
-                        data-testid="routine-row"
-                      >
-                        <button
-                          onClick={() => toggleToday(r.id, !done)}
-                          className={`w-5 h-5 rounded-full border flex items-center justify-center transition ${
-                            done
-                              ? "bg-gradient-to-br from-[#E4C98C] to-[#C9A961] border-[#C9A961] text-black"
-                              : "border-[rgba(201,169,97,0.35)] hover:border-[#E4C98C]"
-                          }`}
-                          data-testid="routine-tick"
-                          aria-pressed={done}
-                        >
-                          {done && <Check size={12} strokeWidth={2.5} />}
-                        </button>
-                        <select
-                          value={r.time_block || "block1"}
-                          onChange={(e) => patch(r.id, { time_block: e.target.value })}
-                          className="mm-input text-xs !py-1.5"
-                        >
-                          {BLOCKS.map((bb) => (
-                            <option key={bb.key} value={bb.key}>
-                              {bb.label}
-                            </option>
-                          ))}
-                        </select>
-                        <input
-                          defaultValue={r.activity}
-                          onBlur={(e) => patch(r.id, { activity: e.target.value })}
-                          className="mm-input text-sm !py-1.5"
-                        />
-                        <input
-                          defaultValue={r.details || ""}
-                          onBlur={(e) => patch(r.id, { details: e.target.value })}
-                          placeholder="—"
-                          className="mm-input text-sm !py-1.5"
-                        />
-                        <select
-                          value={r.frequency || "Daily"}
-                          onChange={(e) => patch(r.id, { frequency: e.target.value })}
-                          className="mm-input text-xs !py-1.5"
-                        >
-                          {FREQS.map((f) => (
-                            <option key={f}>{f}</option>
-                          ))}
-                        </select>
-                        <div className="flex items-center gap-2 justify-self-end">
-                          {streak > 0 && (
-                            <div className="mm-chip mm-chip-gold flex items-center gap-1">
-                              <Flame size={10} /> {streak}
-                            </div>
-                          )}
-                          <button
-                            onClick={() => remove(r.id)}
-                            className="text-[#B7A98A]/50 hover:text-[#E4C98C] transition"
-                            data-testid="routine-delete"
-                          >
-                            <Trash2 size={13} />
-                          </button>
-                        </div>
-                      </div>
-                    );
-                  })
-                )}
-              </Card>
-            );
-          })}
-        </div>
-      )}
+      <datalist id="routine-groups">
+        {groups.map((g) => <option key={g} value={g} />)}
+      </datalist>
+      <datalist id="routine-freqs">
+        {freqs.map((f) => <option key={f} value={f} />)}
+      </datalist>
 
       <BulkAddDialog
         open={bulkOpen}
         onClose={() => setBulkOpen(false)}
         kind="routine"
-        describe={describe}
+        describe={(r) => `[${r.group || "General"}] ${r.activity} · ${r.frequency || "Daily"}`}
         onConfirm={async (rows) => {
           for (const r of rows) await insertOne(r);
           await load();

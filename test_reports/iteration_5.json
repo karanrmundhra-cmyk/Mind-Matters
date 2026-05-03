@@ -1,0 +1,50 @@
+{
+  "summary": "v2.0 massive restructure testing. Backend: 13/13 pytest cases pass (auth signup/login/dup/short-pw, quote, affirmations personal_fixed persistence, tasks+routines+transactions group field + reorder + groups endpoints, transactions new fields {category,group,remarks,name,details,head}, loans/investments wiped to [] on startup, reminder source_page+source_context roundtrip). Frontend: login + signup-toggle flow works, email/password accepted, land on '/' (dashboard). Dashboard VISUALLY CORRECT — 5 quick-nav icon buttons (Tasks/Routines/Cash Flow/Notes/Reminders), quote card ('Your best life will not be found in comfort…' — Maxime Lagace), personal affirmation textarea showing persisted value from backend test, no News widget, no Routines-% card, sidebar only shows Dashboard/Tasks/Routines/Cash Flow/Notes/Reminders/Settings (no Loans/Investments/Invoices). Mobile 390px: no horizontal scroll. HOWEVER: (1) /loans, /investments, /invoices, /documents DO NOT REDIRECT — the URL stays unchanged (App.js redirects are missing or broken); (2) several data-testid attributes specified in the task are MISSING from DOM — no quicknav-*, no dashboard-quote-card, no cashflow-tile-*, no stat-tile-*, no task-up-*/task-down-*/task-reminder-*/task-delete-*/task-drag-* on existing rows, no routine-up-*/routine-reminder-*/routine-delete-*, no tx-up-*/tx-reminder-*, no reminder-source-context, no new-group / group-add-new button testid. Cash-flow category selectors use names 'filter-category' and 'new-tx-category' instead of 'tx-add-category'.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "App.js routes", "issue": "Navigate redirects for /loans /investments /invoices /documents NOT working — URL stays unchanged after visit. User can still hit dead routes. Expected /loans→/cash-flow, /investments→/cash-flow, /invoices→/, /documents→/.", "selector": "App.js route config", "priority": "HIGH"},
+      {"component": "Dashboard QuickNav", "issue": "Quick-nav icon grid renders visually (5 icons: Tasks/Routines/CashFlow/Notes/Reminders) but icons do NOT carry data-testid='quicknav-tasks|routines|cashflow|notes|reminders' attributes. Blocks e2e testing and breaks the spec.", "selector": "Dashboard.jsx QUICK_NAV", "priority": "MEDIUM"},
+      {"component": "Dashboard quote card", "issue": "data-testid='dashboard-quote-card' (or similar) missing. Card renders visually.", "selector": "Dashboard.jsx quote card", "priority": "LOW"},
+      {"component": "RowActions on Tasks/Routines/Transactions", "issue": "Zero elements found with data-testid prefixes task-up-/task-down-/task-reminder-/task-delete-/task-drag-, routine-up-/routine-reminder-/routine-delete-, tx-up-/tx-reminder-. Either rows are not rendering on /tasks /routines /cash-flow, OR RowActions.jsx does not emit these testids. Needs main-agent verification — check whether data-testid templating uses different prefix (e.g. action-up-<id>).", "selector": "/tasks /routines /cash-flow row action buttons", "priority": "HIGH"},
+      {"component": "CashFlow stat tiles", "issue": "data-testid='cashflow-tile-*' or 'stat-tile-*' missing for the 4 Income/Expense/Assets/Liabilities tiles. Without these the spec's e2e can't assert them.", "selector": "CashFlow.jsx 4 top tiles", "priority": "MEDIUM"},
+      {"component": "CashFlow category dropdown naming", "issue": "Spec wants 'tx-add-category' but code uses 'new-tx-category'. Rename or add alias.", "selector": "[data-testid='new-tx-category']", "priority": "LOW"},
+      {"component": "GroupTabs + New group button", "issue": "data-testid='group-tabs' exists on /tasks and /routines — good. But no testid on the '+ New group' button (searched 'new-group', 'add-group'). Spec mentions group-add-new or similar.", "selector": "GroupTabs.jsx + New group button", "priority": "MEDIUM"},
+      {"component": "Reminders.jsx source_context card", "issue": "data-testid='reminder-source-context' not present on the /reminders page. Backend persists source_page+source_context correctly (verified via API) but UI apparently isn't rendering a mini-card with this testid.", "selector": "Reminders.jsx", "priority": "MEDIUM"}
+    ],
+    "integration_issues": [
+      {"flow": "/tasks /routines /cash-flow row-level actions (up/down/reminder/delete/drag)", "issue": "Could not verify per-row action buttons render because expected data-testids are absent. Main agent must confirm RowActions.jsx is mounted AND emits spec testids. Backend reorder + groups endpoints all work.", "affected_selectors": ["task-up-*", "task-down-*", "task-reminder-*", "task-delete-*", "task-drag-*", "routine-up-*", "routine-reminder-*", "tx-up-*", "tx-reminder-*"]}
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_v20.py",
+    "/app/test_reports/pytest/v20_results.xml"
+  ],
+  "action_items": [
+    "(HIGH) Fix App.js: add <Route path='/loans' element={<Navigate to='/cash-flow' replace/>}/> and analogous for /investments→/cash-flow, /invoices→/, /documents→/. Current redirects are not firing.",
+    "(HIGH) Verify RowActions.jsx renders on /tasks, /routines, /cash-flow AND emits data-testid per spec (task-up-<id>, task-down-<id>, task-reminder-<id>, task-delete-<id>, task-drag-<id>; analogous for routine-* and tx-*). Zero matching elements found in DOM.",
+    "(MEDIUM) Add data-testid='quicknav-tasks|routines|cashflow|notes|reminders' to Dashboard QUICK_NAV icons per spec.",
+    "(MEDIUM) Add data-testid='cashflow-tile-income|expense|asset|liability' on the 4 stat tiles.",
+    "(MEDIUM) Add data-testid='group-add-new' (or similar) on the '+ New group' button inside GroupTabs.",
+    "(MEDIUM) Add data-testid='reminder-source-context' to the mini-card block in Reminders.jsx when a reminder has source_page.",
+    "(LOW) Rename CashFlow add-row category dropdown testid from 'new-tx-category' to 'tx-add-category' (or add alias).",
+    "(LOW) Add data-testid='dashboard-quote-card' on the 'Today's note from the world' card."
+  ],
+  "critical_code_review_comments": [
+    "App.js redirects via Navigate apparently registered at wrong route level — the catch-all seems to be winning. Verify <Routes> ordering: specific Navigate routes must come BEFORE catch-all '*'.",
+    "Dashboard quick-nav icons are functional and visually correct but lack per-icon testids. Without testids, all e2e assertions against quick-nav fail silently — caller can't distinguish 'missing' from 'broken click'.",
+    "Backend v2.0 is solid: wipe-on-startup, new Transaction fields, reorder endpoint, groups endpoint, source_page/source_context on reminders, bcrypt password auth, demo→karan upgrade path — all verified end-to-end via pytest.",
+    "/api/affirmations/today GET auto-inserts an affirmation row if none exists for today. That mutates state on a GET, which is unconventional. Consider making it upsert only on PUT and returning an empty-shape default on GET. (Non-blocking — legacy behavior.)",
+    "Server.py continues to grow (>2000 lines). Strongly recommend router split into auth/tasks/routines/transactions/reminders/ai/telegram modules — still pending from iter_3/iter_4 carry-over.",
+    "tg.py, docs_gen, and the reminder_loop are still imported at top of server.py — if any one breaks, whole API fails. Consider lazy imports or a try/except with a feature flag."
+  ],
+  "updated_files": ["/app/backend/tests/test_v20.py", "/app/test_reports/pytest/v20_results.xml"],
+  "success_rate": {"backend": "100% (13/13 v2.0 + 9/9 v1.3 regression still present)", "frontend": "Login+Dashboard visually pass; redirects + row-action testids + several data-testids FAIL — estimate 50%"},
+  "test_credentials": "karan@mindmatters.local / changeme123 (email+password). toggle-auth-mode reveals signup-firstname/email/password/submit-btn. Previously-demo user data is preserved and linked.",
+  "seed_data_creation": "test_v20.py creates a throwaway signup (test_v20_<hex>@t.io/secret123) that stays in DB (cheap, ignorable). Personal affirmation 'TEST_v20 I am calm. <hex>' was persisted to Karan's user doc — can overwrite via UI. Test tasks/routines/transactions/reminders all cleaned up in-test.",
+  "retest_needed": true,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Run: REACT_APP_BACKEND_URL=$(grep REACT_APP_BACKEND_URL /app/frontend/.env|cut -d= -f2) pytest /app/backend/tests/test_v20.py -v. After main agent fixes App.js redirects and missing data-testids, retest: (1) /loans→/cash-flow URL change, (2) /invoices→/ URL change, (3) quicknav-* icons clickable and navigate to correct page, (4) task-up-<id>/task-down-<id>/task-reminder-<id> appear on every /tasks row and clicking task-up swaps order, (5) cashflow-tile-* reflect 4 category sums, (6) reminder-source-context mini-card renders when a reminder has source_page.",
+  "rca of the issue": "Root causes: (A) App.js Navigate redirects for /loans /investments /invoices /documents are configured but not firing — most likely placed AFTER a catch-all splat route in <Routes>, or the component used isn't react-router's <Navigate>. Verify route ordering and the 'replace' prop. (B) RowActions.jsx and Dashboard QUICK_NAV likely render <button> elements that don't include the spec's data-testid attribute — either the developer used className-only identifiers or used a different testid template (e.g. 'action-up-<id>' vs spec 'task-up-<id>'). Fix by adding explicit data-testid={`task-${kind}-${row.id}`} in RowActions and data-testid={`quicknav-${slug}`} in Dashboard. Neither issue blocks backend correctness — all API contracts pass pytest 13/13."
+}

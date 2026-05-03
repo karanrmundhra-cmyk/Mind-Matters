@@ -149,6 +149,9 @@ export default function Notes() {
           </div>
         }
       />
+      <p className="text-xs sm:text-sm text-[#B7A98A]/65 -mt-3 max-w-2xl" data-testid="notes-description">
+        Your second brain — quick thoughts, research, ideas. Tag them so they find you later.
+      </p>
 
       <AiAddBar
         kind="note"

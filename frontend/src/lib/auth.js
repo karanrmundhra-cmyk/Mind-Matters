@@ -29,7 +29,21 @@ export function AuthProvider({ children }) {
     bootstrap();
   }, [bootstrap]);
 
-  const login = useCallback(async (first_name) => {
+  const login = useCallback(async (email, password) => {
+    const { data } = await api.post("/auth/login", { email, password });
+    localStorage.setItem("mm_token", data.token);
+    setUser(data.user);
+    return data.user;
+  }, []);
+
+  const signup = useCallback(async (first_name, email, password) => {
+    const { data } = await api.post("/auth/signup", { first_name, email, password });
+    localStorage.setItem("mm_token", data.token);
+    setUser(data.user);
+    return data.user;
+  }, []);
+
+  const demoLogin = useCallback(async (first_name) => {
     const { data } = await api.post("/auth/demo-login", { first_name });
     localStorage.setItem("mm_token", data.token);
     setUser(data.user);
@@ -42,7 +56,7 @@ export function AuthProvider({ children }) {
   }, []);
 
   return (
-    <AuthCtx.Provider value={{ user, loading, login, logout, refresh: bootstrap }}>
+    <AuthCtx.Provider value={{ user, loading, login, signup, demoLogin, logout, refresh: bootstrap }}>
       {children}
     </AuthCtx.Provider>
   );

@@ -27,6 +27,7 @@ import jwt as pyjwt
 import httpx
 
 from emergentintegrations.llm.chat import LlmChat, UserMessage
+import bcrypt
 
 from docs_gen import render_by_template_id, BUILTIN_TEMPLATES, render_simple_statement
 from tg import tg_send, tg_send_document, tg_poll_loop, reminder_loop
@@ -105,6 +106,28 @@ class DemoLoginReq(BaseModel):
     first_name: Optional[str] = "Friend"
 
 
+class SignupReq(BaseModel):
+    first_name: str
+    email: str
+    password: str
+
+
+class LoginReq(BaseModel):
+    email: str
+    password: str
+
+
+def _hash_password(password: str) -> str:
+    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+
+
+def _verify_password(password: str, hashed: str) -> bool:
+    try:
+        return bcrypt.checkpw(password.encode("utf-8"), hashed.encode("utf-8"))
+    except Exception:
+        return False
+
+
 class TokenResp(BaseModel):
     token: str
     user: User
@@ -113,15 +136,17 @@ class TokenResp(BaseModel):
 # Task
 class TaskIn(BaseModel):
     date: Optional[str] = None
-    name: str = ""  # responsible person
+    name: str = ""  # responsible person / "to"
     task: str
     details: str = ""
     status: Literal["Pending", "Done", "Follow-Up"] = "Pending"
+    group: str = ""  # custom group, user-defined (replaces block1..4)
 
 
 class Task(TaskIn):
     id: str
     sr_no: int
+    order_index: int = 0
     user_id: str
     created_at: str
     updated_at: str
@@ -129,16 +154,18 @@ class Task(TaskIn):
 
 # Routine
 class RoutineIn(BaseModel):
-    time_block: Literal["block1", "block2", "block3", "block4"] = "block1"
+    group: str = ""  # custom group name (e.g. "Morning", "4 Hours Focus")
     activity: str
     details: str = ""
-    frequency: Literal["Daily", "Weekly", "Monthly", "Quarterly", "Half-Yearly", "Yearly"] = "Daily"
+    frequency: str = "Daily"  # free-form now (Daily/Weekly/Custom…)
     priority: Literal["Low", "Medium", "High"] = "Medium"
     status: Literal["Active", "Paused"] = "Active"
 
 
 class Routine(RoutineIn):
     id: str
+    sr_no: int = 0
+    order_index: int = 0
     user_id: str
     created_at: str
     updated_at: str
@@ -179,11 +206,18 @@ class Loan(LoanIn):
     updated_at: str
 
 
-# Transactions (cash flow)
+# Transactions (unified Cash Flow — replaces Loans/Investments/Insurance)
 class TransactionIn(BaseModel):
     date: Optional[str] = None
     amount: float
+    name: str = ""  # person / entity (e.g. loan "to/from", investment provider)
+    details: str = ""  # what it is
+    remarks: str = ""  # interest rate, insured_for, repayment note, etc.
+    head: str = "Uncategorized"  # auto-categorised expense head
+    category: Literal["income", "expense", "asset", "liability"] = "expense"
+    group: str = ""  # custom user-defined tab (e.g. "Personal", "Business", "Brinda")
     mode: str = "Cash"
+    # legacy fields kept for backwards-compat
     company: str = ""
     expense_head: str = "Uncategorized"
     direction: Literal["in", "out"] = "out"
@@ -194,6 +228,8 @@ class TransactionIn(BaseModel):
 
 class Transaction(TransactionIn):
     id: str
+    sr_no: int = 0
+    order_index: int = 0
     user_id: str
     created_at: str
     updated_at: str
@@ -239,14 +275,16 @@ class Note(NoteIn):
 # Affirmation
 class AffirmationIn(BaseModel):
     date: Optional[str] = None
-    text: str
+    text: str = ""
+    personal_fixed: Optional[str] = None  # user's fixed personal affirmation
 
 
 class Affirmation(BaseModel):
     id: str
     user_id: str
     date: str
-    text: str
+    text: str = ""
+    personal_fixed: str = ""
     updated_at: str
 
 
@@ -277,6 +315,65 @@ async def demo_login(body: DemoLoginReq):
 @api.get("/auth/me", response_model=User)
 async def auth_me(user=Depends(get_current_user)):
     return User(**user)
+
+
+# ───────────────────────────── auth: email/password ─────────────────────────────
+@api.post("/auth/signup", response_model=TokenResp)
+async def signup(body: SignupReq):
+    email = body.email.strip().lower()
+    if not email or "@" not in email:
+        raise HTTPException(400, "Invalid email")
+    if len(body.password) < 6:
+        raise HTTPException(400, "Password must be at least 6 characters")
+    first_name = body.first_name.strip() or "Friend"
+
+    existing = await db.users.find_one({"email": email}, {"_id": 0})
+    if existing and existing.get("password_hash"):
+        raise HTTPException(400, "Email already registered — use login instead")
+
+    # If this is the first real signup and a demo-login user exists with no password,
+    # attach the signup to that same user_id so historical data stays linked.
+    demo = await db.users.find_one(
+        {"email": "you@mindmatters.local", "password_hash": {"$in": [None, ""]}},
+        {"_id": 0},
+    )
+    if demo and not existing:
+        await db.users.update_one(
+            {"id": demo["id"]},
+            {"$set": {
+                "email": email,
+                "first_name": first_name,
+                "password_hash": _hash_password(body.password),
+            }},
+        )
+        user = await db.users.find_one({"id": demo["id"]}, {"_id": 0})
+    else:
+        user = {
+            "id": new_id(),
+            "email": email,
+            "first_name": first_name,
+            "last_name": "",
+            "picture": "",
+            "password_hash": _hash_password(body.password),
+            "created_at": now_iso(),
+        }
+        await db.users.insert_one(dict(user))
+    token = make_token(user["id"])
+    user_resp = {k: v for k, v in user.items() if k != "password_hash"}
+    return {"token": token, "user": User(**user_resp)}
+
+
+@api.post("/auth/login", response_model=TokenResp)
+async def login(body: LoginReq):
+    email = body.email.strip().lower()
+    user = await db.users.find_one({"email": email}, {"_id": 0})
+    if not user or not user.get("password_hash"):
+        raise HTTPException(401, "Invalid email or password")
+    if not _verify_password(body.password, user["password_hash"]):
+        raise HTTPException(401, "Invalid email or password")
+    token = make_token(user["id"])
+    user_resp = {k: v for k, v in user.items() if k != "password_hash"}
+    return {"token": token, "user": User(**user_resp)}
 
 
 # ───────────────────────────── tasks ─────────────────────────────
@@ -357,7 +454,8 @@ async def bulk_create_tasks(body: List[TaskIn], user=Depends(get_current_user)):
 
 @api.patch("/tasks/{task_id}", response_model=Task)
 async def update_task(task_id: str, body: Dict[str, Any], user=Depends(get_current_user)):
-    body = {k: v for k, v in body.items() if k in {"date", "name", "task", "details", "status"}}
+    body = {k: v for k, v in body.items()
+            if k in {"date", "name", "task", "details", "status", "group", "order_index"}}
     body["updated_at"] = now_iso()
     res = await db.tasks.find_one_and_update(
         {"id": task_id, "user_id": user["id"]},
@@ -417,7 +515,8 @@ async def bulk_routines(body: List[RoutineIn], user=Depends(get_current_user)):
 
 @api.patch("/routines/{rid}", response_model=Routine)
 async def update_routine(rid: str, body: Dict[str, Any], user=Depends(get_current_user)):
-    body = {k: v for k, v in body.items() if k in {"time_block", "activity", "details", "frequency", "priority", "status"}}
+    body = {k: v for k, v in body.items()
+            if k in {"group", "activity", "details", "frequency", "priority", "status", "order_index"}}
     body["updated_at"] = now_iso()
     res = await db.routines.find_one_and_update(
         {"id": rid, "user_id": user["id"]}, {"$set": body}, projection={"_id": 0}, return_document=True
@@ -506,7 +605,7 @@ async def routines_summary(user=Depends(get_current_user)):
     # per category %
     cats: Dict[str, Dict[str, int]] = {}
     for r in routines:
-        c = r.get("time_block") or r.get("category") or "block1"
+        c = r.get("group") or r.get("time_block") or r.get("category") or "General"
         cats.setdefault(c, {"total": 0, "done": 0})
         cats[c]["total"] += 1
         if per_routine[r["id"]]["done_today"]:
@@ -521,6 +620,35 @@ async def routines_summary(user=Depends(get_current_user)):
         "category_percent": category_percent,
         "per_routine": per_routine,
     }
+
+
+# ───────────────────────────── generic reorder + groups ─────────────────────────────
+class ReorderReq(BaseModel):
+    ids: List[str]  # desired order
+
+
+_REORDER_COLLECTIONS = {"tasks", "routines", "transactions"}
+
+
+@api.post("/{resource}/reorder")
+async def reorder_items(resource: str, body: ReorderReq, user=Depends(get_current_user)):
+    if resource not in _REORDER_COLLECTIONS:
+        raise HTTPException(400, "Unsupported resource")
+    coll = db[resource]
+    for idx, _id in enumerate(body.ids):
+        await coll.update_one({"id": _id, "user_id": user["id"]},
+                              {"$set": {"order_index": idx, "updated_at": now_iso()}})
+    return {"ok": True, "count": len(body.ids)}
+
+
+@api.get("/groups/{resource}")
+async def list_groups(resource: str, user=Depends(get_current_user)):
+    """Distinct custom group names used by this user for a given resource."""
+    if resource not in _REORDER_COLLECTIONS:
+        raise HTTPException(400, "Unsupported resource")
+    coll = db[resource]
+    names = await coll.distinct("group", {"user_id": user["id"]})
+    return {"groups": sorted([n for n in names if n])}
 
 
 # ───────────────────────────── loans ─────────────────────────────
@@ -649,7 +777,9 @@ async def create_transaction(body: TransactionIn, user=Depends(get_current_user)
 
 @api.patch("/transactions/{tid}", response_model=Transaction)
 async def update_transaction(tid: str, body: Dict[str, Any], user=Depends(get_current_user)):
-    allowed = {"date", "amount", "mode", "company", "expense_head", "direction", "account", "notes"}
+    allowed = {"date", "amount", "mode", "company", "expense_head", "direction",
+               "account", "notes", "name", "details", "remarks", "head",
+               "category", "group", "order_index"}
     body = {k: v for k, v in body.items() if k in allowed}
     body["updated_at"] = now_iso()
     res = await db.transactions.find_one_and_update(
@@ -958,21 +1088,32 @@ async def today_affirmation(user=Depends(get_current_user)):
             "updated_at": now_iso(),
         }
         await db.affirmations.insert_one(dict(doc))
+    u = await db.users.find_one({"id": user["id"]}, {"_id": 0})
+    doc["personal_fixed"] = (u or {}).get("personal_affirmation", "") or ""
     return Affirmation(**doc)
 
 
 @api.put("/affirmations/today", response_model=Affirmation)
 async def save_today_affirmation(body: AffirmationIn, user=Depends(get_current_user)):
     d = body.date or today_key()
+    set_fields = {"updated_at": now_iso()}
+    if body.text is not None:
+        set_fields["text"] = body.text
+    if body.personal_fixed is not None:
+        # stored on user, not per-day (fixed)
+        await db.users.update_one({"id": user["id"]},
+                                  {"$set": {"personal_affirmation": body.personal_fixed}})
     await db.affirmations.update_one(
         {"user_id": user["id"], "date": d},
         {
-            "$set": {"text": body.text, "updated_at": now_iso()},
+            "$set": set_fields,
             "$setOnInsert": {"id": new_id(), "user_id": user["id"], "date": d},
         },
         upsert=True,
     )
     doc = await db.affirmations.find_one({"user_id": user["id"], "date": d}, {"_id": 0})
+    u = await db.users.find_one({"id": user["id"]}, {"_id": 0})
+    doc["personal_fixed"] = (u or {}).get("personal_affirmation", "") or ""
     return Affirmation(**doc)
 
 
@@ -1122,6 +1263,35 @@ async def ai_parse(body: ParseReq, user=Depends(get_current_user)):
         return {"parsed": data, "raw": resp}
     except Exception:
         return {"parsed": None, "raw": resp}
+
+
+# ───────────────────────────── daily quote (replaces news) ─────────────────────────────
+@api.get("/quote/today")
+async def quote_today():
+    """Fetch a single inspirational quote from a public, free API."""
+    # Use ZenQuotes — no key needed. Fallback to a static list on failure.
+    try:
+        async with httpx.AsyncClient(timeout=6) as cli:
+            r = await cli.get("https://zenquotes.io/api/today")
+            arr = r.json()
+            if isinstance(arr, list) and arr:
+                q = arr[0]
+                text = q.get("q") or ""
+                author = q.get("a") or "Unknown"
+                if text:
+                    return {"text": text.strip(), "author": author.strip()}
+    except Exception as e:
+        logger.warning(f"quote fetch failed: {e}")
+    fallback = [
+        ("Discipline is the bridge between goals and accomplishment.", "Jim Rohn"),
+        ("The secret of getting ahead is getting started.", "Mark Twain"),
+        ("Small daily improvements over time lead to stunning results.", "Robin Sharma"),
+        ("You don't have to be great to start, but you have to start to be great.", "Zig Ziglar"),
+    ]
+    # pick by day-of-year so it's deterministic per day
+    idx = datetime.now(timezone.utc).timetuple().tm_yday % len(fallback)
+    text, author = fallback[idx]
+    return {"text": text, "author": author}
 
 
 # ───────────────────────────── news (GNews) ─────────────────────────────
@@ -1414,6 +1584,8 @@ class ReminderIn(BaseModel):
     notes: Optional[str] = ""
     fire_at: str  # ISO datetime in UTC
     recurrence: Optional[Literal["none", "daily", "weekly", "monthly", "quarterly", "half-yearly", "yearly"]] = "none"
+    source_page: Optional[str] = None  # e.g. "tasks" | "cash-flow" | "routines" | "notes"
+    source_context: Optional[Dict[str, Any]] = None  # snapshot of the row this reminder came from
 
 
 class Reminder(BaseModel):
@@ -1424,6 +1596,8 @@ class Reminder(BaseModel):
     fire_at: str
     recurrence: str = "none"
     sent: bool = False
+    source_page: Optional[str] = None
+    source_context: Optional[Dict[str, Any]] = None
     created_at: str
 
 
@@ -1440,6 +1614,8 @@ async def create_reminder(body: ReminderIn, user=Depends(get_current_user)):
         "id": new_id(), "user_id": user["id"],
         "title": body.title, "notes": body.notes or "",
         "fire_at": body.fire_at, "recurrence": body.recurrence or "none",
+        "source_page": body.source_page,
+        "source_context": body.source_context,
         "sent": False, "created_at": now_iso(),
     }
     await db.reminders.insert_one(dict(doc))
@@ -1448,7 +1624,8 @@ async def create_reminder(body: ReminderIn, user=Depends(get_current_user)):
 
 @api.patch("/reminders/{rid}", response_model=Reminder)
 async def update_reminder(rid: str, body: Dict[str, Any], user=Depends(get_current_user)):
-    allowed = {"title", "notes", "fire_at", "recurrence", "sent"}
+    allowed = {"title", "notes", "fire_at", "recurrence", "sent",
+               "source_page", "source_context"}
     body = {k: v for k, v in body.items() if k in allowed}
     res = await db.reminders.find_one_and_update(
         {"id": rid, "user_id": user["id"]}, {"$set": body},
@@ -1971,6 +2148,20 @@ async def delete_note_image(nid: str, iid: str, user=Depends(get_current_user)):
 # ───────────────────── Startup: Telegram poller + reminder loop ─────────────────────
 @app.on_event("startup")
 async def _mm_startup_tasks():
+    # v2.0 migration: wipe loans + investments collections per user request
+    try:
+        dropped_l = await db.loans.delete_many({})
+        dropped_i = await db.investments.delete_many({})
+        if dropped_l.deleted_count or dropped_i.deleted_count:
+            logger.info(f"v2 migration: wiped {dropped_l.deleted_count} loans, "
+                        f"{dropped_i.deleted_count} investments")
+    except Exception as e:
+        logger.warning(f"startup wipe failed: {e}")
+    # Indexes
+    try:
+        await db.users.create_index("email", unique=True, sparse=True)
+    except Exception as e:
+        logger.warning(f"index create: {e}")
     try:
         asyncio.create_task(tg_poll_loop(
             db, _ai_parse_text, _create_task_internal,

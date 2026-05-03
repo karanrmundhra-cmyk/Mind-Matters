@@ -11,13 +11,12 @@ import Login from "@/pages/Login";
 import Dashboard from "@/pages/Dashboard";
 import Tasks from "@/pages/Tasks";
 import Routines from "@/pages/Routines";
-import Loans from "@/pages/Loans";
 import CashFlow from "@/pages/CashFlow";
-import Investments from "@/pages/Investments";
 import Notes from "@/pages/Notes";
-import Documents from "@/pages/Documents";
 import Reminders from "@/pages/Reminders";
-import Settings from "@/pages/Settings";function RequireAuth({ children }) {
+import Settings from "@/pages/Settings";
+
+function RequireAuth({ children }) {
   const { user, loading } = useAuth();
   const location = useLocation();
   if (loading) return <SplashScreen />;
@@ -46,15 +45,16 @@ function Root() {
         <Route index element={<Dashboard />} />
         <Route path="tasks" element={<Tasks />} />
         <Route path="routines" element={<Routines />} />
-        <Route path="loans" element={<Loans />} />
         <Route path="cash-flow" element={<CashFlow />} />
         <Route path="cashflow" element={<Navigate to="/cash-flow" replace />} />
-        <Route path="investments" element={<Investments />} />
         <Route path="notes" element={<Notes />} />
-        <Route path="invoices" element={<Documents />} />
-        <Route path="documents" element={<Documents />} />
         <Route path="reminders" element={<Reminders />} />
         <Route path="settings" element={<Settings />} />
+        {/* v2 removed pages — redirect to dashboard */}
+        <Route path="loans" element={<Navigate to="/cash-flow" replace />} />
+        <Route path="investments" element={<Navigate to="/cash-flow" replace />} />
+        <Route path="invoices" element={<Navigate to="/" replace />} />
+        <Route path="documents" element={<Navigate to="/" replace />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

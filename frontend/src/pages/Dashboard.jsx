@@ -1,18 +1,12 @@
 import React, { useEffect, useState } from "react";
+import { NavLink } from "react-router-dom";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { Card } from "@/components/Primitives";
-import { Wind, Plus, Newspaper, Trash2, CalendarClock } from "lucide-react";
+import {
+  Wind, Plus, Trash2, CalendarClock, CheckSquare, Repeat, Wallet, StickyNote, BellRing,
+} from "lucide-react";
 import { toast } from "sonner";
-
-const fmtINR = (n) =>
-  n == null
-    ? "—"
-    : new Intl.NumberFormat("en-IN", {
-        style: "currency",
-        currency: "INR",
-        maximumFractionDigits: 0,
-      }).format(n || 0);
 
 function daysUntil(yyyy_mm_dd) {
   if (!yyyy_mm_dd) return null;
@@ -22,26 +16,31 @@ function daysUntil(yyyy_mm_dd) {
   return Math.ceil((d - today) / 86400000);
 }
 
+const QUICK_NAV = [
+  { to: "/tasks", label: "Tasks", icon: CheckSquare, testid: "quick-tasks" },
+  { to: "/routines", label: "Routines", icon: Repeat, testid: "quick-routines" },
+  { to: "/cash-flow", label: "Cash Flow", icon: Wallet, testid: "quick-cashflow" },
+  { to: "/notes", label: "Notes", icon: StickyNote, testid: "quick-notes" },
+  { to: "/reminders", label: "Reminders", icon: BellRing, testid: "quick-reminders" },
+];
+
 export default function Dashboard() {
   const { user } = useAuth();
-  const [snap, setSnap] = useState(null);
   const [weather, setWeather] = useState(null);
-  const [news, setNews] = useState([]);
+  const [quote, setQuote] = useState(null);
   const [affirmation, setAffirmation] = useState(null);
   const [deadlines, setDeadlines] = useState([]);
   const [draft, setDraft] = useState({ title: "", due_date: "" });
 
   const load = async () => {
-    const [s, w, n, a, d] = await Promise.all([
-      api.get("/dashboard/snapshot"),
+    const [w, q, a, d] = await Promise.all([
       api.get("/weather"),
-      api.get("/news/headlines"),
+      api.get("/quote/today"),
       api.get("/affirmations/today"),
       api.get("/deadlines"),
     ]);
-    setSnap(s.data);
     setWeather(w.data);
-    setNews(n.data.headlines || []);
+    setQuote(q.data);
     setAffirmation(a.data);
     setDeadlines(d.data || []);
   };
@@ -49,9 +48,9 @@ export default function Dashboard() {
     load();
   }, []);
 
-  const saveAffirmation = async (text) => {
+  const savePersonalAffirmation = async (text) => {
     try {
-      const { data } = await api.put("/affirmations/today", { text });
+      const { data } = await api.put("/affirmations/today", { personal_fixed: text });
       setAffirmation(data);
     } catch {
       toast.error("Could not save");
@@ -84,23 +83,17 @@ export default function Dashboard() {
   });
   const hour = today.getHours();
   const greet =
-    hour < 5
-      ? "Hello"
-      : hour < 12
-        ? "Good morning"
-        : hour < 17
-          ? "Good afternoon"
-          : "Good evening";
+    hour < 5 ? "Hello" : hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
 
   return (
-    <div className="space-y-8 mm-fade-in" data-testid="dashboard-page">
+    <div className="space-y-6 sm:space-y-8 mm-fade-in" data-testid="dashboard-page">
       {/* Header greeting */}
-      <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-5">
+      <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4 sm:gap-5">
         <div>
-          <div className="text-[11px] uppercase tracking-[0.3em] text-[#B7A98A]/60">
+          <div className="text-[10px] sm:text-[11px] uppercase tracking-[0.3em] text-[#B7A98A]/60">
             {greetDate}
           </div>
-          <h1 className="mm-font-display text-4xl sm:text-5xl lg:text-6xl text-white mt-2 font-light">
+          <h1 className="mm-font-display text-3xl sm:text-5xl lg:text-6xl text-white mt-2 font-light leading-tight">
             {greet},{" "}
             <span
               className="mm-font-serif italic"
@@ -121,7 +114,7 @@ export default function Dashboard() {
           <div className="mm-wave-line mt-4" />
         </div>
 
-        <Card className="px-5 py-4 flex items-center gap-4 min-w-[220px]">
+        <Card className="px-5 py-3 sm:py-4 flex items-center gap-4 sm:min-w-[200px]">
           <Wind size={22} strokeWidth={1.3} className="mm-text-gold" />
           <div>
             <div className="text-[10px] uppercase tracking-[0.25em] text-[#B7A98A]/65">
@@ -135,57 +128,72 @@ export default function Dashboard() {
         </Card>
       </div>
 
-      {/* Routine completion + Today affirmation */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <Card className="p-6" data-testid="stat-routine-today">
-          <div className="text-[10px] uppercase tracking-[0.3em] text-[#B7A98A]/60">
-            Routines today
-          </div>
-          <div className="mm-font-display text-5xl mm-text-gold-bright mt-3">
-            {snap?.routine_percent_today != null ? `${snap.routine_percent_today}%` : "—"}
-          </div>
-          <div className="mt-4 h-1.5 rounded-full bg-[rgba(201,169,97,0.12)] overflow-hidden">
-            <div
-              className="h-full bg-gradient-to-r from-[#E4C98C] to-[#C9A961]"
-              style={{
-                width: `${snap?.routine_percent_today ?? 0}%`,
-                transition: "width 600ms ease",
-              }}
+      {/* Quick access icon row */}
+      <div
+        className="grid grid-cols-5 gap-2 sm:gap-3"
+        data-testid="quick-nav-grid"
+      >
+        {QUICK_NAV.map((n) => (
+          <NavLink
+            key={n.to}
+            to={n.to}
+            className="group flex flex-col items-center gap-2 p-3 sm:p-4 rounded-xl border border-[rgba(201,169,97,0.2)] bg-[rgba(201,169,97,0.03)] hover:border-[#C9A961]/60 hover:bg-[rgba(201,169,97,0.08)] transition active:scale-95 min-h-[72px] sm:min-h-[88px]"
+            data-testid={n.testid}
+          >
+            <n.icon
+              size={22}
+              strokeWidth={1.4}
+              className="mm-text-gold-bright group-hover:scale-110 transition-transform"
             />
+            <span className="text-[9px] sm:text-[11px] uppercase tracking-[0.18em] text-[#E4C98C]/85 text-center leading-tight">
+              {n.label}
+            </span>
+          </NavLink>
+        ))}
+      </div>
+
+      {/* Two affirmations: internet quote + user-fixed */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <Card className="p-5 sm:p-6" data-testid="quote-card">
+          <div className="text-[10px] uppercase tracking-[0.3em] text-[#B7A98A]/60 mb-3">
+            Today's note from the world
           </div>
-          <div className="text-xs text-[#B7A98A]/60 mt-3">
-            Tick your routines on the Routines page to keep the streak alive.
+          <div className="mm-font-serif italic text-base sm:text-lg mm-text-gold-bright leading-snug">
+            "{quote?.text || "Loading…"}"
           </div>
+          {quote?.author && (
+            <div className="text-xs text-[#B7A98A]/55 mt-3">— {quote.author}</div>
+          )}
         </Card>
 
-        <Card className="p-6 md:col-span-2" data-testid="affirmation-card">
+        <Card className="p-5 sm:p-6" data-testid="personal-affirmation-card">
           <div className="text-[10px] uppercase tracking-[0.3em] text-[#B7A98A]/60 mb-3">
-            Today's affirmation
+            Your personal affirmation
           </div>
           <textarea
-            value={affirmation?.text || ""}
-            onChange={(e) => setAffirmation({ ...affirmation, text: e.target.value })}
-            onBlur={(e) => saveAffirmation(e.target.value)}
+            value={affirmation?.personal_fixed || ""}
+            onChange={(e) => setAffirmation({ ...affirmation, personal_fixed: e.target.value })}
+            onBlur={(e) => savePersonalAffirmation(e.target.value)}
             placeholder="I am the calm in my storm."
             rows={3}
-            className="mm-input mm-font-serif italic text-lg resize-none"
-            data-testid="affirmation-input"
+            className="mm-input mm-font-serif italic text-base sm:text-lg resize-none"
+            data-testid="personal-affirmation-input"
           />
           <div className="text-[10px] text-[#B7A98A]/45 mt-3 uppercase tracking-[0.25em]">
-            Auto-saves on blur
+            Fixed · auto-saves on blur
           </div>
         </Card>
       </div>
 
       {/* Deadlines countdown */}
-      <Card className="p-6" data-testid="deadlines-card">
+      <Card className="p-5 sm:p-6" data-testid="deadlines-card">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2 text-[10px] uppercase tracking-[0.3em] text-[#B7A98A]/65">
             <CalendarClock size={12} className="mm-text-gold" />
             Deadlines
           </div>
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <input
             placeholder="Deadline title (e.g. Tax filing)"
             value={draft.title}
@@ -260,37 +268,6 @@ export default function Dashboard() {
             })}
           </div>
         )}
-      </Card>
-
-      {/* News */}
-      <Card className="p-6" data-testid="news-card">
-        <div className="flex items-center gap-2 mb-4">
-          <Newspaper size={14} strokeWidth={1.5} className="mm-text-gold" />
-          <div className="text-[10px] uppercase tracking-[0.3em] text-[#B7A98A]/65">
-            Headlines
-          </div>
-        </div>
-        <ul className="space-y-4">
-          {news.map((h, i) => (
-            <li key={i} className="text-sm">
-              {h.url ? (
-                <a
-                  href={h.url}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="mm-text-gold-bright hover:underline leading-snug"
-                >
-                  {h.title}
-                </a>
-              ) : (
-                <div className="mm-text-gold-bright leading-snug">{h.title}</div>
-              )}
-              <div className="text-[10px] uppercase tracking-[0.2em] text-[#B7A98A]/40 mt-1">
-                {h.source}
-              </div>
-            </li>
-          ))}
-        </ul>
       </Card>
     </div>
   );
