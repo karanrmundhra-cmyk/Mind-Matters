@@ -74,6 +74,32 @@ export default function Dashboard() {
     await load();
   };
 
+  const patchDeadline = async (id, body) => {
+    try {
+      await api.patch(`/deadlines/${id}`, body);
+      await load();
+    } catch {
+      toast.error("Could not save deadline");
+    }
+  };
+
+  const deadlineToReminder = async (d) => {
+    try {
+      const base = new Date(d.due_date + "T09:00:00");
+      await api.post("/reminders", {
+        title: `Deadline: ${d.title}`,
+        notes: d.notes || "",
+        fire_at: base.toISOString(),
+        recurrence: "none",
+        source_page: "deadlines",
+        source_context: { title: d.title, due_date: d.due_date, notes: d.notes || "" },
+      });
+      toast.success("Reminder created");
+    } catch {
+      toast.error("Reminder failed");
+    }
+  };
+
   const today = new Date();
   const greetDate = today.toLocaleDateString("en-US", {
     weekday: "long",
@@ -83,7 +109,7 @@ export default function Dashboard() {
   });
   const hour = today.getHours();
   const greet =
-    hour < 5 ? "Hello" : hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
+    hour < 5 ? "Hello" : hour < 12 ? "Good Morning" : hour < 17 ? "Good Afternoon" : "Good Evening";
 
   return (
     <div className="space-y-6 sm:space-y-8 mm-fade-in" data-testid="dashboard-page">
@@ -190,7 +216,7 @@ export default function Dashboard() {
             data-testid="personal-affirmation-input"
           />
           <div className="text-[10px] text-[#B7A98A]/45 mt-3 uppercase tracking-[0.25em]">
-            Fixed · auto-saves on blur
+            Auto-saves
           </div>
         </Card>
       </div>
@@ -224,7 +250,7 @@ export default function Dashboard() {
             className="mm-btn-primary text-sm flex items-center justify-center gap-1.5 disabled:opacity-40"
             data-testid="deadline-add"
           >
-            <Plus size={14} /> Add deadline
+            <Plus size={14} /> Add Deadline
           </button>
         </div>
 
@@ -236,43 +262,58 @@ export default function Dashboard() {
               return (
                 <div
                   key={d.id}
-                  className="rounded-xl border border-[rgba(201,169,97,0.2)] p-4 flex items-center justify-between bg-[rgba(201,169,97,0.04)]"
+                  className="rounded-xl border border-[rgba(201,169,97,0.2)] p-4 bg-[rgba(201,169,97,0.04)]"
                   data-testid="deadline-row"
                 >
-                  <div>
-                    <div className="text-[10px] uppercase tracking-[0.25em] text-[#B7A98A]/60">
-                      {new Date(d.due_date).toLocaleDateString("en-US", {
-                        day: "numeric",
-                        month: "short",
-                        year: "numeric",
-                      })}
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex-1 min-w-0">
+                      <input
+                        type="date"
+                        value={d.due_date || ""}
+                        onChange={(e) => patchDeadline(d.id, { due_date: e.target.value })}
+                        className="mm-input text-[10px] uppercase tracking-[0.25em] text-[#B7A98A]/70 !py-1 !px-2 w-full max-w-[160px]"
+                        data-testid="deadline-edit-date"
+                      />
+                      <input
+                        defaultValue={d.title}
+                        onBlur={(e) => {
+                          const v = e.target.value.trim();
+                          if (v && v !== d.title) patchDeadline(d.id, { title: v });
+                        }}
+                        className="mm-font-display text-base mm-text-gold-bright mt-2 bg-transparent outline-none w-full"
+                        data-testid="deadline-edit-title"
+                      />
+                      <div
+                        className={`text-xs mt-1 ${
+                          overdue ? "text-red-300/80" : days <= 7 ? "mm-text-gold" : "text-[#B7A98A]/65"
+                        }`}
+                      >
+                        {overdue
+                          ? `${Math.abs(days)} day${Math.abs(days) !== 1 ? "s" : ""} overdue`
+                          : days === 0
+                            ? "Today"
+                            : `${days} day${days !== 1 ? "s" : ""} to go`}
+                      </div>
                     </div>
-                    <div className="mm-font-display text-base mm-text-gold-bright mt-1">
-                      {d.title}
-                    </div>
-                    <div
-                      className={`text-xs mt-1 ${
-                        overdue
-                          ? "text-red-300/80"
-                          : days <= 7
-                            ? "mm-text-gold"
-                            : "text-[#B7A98A]/65"
-                      }`}
-                    >
-                      {overdue
-                        ? `${Math.abs(days)} day${Math.abs(days) !== 1 ? "s" : ""} overdue`
-                        : days === 0
-                          ? "Today"
-                          : `${days} day${days !== 1 ? "s" : ""} to go`}
+                    <div className="flex flex-col items-center gap-1 shrink-0">
+                      <button
+                        onClick={() => deadlineToReminder(d)}
+                        className="text-[#B7A98A]/55 hover:text-[#E4C98C] transition p-1"
+                        title="Create reminder"
+                        data-testid="deadline-reminder"
+                      >
+                        <BellRing size={14} />
+                      </button>
+                      <button
+                        onClick={() => removeDeadline(d.id)}
+                        className="text-[#B7A98A]/50 hover:text-[#E4C98C] transition p-1"
+                        data-testid="deadline-delete"
+                        title="Delete"
+                      >
+                        <Trash2 size={14} />
+                      </button>
                     </div>
                   </div>
-                  <button
-                    onClick={() => removeDeadline(d.id)}
-                    className="text-[#B7A98A]/50 hover:text-[#E4C98C]"
-                    data-testid="deadline-delete"
-                  >
-                    <Trash2 size={14} />
-                  </button>
                 </div>
               );
             })}
