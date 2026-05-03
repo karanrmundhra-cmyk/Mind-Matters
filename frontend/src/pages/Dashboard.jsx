@@ -17,11 +17,11 @@ function daysUntil(yyyy_mm_dd) {
 }
 
 const QUICK_NAV = [
-  { to: "/tasks", label: "Tasks", icon: CheckSquare, testid: "quick-tasks" },
-  { to: "/routines", label: "Routines", icon: Repeat, testid: "quick-routines" },
-  { to: "/cash-flow", label: "Cash Flow", icon: Wallet, testid: "quick-cashflow" },
-  { to: "/notes", label: "Notes", icon: StickyNote, testid: "quick-notes" },
-  { to: "/reminders", label: "Reminders", icon: BellRing, testid: "quick-reminders" },
+  { to: "/tasks", label: "Tasks", icon: CheckSquare, testid: "quicknav-tasks" },
+  { to: "/routines", label: "Routines", icon: Repeat, testid: "quicknav-routines" },
+  { to: "/cash-flow", label: "Cash Flow", icon: Wallet, testid: "quicknav-cashflow" },
+  { to: "/notes", label: "Notes", icon: StickyNote, testid: "quicknav-notes" },
+  { to: "/reminders", label: "Reminders", icon: BellRing, testid: "quicknav-reminders" },
 ];
 
 export default function Dashboard() {
@@ -154,7 +154,7 @@ export default function Dashboard() {
 
       {/* Two affirmations: internet quote + user-fixed */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <Card className="p-5 sm:p-6" data-testid="quote-card">
+        <Card className="p-5 sm:p-6" data-testid="dashboard-quote-card">
           <div className="text-[10px] uppercase tracking-[0.3em] text-[#B7A98A]/60 mb-3">
             Today's note from the world
           </div>

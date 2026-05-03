@@ -47,7 +47,7 @@ export default function GroupTabs({ groups = [], active = "", onChange, onAdd })
           type="button"
           onClick={onAdd}
           className="text-xs px-3 py-1.5 rounded-full border border-dashed border-[rgba(201,169,97,0.28)] text-[#B7A98A]/70 hover:border-[#C9A961]/60 hover:text-[#E4C98C] flex items-center gap-1 transition"
-          data-testid="group-tab-add"
+          data-testid="group-add-new"
         >
           <Plus size={11} /> New group
         </button>

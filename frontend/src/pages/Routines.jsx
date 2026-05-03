@@ -275,7 +275,8 @@ export default function Routines() {
                     </div>
                   )}
                   <RowActions
-                    testId="routine"
+                    kind="routine"
+                    rowId={r.id}
                     draggable
                     onDragStart={onDragStart(r.id)}
                     onDragOver={onDragOver(r.id)}

@@ -260,10 +260,10 @@ export default function CashFlow() {
 
       {/* 4 stat tiles */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-        <Stat testid="cf-income" label="Income" value={fmtINR(totals.income)} />
-        <Stat testid="cf-expense" label="Expense" value={fmtINR(totals.expense)} />
-        <Stat testid="cf-asset" label="Assets" value={fmtINR(totals.asset)} />
-        <Stat testid="cf-liability" label="Liabilities" value={fmtINR(totals.liability)} />
+        <Stat testid="cashflow-tile-income" label="Income" value={fmtINR(totals.income)} />
+        <Stat testid="cashflow-tile-expense" label="Expense" value={fmtINR(totals.expense)} />
+        <Stat testid="cashflow-tile-asset" label="Assets" value={fmtINR(totals.asset)} />
+        <Stat testid="cashflow-tile-liability" label="Liabilities" value={fmtINR(totals.liability)} />
       </div>
 
       <AiAddBar
@@ -349,7 +349,7 @@ export default function CashFlow() {
           <input type="number" placeholder="Amount" value={draft.amount} onChange={(e) => setDraft({ ...draft, amount: e.target.value })} className="mm-input text-xs !py-1.5" data-testid="new-tx-amount" />
           <input placeholder="Remarks (e.g. @9% interest)" value={draft.remarks} onChange={(e) => setDraft({ ...draft, remarks: e.target.value })} className="mm-input text-xs !py-1.5" />
           <input placeholder="Head (auto)" value={draft.head} onChange={(e) => setDraft({ ...draft, head: e.target.value })} className="mm-input text-xs !py-1.5" />
-          <select value={draft.category} onChange={(e) => setDraft({ ...draft, category: e.target.value })} className="mm-input text-xs !py-1.5" data-testid="new-tx-category">
+          <select value={draft.category} onChange={(e) => setDraft({ ...draft, category: e.target.value })} className="mm-input text-xs !py-1.5" data-testid="tx-add-category">
             {CATEGORIES.map((c) => <option key={c} value={c}>{CAT_LABEL[c]}</option>)}
           </select>
           <button onClick={add} disabled={!Number(draft.amount)} className="mm-btn-primary text-xs flex items-center justify-center gap-1.5 disabled:opacity-40 !py-1.5" data-testid="new-tx-submit">
@@ -380,7 +380,8 @@ export default function CashFlow() {
                   {CATEGORIES.map((c) => <option key={c} value={c}>{CAT_LABEL[c]}</option>)}
                 </select>
                 <RowActions
-                  testId="tx"
+                  kind="tx"
+                  rowId={t.id}
                   draggable
                   onDragStart={onDragStart(t.id)}
                   onDragOver={onDragOver(t.id)}

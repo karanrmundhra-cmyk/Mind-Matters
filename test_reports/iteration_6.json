@@ -1,0 +1,36 @@
+{
+  "summary": "Frontend retest of v2.0 testid + redirect fixes — virtually everything from iter_5's blocker list is now resolved. Login OK with karan@mindmatters.local/changeme123. (1) ALL 4 redirects fire correctly: /loans→/cash-flow, /investments→/cash-flow, /invoices→/, /documents→/ (verified via page.url after page.goto + 2.2s wait). (2) Dashboard: all 5 quicknav-* testids present (tasks/routines/cashflow/notes/reminders), clicking quicknav-tasks navigates to /tasks. (3) dashboard-quote-card renders quote+author after a brief 'Loading…' state ('\"Your best life will not be found in comfort. It will be found in fighting for what you believe in.\" — Maxime Lagace'). (4) personal-affirmation-input: typed new value, blurred, hard-reloaded — value persisted via /api/affirmations/today PUT. (5) /tasks rows carry task-up-<id>, task-down-<id>, task-reminder-<id>, task-delete-<id>, task-drag-<id> per RowActions spec — task-up swap on the 2nd row reordered drag IDs and POST /api/tasks/reorder was called. (6) /tasks task-reminder click on row[0] created a reminder; on /reminders the new card has data-testid='reminder-source-context' with sr_no/date/group/to/task/details/status fields rendered. (7) /routines: 54 routine rows, each with routine-up/down/reminder/delete/drag/tick testids (53 up, 53 down — top/bottom rows correctly omit one). (8) /cash-flow: cashflow-tile-{income,expense,asset,liability} all present and showing values (Income ₹0, Expense ₹13,200, Assets ₹0, Liabilities ₹0). tx-add-category dropdown has 4 options [income,expense,asset,liability]. tx-up/down/reminder/delete testids on rows. (9) GroupTabs: group-add-new testid present on /tasks and /routines; new-task-group + new-task-submit testids present on #new row. Iter_5's regression items are RESOLVED.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "Tasks #new row submit", "issue": "Filled new-task-group='TEST_G3569' + filled new-task-task + new-task-person and clicked new-task-submit, but task count on screen stayed at 2 (no new row appeared, no new group tab). Could not confirm whether validation silently blocked OR submit silently failed. Inspect: required-field validation, wire-up of new-task-submit click handler, and whether the new group tab is created from /api/groups response.", "selector": "[data-testid='new-task-submit']", "priority": "MEDIUM"},
+      {"component": "Dashboard quote card", "issue": "Card initially renders 'Loading…' for ~3-5s before quote text appears. Quote API on dashboard mount may benefit from skeleton or shorter spinner. Functional — minor UX nit only.", "selector": "[data-testid='dashboard-quote-card']", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_v20.py",
+    "/app/test_reports/pytest/v20_results.xml"
+  ],
+  "action_items": [
+    "(MEDIUM) Investigate why filling [data-testid='new-task-group']+[data-testid='new-task-task']+[data-testid='new-task-person'] then clicking [data-testid='new-task-submit'] does not visibly create a new task row OR a new group tab. Check Tasks.jsx new-row submit handler — likely missing a required field (e.g. date) or POST /api/tasks failing silently. Also verify the new-group is added to GroupTabs from groups API response.",
+    "(LOW) Replace 'Loading…' literal in dashboard-quote-card with a subtle skeleton/spinner so the card never flashes the literal string."
+  ],
+  "critical_code_review_comments": [
+    "Excellent recovery from iter_5 — every blocker in iter_5 frontend_issues is now closed. Redirects fire (Routes ordering fixed), all task-/routine-/tx- testids present per spec template `${kind}-${name}-${rowId}`, source_context card renders.",
+    "RowActions correctly omits task-up on the first row and task-down on the last row — that's the right product behaviour but worth documenting (e2e tests must use position-based selectors, NOT 'expect every row to have all 5 testids').",
+    "The Routines page now has 54 rows under Karan's user — performance was acceptable but 221 input fields on a single page may bottleneck mobile rendering. Consider virtualization if list grows past ~150.",
+    "Tasks #new row submit silently no-ops — UX-wise the user gets no toast/error feedback when create fails. Add a toast on POST /api/tasks failure and inline validation hints for required fields.",
+    "Dashboard quote card showing literal 'Loading…' means the placeholder is hardcoded text instead of a spinner — easy fix.",
+    "Server.py monolith and reminder_loop top-level imports remain from iter_3/4 — non-blocking but technical debt continues to accumulate."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100% (skipped per request — iter_5 already 13/13)", "frontend": "~94% — 14 of 15 retest items pass, 1 minor (#new-row submit not creating task) needs main-agent investigation"},
+  "test_credentials": "karan@mindmatters.local / changeme123",
+  "seed_data_creation": "Created 1 reminder via task-reminder click on existing task id 6172c0ca-12a3-477e-b8d7-f7a3cd1e7617 (title='Check', source_page='tasks', source_context populated). Personal affirmation modified to 'TEST_RETEST TEST_v20 I am calm. bdc2' then restored to original. No other side effects.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "v2.0 retest is essentially clean. Only outstanding item: #new task row submit (new-task-group + new-task-submit) appears to not actually create a task — needs main-agent investigation in Tasks.jsx submit handler. All other testids/redirects/swap/source_context flows verified working. Existing 2 tasks under Karan: id 6172c0ca... ('Check'/Karan/Gazzett) and 185fdec0... ('Modify'/Brinda/Bar Unit). 54 routines exist.",
+  "rca of the issue": "Tasks #new row submit no-op — root cause likely one of: (a) Tasks.jsx new-row Add handler requires fields not filled by my test (e.g. date, status), (b) the POST /api/tasks succeeds but UI doesn't refetch, (c) the new group tab is computed from a separate /api/groups endpoint that isn't being re-queried after task create. Recommended: open browser devtools network tab during a manual click of new-task-submit and inspect both the POST and the subsequent GET that should re-render the table. The route's silent failure is itself the bigger UX bug — add a toast on submit error."
+}

@@ -346,7 +346,8 @@ export default function Tasks() {
                 {STATUSES.map((s) => <option key={s}>{s}</option>)}
               </select>
               <RowActions
-                testId="task"
+                kind="task"
+                rowId={t.id}
                 draggable
                 onDragStart={onDragStart(t.id)}
                 onDragOver={onDragOver(t.id)}

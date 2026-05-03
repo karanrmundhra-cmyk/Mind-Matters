@@ -5,14 +5,14 @@ import { ArrowUp, ArrowDown, BellRing, Trash2, GripVertical } from "lucide-react
  * RowActions — shared row-right-edge action cluster.
  *
  * Props:
- *   onReminder?: () => void  — opens reminder-create dialog
- *   onDelete: () => void
- *   onUp?:   () => void
- *   onDown?: () => void
- *   onDragStart?, onDragOver?, onDrop?, onDragEnd?  — native DnD handlers
- *   testId?: string  — prefix (falls back to "row-action")
+ *   rowId: string  — appended to each testid for unique targeting
+ *   kind:  string  — "task" | "routine" | "tx" | etc. Used as testid prefix.
+ *   onReminder?, onDelete, onUp?, onDown?
+ *   onDragStart?, onDragOver?, onDrop?, onDragEnd?
  */
 export default function RowActions({
+  rowId,
+  kind = "row",
   onReminder,
   onDelete,
   onUp,
@@ -22,8 +22,8 @@ export default function RowActions({
   onDrop,
   onDragEnd,
   draggable = false,
-  testId = "row",
 }) {
+  const tid = (name) => (rowId ? `${kind}-${name}-${rowId}` : `${kind}-${name}`);
   return (
     <div className="flex items-center gap-1 justify-self-end">
       {draggable && (
@@ -35,7 +35,7 @@ export default function RowActions({
           onDragEnd={onDragEnd}
           className="text-[#B7A98A]/40 hover:text-[#E4C98C] cursor-grab active:cursor-grabbing px-0.5"
           title="Drag to reorder"
-          data-testid={`${testId}-drag`}
+          data-testid={tid("drag")}
         >
           <GripVertical size={13} />
         </span>
@@ -46,7 +46,7 @@ export default function RowActions({
           onClick={onUp}
           className="text-[#B7A98A]/50 hover:text-[#E4C98C] transition p-1 leading-none"
           title="Move up"
-          data-testid={`${testId}-up`}
+          data-testid={tid("up")}
         >
           <ArrowUp size={12} />
         </button>
@@ -57,7 +57,7 @@ export default function RowActions({
           onClick={onDown}
           className="text-[#B7A98A]/50 hover:text-[#E4C98C] transition p-1 leading-none"
           title="Move down"
-          data-testid={`${testId}-down`}
+          data-testid={tid("down")}
         >
           <ArrowDown size={12} />
         </button>
@@ -68,7 +68,7 @@ export default function RowActions({
           onClick={onReminder}
           className="text-[#B7A98A]/55 hover:text-[#E4C98C] transition p-1"
           title="Set reminder / alarm"
-          data-testid={`${testId}-reminder`}
+          data-testid={tid("reminder")}
         >
           <BellRing size={13} />
         </button>
@@ -78,7 +78,7 @@ export default function RowActions({
         onClick={onDelete}
         className="text-[#B7A98A]/50 hover:text-[#E4C98C] transition p-1"
         title="Delete"
-        data-testid={`${testId}-delete`}
+        data-testid={tid("delete")}
       >
         <Trash2 size={13} />
       </button>
