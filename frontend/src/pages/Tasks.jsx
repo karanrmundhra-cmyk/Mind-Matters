@@ -258,14 +258,14 @@ export default function Tasks() {
             value={draft.name}
             onChange={(e) => setDraft({ ...draft, name: e.target.value })}
             className="mm-input text-xs !py-1.5"
-            data-testid="new-task-name"
+            data-testid="new-task-to"
           />
           <input
             placeholder="Task (one-word verb)"
             value={draft.task}
             onChange={(e) => setDraft({ ...draft, task: e.target.value })}
             className="mm-input text-xs !py-1.5"
-            data-testid="new-task-input"
+            data-testid="new-task-task"
           />
           <input
             placeholder="Details"

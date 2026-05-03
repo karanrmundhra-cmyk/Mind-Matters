@@ -42,6 +42,43 @@ with the R.K.M. brand logo. AI-first input on every page (type → confirm → d
 - **Tests**: 9/9 v1.3 backend pytest pass; 7/7 critical Playwright frontend flows
   green; carry-over 23/23 v1.2 + 12/12 phase2 still passing.
 
+### v2.0 — Mobile-first · Unified Cash Flow · Email Auth · Groups everywhere (2026-02)
+- **Breaking**: Loans + Investments pages removed (merged into Cash Flow).
+  Invoices + News widgets removed. Loans + Investments collections wiped on
+  startup (one-time migration — user-confirmed).
+- **Cash Flow is now THE ledger**: categories income|expense|asset|liability
+  with 4 rolling-total tiles. Loans live as liability/asset with interest in
+  remarks; Investments as asset; Insurance as liability with `insured_for`
+  field on the row.
+- **Email + password auth**: `/api/auth/signup` (name, email, password) and
+  `/api/auth/login`. bcrypt hashed. First signup auto-attaches to the legacy
+  demo user so existing data is preserved. Demo-login kept for compatibility.
+- **Dashboard redesigned**: 5 quick-access icon tiles
+  (Tasks/Routines/Cash Flow/Notes/Reminders), two affirmations (internet
+  quote from zenquotes + user's personal fixed affirmation saved on the user
+  model), no more News/Routine-% cards.
+- **Groups everywhere**: Tasks, Routines, Cash Flow get a free-text `group`
+  field that autofills from prior entries and renders as clickable tabs. The
+  `+ New group` button accepts any custom name. Routines' legacy block1..4
+  retired in favour of these user-named groups.
+- **Custom frequency on Routines**: no more Daily-only enum — free text with
+  autocomplete from datalist.
+- **Reorder**: every row on Tasks / Routines / Cash Flow has up/down arrows
+  AND HTML5 drag-and-drop. Backed by new `POST /api/{resource}/reorder`.
+- **Reminder source context**: reminders created from any page carry
+  `source_page` + `source_context` snapshot and render a mini-card showing
+  the original row's fields on the Reminders page.
+- **Daily quote**: new `GET /api/quote/today` (zenquotes + deterministic
+  fallback).
+- **Layout contract** (Tasks/Routines/Cash Flow/Notes/Reminders): headers
+  visible → manual entry row BELOW headers → actual data rows. Plus page
+  subtitle + one-line description, chip + Bulk add, AI bar, filters, group
+  tabs. Every row ends with reminder · delete · up · down · drag handle.
+- **Mobile-first**: narrow-screen friendly padding + viewport targeting,
+  responsive stat grids, column collapse at `md:`.
+- **Tests**: backend 13/13 v2.0 pytest pass; frontend 14/15 Playwright pass
+  (one MEDIUM testid alias fixed post-test — Tasks #new-row `new-task-task`).
+
 ## What's implemented
 
 ### v1 (initial, 2026-02)
@@ -88,19 +125,19 @@ with the R.K.M. brand logo. AI-first input on every page (type → confirm → d
 ## Prioritized Backlog
 ### P0 — None blocking.
 ### P1
-- [ ] Refactor `server.py` (~2000 lines) into routers (deadlines, parse, txns, investments, etc.)
-- [ ] Fuzzy duplicate detection in `/api/transactions/upload` (token-set ratio ≥ 90 on company)
-- [ ] Pydantic root_validator: enforce `insured_for` when investment.kind == 'insurance'
-- [ ] `_normalize_row` should `.strip()` before Title-Case (AI sometimes returns leading spaces)
-- [ ] Surface AI parse errors with `{error, raw_excerpt}` so AiAddBar can hint the user
-- [ ] Drop `raw` field from `/api/parse/invoice` response (≈2KB savings)
-- [ ] `.docx` → PDF conversion for custom templates (libreoffice or web service)
+- [ ] Refactor `server.py` (~2100 lines) into per-resource routers (pending since iter_3)
+- [ ] Toast on POST /api/tasks failure in manual #new row; required-field hints
+- [ ] Virtualize Routines list when > ~150 rows (Karan is at 54 today)
+- [ ] Fuzzy duplicate detection on bank-statement uploads
+- [ ] Add `group` migration helper: walk old routines with `time_block` and copy it into `group`
+- [ ] `GET /api/affirmations/today` should not insert a row — return empty default instead
+- [ ] `.docx` → PDF conversion for custom templates (libreoffice)
 ### P2
-- [ ] Multi-user accounts + Google OAuth
-- [ ] Real investment NAV feeds
-- [ ] Proactive dashboard anomaly insights
-- [ ] PWA / offline queue
-- [ ] Migrate old routines (`category` → `time_block`)
+- [ ] Google OAuth on top of email/password
+- [ ] Real investment NAV feeds via Alpha Vantage / CoinGecko
+- [ ] Dashboard proactive anomaly insights (overdue loans, expense spikes)
+- [ ] PWA + offline queue
+- [ ] Routines page: 4-block visual dashboard replaced by per-group horizontal swim lanes
 
 ## Environment
 - `MONGO_URL`, `DB_NAME`, `JWT_SECRET`, `EMERGENT_LLM_KEY`,

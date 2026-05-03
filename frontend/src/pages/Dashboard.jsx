@@ -158,11 +158,21 @@ export default function Dashboard() {
           <div className="text-[10px] uppercase tracking-[0.3em] text-[#B7A98A]/60 mb-3">
             Today's note from the world
           </div>
-          <div className="mm-font-serif italic text-base sm:text-lg mm-text-gold-bright leading-snug">
-            "{quote?.text || "Loading…"}"
-          </div>
-          {quote?.author && (
-            <div className="text-xs text-[#B7A98A]/55 mt-3">— {quote.author}</div>
+          {quote ? (
+            <>
+              <div className="mm-font-serif italic text-base sm:text-lg mm-text-gold-bright leading-snug">
+                "{quote.text}"
+              </div>
+              {quote.author && (
+                <div className="text-xs text-[#B7A98A]/55 mt-3">— {quote.author}</div>
+              )}
+            </>
+          ) : (
+            <div className="space-y-2" data-testid="quote-skeleton">
+              <div className="h-3 rounded bg-[rgba(201,169,97,0.1)] animate-pulse w-5/6" />
+              <div className="h-3 rounded bg-[rgba(201,169,97,0.08)] animate-pulse w-2/3" />
+              <div className="h-2 rounded bg-[rgba(201,169,97,0.06)] animate-pulse w-1/3 mt-3" />
+            </div>
           )}
         </Card>
 
