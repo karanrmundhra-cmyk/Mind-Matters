@@ -5,29 +5,34 @@ import AiAddBar from "@/components/AiAddBar";
 import BulkAddDialog from "@/components/BulkAddDialog";
 import GroupTabs from "@/components/GroupTabs";
 import RowActions from "@/components/RowActions";
+import ReminderDialog from "@/components/ReminderDialog";
+import FilterHeader from "@/components/FilterHeader";
 import { useReorder } from "@/lib/useReorder";
 import { Plus, Flame, Check, Upload } from "lucide-react";
 import { toast } from "sonner";
-import { capWords } from "@/lib/format";
 
 const DEFAULT_FREQS = ["Daily", "Weekly", "Monthly", "Quarterly", "Half-Yearly", "Yearly"];
 
 const ROUTINE_COLUMNS = [
   { key: "group", label: "Group", type: "text", width: "140px" },
-  { key: "activity", label: "Task", type: "text", width: "1.3fr" },
-  { key: "details", label: "Details", type: "text", width: "1.3fr" },
+  { key: "name", label: "Name", type: "text", width: "140px" },
+  { key: "activity", label: "Task", type: "text", width: "1.2fr" },
+  { key: "details", label: "Details", type: "text", width: "1.2fr" },
   { key: "frequency", label: "Frequency", type: "text", width: "140px" },
 ];
 
-const GRID = "grid-cols-[50px_140px_1.2fr_1.2fr_140px_150px]";
+const GRID = "md:grid-cols-[50px_130px_130px_1.1fr_1.1fr_130px_140px]";
 
 export default function Routines() {
   const [routines, setRoutines] = useState([]);
   const [summary, setSummary] = useState(null);
   const [activeGroup, setActiveGroup] = useState("");
   const [bulkOpen, setBulkOpen] = useState(false);
+  const [reminderFor, setReminderFor] = useState(null);
+  const [filters, setFilters] = useState({ sr: "", group: "", name: "", activity: "", details: "", frequency: "" });
   const [draft, setDraft] = useState({
     group: "",
+    name: "",
     activity: "",
     details: "",
     frequency: "Daily",
@@ -49,29 +54,54 @@ export default function Routines() {
     () => Array.from(new Set(routines.map((r) => r.group).filter(Boolean))).sort(),
     [routines],
   );
+  const names = useMemo(
+    () => Array.from(new Set(routines.map((r) => r.name).filter(Boolean))),
+    [routines],
+  );
+  const activities = useMemo(
+    () => Array.from(new Set(routines.map((r) => r.activity).filter(Boolean))),
+    [routines],
+  );
   const freqs = useMemo(
     () => Array.from(new Set([...DEFAULT_FREQS, ...routines.map((r) => r.frequency).filter(Boolean)])),
     [routines],
   );
+
+  const textMatch = (a, b) => (!b ? true : String(a || "").toLowerCase().includes(b.toLowerCase()));
+
   const visible = useMemo(
-    () => routines.filter((r) => !activeGroup || r.group === activeGroup),
-    [routines, activeGroup],
+    () =>
+      routines.filter((r) => {
+        if (activeGroup && r.group !== activeGroup) return false;
+        if (filters.sr && String(r.sr_no || "") !== filters.sr) return false;
+        if (!textMatch(r.group, filters.group)) return false;
+        if (!textMatch(r.name, filters.name)) return false;
+        if (!textMatch(r.activity, filters.activity)) return false;
+        if (!textMatch(r.details, filters.details)) return false;
+        if (!textMatch(r.frequency, filters.frequency)) return false;
+        return true;
+      }),
+    [routines, activeGroup, filters],
   );
 
   const insertOne = async (row) => {
     await api.post("/routines", {
-      group: capWords(row.group || activeGroup || "General"),
-      activity: capWords(row.activity || ""),
-      details: capWords(row.details || ""),
+      group: row.group || activeGroup || "General",
+      name: row.name || "",
+      activity: row.activity || "",
+      details: row.details || "",
       frequency: row.frequency || "Daily",
     });
   };
 
   const add = async () => {
-    if (!draft.activity.trim()) return;
+    if (!draft.activity.trim()) {
+      toast.error("Task is required");
+      return;
+    }
     try {
       await insertOne(draft);
-      setDraft({ group: draft.group, activity: "", details: "", frequency: draft.frequency });
+      setDraft({ group: draft.group, name: "", activity: "", details: "", frequency: draft.frequency });
       await load();
       toast.success("Routine added");
     } catch {
@@ -93,27 +123,18 @@ export default function Routines() {
     await load();
   };
 
-  const addAsReminder = async (r) => {
-    try {
-      const base = new Date(Date.now() + 60 * 60 * 1000);
-      await api.post("/reminders", {
-        title: r.activity || "Routine",
-        notes: [r.group && `Group: ${r.group}`, r.details, `Frequency: ${r.frequency}`]
-          .filter(Boolean)
-          .join(" — "),
-        fire_at: base.toISOString(),
-        recurrence: (r.frequency || "").toLowerCase().includes("daily") ? "daily" : "none",
-        source_page: "routines",
-        source_context: { group: r.group, activity: r.activity, details: r.details, frequency: r.frequency },
-      });
-      toast.success("Reminder created");
-    } catch {
-      toast.error("Reminder failed");
-    }
-  };
+  const openReminderFor = (r) =>
+    setReminderFor({
+      title: r.activity || "Routine",
+      notes: [r.group && `Group: ${r.group}`, r.name && `Name: ${r.name}`, r.details, `Freq: ${r.frequency}`].filter(Boolean).join(" — "),
+      source_page: "routines",
+      source_context: {
+        group: r.group, name: r.name, activity: r.activity, details: r.details, frequency: r.frequency,
+      },
+    });
 
   const newGroupPrompt = () => {
-    const g = window.prompt("New group name (e.g. Morning, 4-Hour Focus, Evening)?", "");
+    const g = window.prompt("New group name (e.g. Morning, Evening, 4-Hour Focus)?", "");
     if (g && g.trim()) setActiveGroup(g.trim());
   };
 
@@ -143,28 +164,26 @@ export default function Routines() {
 
       <AiAddBar
         kind="routine"
-        placeholder="e.g. Morning walk 30 min, group Morning, daily"
+        placeholder="e.g. morning walk 30 min, group Morning, daily"
         columns={ROUTINE_COLUMNS}
+        quickTags={groups}
+        quickTagPrefix="Group: "
         onConfirm={async (rows) => {
           for (const r of rows) await insertOne(r);
           await load();
         }}
       />
 
-      <GroupTabs
-        groups={groups}
-        active={activeGroup}
-        onChange={setActiveGroup}
-        onAdd={newGroupPrompt}
-      />
+      <GroupTabs groups={groups} active={activeGroup} onChange={setActiveGroup} onAdd={newGroupPrompt} />
 
       <Card className="p-0 overflow-hidden" data-testid="routines-table">
-        <div className={`hidden md:grid ${GRID} gap-3 px-4 py-3 border-b border-[rgba(201,169,97,0.2)] text-[10px] uppercase tracking-[0.2em] text-[#B7A98A]/60`}>
-          <div>Sr</div>
-          <div>Group</div>
-          <div>Task</div>
-          <div>Details</div>
-          <div>Frequency</div>
+        <div className={`hidden md:grid ${GRID} gap-3 px-4 py-3 border-b border-[rgba(201,169,97,0.2)]`}>
+          <FilterHeader label="Sr" value={filters.sr} onChange={(v) => setFilters((f) => ({ ...f, sr: v }))} />
+          <FilterHeader label="Group" value={filters.group} options={groups} onChange={(v) => setFilters((f) => ({ ...f, group: v }))} />
+          <FilterHeader label="Name" value={filters.name} options={names} onChange={(v) => setFilters((f) => ({ ...f, name: v }))} />
+          <FilterHeader label="Task" value={filters.activity} options={activities} onChange={(v) => setFilters((f) => ({ ...f, activity: v }))} />
+          <FilterHeader label="Details" value={filters.details} onChange={(v) => setFilters((f) => ({ ...f, details: v }))} />
+          <FilterHeader label="Frequency" value={filters.frequency} options={freqs} onChange={(v) => setFilters((f) => ({ ...f, frequency: v }))} />
           <div />
         </div>
 
@@ -176,15 +195,24 @@ export default function Routines() {
           <div className="mm-text-gold/60 text-xs">#new</div>
           <input
             list="routine-groups"
-            placeholder={activeGroup || "Group"}
+            placeholder={activeGroup || "+ Group"}
             value={draft.group}
             onChange={(e) => setDraft({ ...draft, group: e.target.value })}
             className="mm-input text-xs !py-1.5"
             data-testid="new-routine-group"
           />
           <input
+            list="routine-names"
+            placeholder="+ Name"
+            value={draft.name}
+            onChange={(e) => setDraft({ ...draft, name: e.target.value })}
             className="mm-input text-xs !py-1.5"
-            placeholder="Task / activity"
+            data-testid="new-routine-name"
+          />
+          <input
+            list="routine-activities"
+            className="mm-input text-xs !py-1.5"
+            placeholder="+ Task"
             value={draft.activity}
             onChange={(e) => setDraft({ ...draft, activity: e.target.value })}
             data-testid="new-routine-activity"
@@ -213,10 +241,7 @@ export default function Routines() {
         </div>
 
         {visible.length === 0 ? (
-          <EmptyState
-            title={activeGroup ? `No routines in "${activeGroup}"` : "No routines yet"}
-            hint="Add to your daily master via AI, the row above, or Bulk add."
-          />
+          <EmptyState title={activeGroup ? `No routines in "${activeGroup}"` : "No routines yet"} hint="Add via AI, the row above, or Bulk add." />
         ) : (
           visible.map((r, idx) => {
             const info = summary?.per_routine?.[r.id];
@@ -225,7 +250,7 @@ export default function Routines() {
             return (
               <div
                 key={r.id}
-                className={`grid grid-cols-2 md:${GRID} gap-3 px-4 py-2.5 border-b border-[rgba(201,169,97,0.08)] hover:bg-[rgba(201,169,97,0.04)] items-center ${
+                className={`grid grid-cols-2 ${GRID} gap-3 px-4 py-2.5 border-b border-[rgba(201,169,97,0.08)] hover:bg-[rgba(201,169,97,0.04)] items-center ${
                   draggingId === r.id ? "opacity-40" : ""
                 }`}
                 data-testid="routine-row"
@@ -244,30 +269,11 @@ export default function Routines() {
                   </button>
                   <span className="mm-text-gold/70 text-xs">#{r.sr_no || idx + 1}</span>
                 </div>
-                <input
-                  list="routine-groups"
-                  defaultValue={r.group || ""}
-                  onBlur={(e) => patch(r.id, { group: capWords(e.target.value) })}
-                  placeholder="—"
-                  className="mm-input text-xs !py-1.5"
-                />
-                <input
-                  defaultValue={r.activity}
-                  onBlur={(e) => patch(r.id, { activity: capWords(e.target.value) })}
-                  className="mm-input text-xs !py-1.5"
-                />
-                <input
-                  defaultValue={r.details || ""}
-                  onBlur={(e) => patch(r.id, { details: capWords(e.target.value) })}
-                  placeholder="—"
-                  className="mm-input text-xs !py-1.5"
-                />
-                <input
-                  list="routine-freqs"
-                  defaultValue={r.frequency || "Daily"}
-                  onBlur={(e) => patch(r.id, { frequency: e.target.value })}
-                  className="mm-input text-xs !py-1.5"
-                />
+                <input list="routine-groups" defaultValue={r.group || ""} onBlur={(e) => patch(r.id, { group: e.target.value })} placeholder="—" className="mm-input-ghost text-xs" />
+                <input list="routine-names" defaultValue={r.name || ""} onBlur={(e) => patch(r.id, { name: e.target.value })} placeholder="—" className="mm-input-ghost text-xs" />
+                <input list="routine-activities" defaultValue={r.activity} onBlur={(e) => patch(r.id, { activity: e.target.value })} className="mm-input-ghost text-xs" />
+                <input defaultValue={r.details || ""} onBlur={(e) => patch(r.id, { details: e.target.value })} placeholder="—" className="mm-input-ghost text-xs" />
+                <input list="routine-freqs" defaultValue={r.frequency || "Daily"} onBlur={(e) => patch(r.id, { frequency: e.target.value })} className="mm-input-ghost text-xs" />
                 <div className="flex items-center gap-1">
                   {streak > 0 && (
                     <div className="mm-chip mm-chip-gold flex items-center gap-1 text-[10px]">
@@ -284,7 +290,7 @@ export default function Routines() {
                     onDragEnd={onDragEnd}
                     onUp={idx > 0 ? () => move(r.id, -1) : undefined}
                     onDown={idx < visible.length - 1 ? () => move(r.id, 1) : undefined}
-                    onReminder={() => addAsReminder(r)}
+                    onReminder={() => openReminderFor(r)}
                     onDelete={() => remove(r.id)}
                   />
                 </div>
@@ -294,12 +300,12 @@ export default function Routines() {
         )}
       </Card>
 
-      <datalist id="routine-groups">
-        {groups.map((g) => <option key={g} value={g} />)}
-      </datalist>
-      <datalist id="routine-freqs">
-        {freqs.map((f) => <option key={f} value={f} />)}
-      </datalist>
+      <datalist id="routine-groups">{groups.map((g) => <option key={g} value={g} />)}</datalist>
+      <datalist id="routine-names">{names.map((n) => <option key={n} value={n} />)}</datalist>
+      <datalist id="routine-activities">{activities.map((a) => <option key={a} value={a} />)}</datalist>
+      <datalist id="routine-freqs">{freqs.map((f) => <option key={f} value={f} />)}</datalist>
+
+      <ReminderDialog open={!!reminderFor} onClose={() => setReminderFor(null)} defaults={reminderFor || {}} />
 
       <BulkAddDialog
         open={bulkOpen}

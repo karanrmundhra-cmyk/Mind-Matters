@@ -4,17 +4,18 @@ import { api } from "@/lib/api";
 import { toast } from "sonner";
 
 /**
- * Universal NL input bar with editable confirmation preview.
+ * Universal NL input bar with editable confirmation preview + quick-tag chips.
  *
  * Props:
  *   kind: "task" | "routine" | "expense" | "loan" | "investment" | "note" | "reminder" | "deadline"
  *   placeholder
  *   onConfirm: async (rows[]) => void
  *   columns: [{key,label,type,width,options?}]  (optional but preferred)
- *           type: "text" | "date" | "number" | "select" | "icon"
  *   describe: (row) => string  (fallback if columns is missing)
+ *   quickTags?: string[]  — tappable pills prepended to the input (groups / hashtags etc.)
+ *   quickTagPrefix?: string  — inserted before each tapped tag (e.g. "#" or "Group: ")
  */
-export default function AiAddBar({ kind, placeholder, onConfirm, describe, columns }) {
+export default function AiAddBar({ kind, placeholder, onConfirm, describe, columns, quickTags, quickTagPrefix = "" }) {
   const [text, setText] = useState("");
   const [rows, setRows] = useState(null); // null = no preview, otherwise editable
   const [busy, setBusy] = useState(false);
@@ -75,8 +76,27 @@ export default function AiAddBar({ kind, placeholder, onConfirm, describe, colum
     <div className="mm-glass p-4" data-testid="ai-add-bar">
       <div className="flex items-center gap-2 text-[10px] uppercase tracking-[0.3em] text-[#B7A98A]/70 mb-2">
         <Sparkles size={11} className="mm-text-gold" />
-        <span>Type in plain English — review before saving.</span>
+        <span>Type &amp; review before saving.</span>
       </div>
+      {quickTags && quickTags.length > 0 && (
+        <div className="flex flex-wrap gap-1.5 mb-2" data-testid="ai-quick-tags">
+          {quickTags.map((t) => (
+            <button
+              key={t}
+              type="button"
+              onClick={() => {
+                const prefix = quickTagPrefix || "";
+                const bit = `${prefix}${t}`;
+                setText((prev) => (prev ? `${prev} ${bit}` : bit));
+              }}
+              className="text-[11px] px-2 py-1 rounded-full border border-[rgba(201,169,97,0.25)] text-[#B7A98A]/80 hover:border-[#C9A961] hover:mm-text-gold-bright transition"
+              data-testid={`ai-quick-tag-${t.toLowerCase().replace(/\s+/g, "-")}`}
+            >
+              {quickTagPrefix}{t}
+            </button>
+          ))}
+        </div>
+      )}
       <div className="flex gap-2">
         <input
           className="mm-input text-sm flex-1"

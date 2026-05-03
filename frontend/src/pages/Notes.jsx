@@ -4,9 +4,10 @@ import { Card, SectionTitle, EmptyState } from "@/components/Primitives";
 import AiAddBar from "@/components/AiAddBar";
 import BulkAddDialog from "@/components/BulkAddDialog";
 import {
-  Plus, Search, Pin, PinOff, Trash2, Tag as TagIcon, Image as ImageIcon, Upload,
+  Plus, Search, Pin, PinOff, Trash2, Tag as TagIcon, Image as ImageIcon, Upload, BellRing,
 } from "lucide-react";
 import { toast } from "sonner";
+import ReminderDialog from "@/components/ReminderDialog";
 import { capWords } from "@/lib/format";
 
 const TAG_OPTIONS = ["work", "personal", "idea", "reminder", "health", "finance"];
@@ -23,6 +24,7 @@ export default function Notes() {
   const [selected, setSelected] = useState(null);
   const [images, setImages] = useState([]);
   const [bulkOpen, setBulkOpen] = useState(false);
+  const [reminderFor, setReminderFor] = useState(null);
   const imgRef = useRef(null);
 
   const load = async () => {
@@ -59,8 +61,22 @@ export default function Notes() {
   }, [notes]);
 
   const insertOne = async (row) => {
+    // v2.1: AI may return kind='note' OR signal list-append intent via list_title/list_tag + items
+    const listTitle = row.list_title || row.list_name || null;
+    const listTag = row.list_tag || null;
+    const items = Array.isArray(row.items) ? row.items
+                : (typeof row.items === "string" ? [row.items] : null);
+    if ((listTitle || listTag) && items && items.length) {
+      await api.post("/notes/append-list", {
+        title_hint: listTitle,
+        tag: listTag,
+        items,
+        create_if_missing: true,
+      });
+      return;
+    }
     await api.post("/notes", {
-      title: capWords(row.title || ""),
+      title: row.title || "",
       body: row.body || "",
       tags: Array.isArray(row.tags) ? row.tags : [],
     });
@@ -155,9 +171,11 @@ export default function Notes() {
 
       <AiAddBar
         kind="note"
-        placeholder="e.g. Idea — start a Sunday review ritual every week #personal"
+        placeholder="e.g. add milk, eggs to #shopping · idea: start a Sunday review ritual"
         columns={NOTE_COLUMNS}
         describe={describe}
+        quickTags={allTags}
+        quickTagPrefix="#"
         onConfirm={async (rows) => {
           for (const r of rows) await insertOne(r);
           await load();
@@ -267,6 +285,19 @@ export default function Notes() {
                   {selected.pinned ? <Pin size={16} /> : <PinOff size={16} />}
                 </button>
                 <button
+                  onClick={() => setReminderFor({
+                    title: selected.title || "Note reminder",
+                    notes: (selected.body || "").slice(0, 180),
+                    source_page: "notes",
+                    source_context: { id: selected.id, title: selected.title, tags: selected.tags || [] },
+                  })}
+                  className="text-[#B7A98A]/65 hover:text-[#E4C98C] transition"
+                  title="Set reminder for this note/list"
+                  data-testid="note-reminder"
+                >
+                  <BellRing size={16} />
+                </button>
+                <button
                   onClick={() => remove(selected.id)}
                   className="text-[#B7A98A]/65 hover:text-[#E4C98C] transition"
                   data-testid="note-delete"
@@ -339,6 +370,12 @@ export default function Notes() {
           for (const r of rows) await insertOne(r);
           await load();
         }}
+      />
+
+      <ReminderDialog
+        open={!!reminderFor}
+        onClose={() => setReminderFor(null)}
+        defaults={reminderFor || {}}
       />
     </div>
   );

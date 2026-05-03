@@ -5,10 +5,12 @@ import AiAddBar from "@/components/AiAddBar";
 import BulkAddDialog from "@/components/BulkAddDialog";
 import GroupTabs from "@/components/GroupTabs";
 import RowActions from "@/components/RowActions";
+import ReminderDialog from "@/components/ReminderDialog";
+import FilterHeader from "@/components/FilterHeader";
 import { useReorder } from "@/lib/useReorder";
-import { Plus, Filter, Upload } from "lucide-react";
+import { Plus, Upload } from "lucide-react";
 import { toast } from "sonner";
-import { capWords } from "@/lib/format";
+import { todayISO } from "@/lib/format";
 
 const STATUSES = ["Pending", "Done", "Follow-Up"];
 
@@ -21,16 +23,16 @@ const TASK_COLUMNS = [
   { key: "status", label: "Status", type: "select", options: STATUSES, width: "120px" },
 ];
 
-const GRID =
-  "grid-cols-[50px_110px_110px_140px_1.1fr_1fr_110px_140px]";
+const GRID = "md:grid-cols-[50px_110px_110px_140px_1.1fr_1fr_110px_140px]";
 
 export default function Tasks() {
   const [tasks, setTasks] = useState([]);
-  const [filter, setFilter] = useState({ status: "", name: "", date: "" });
   const [activeGroup, setActiveGroup] = useState("");
   const [bulkOpen, setBulkOpen] = useState(false);
+  const [reminderFor, setReminderFor] = useState(null); // {row} or null
+  const [filters, setFilters] = useState({ sr: "", date: "", group: "", name: "", task: "", details: "", status: "" });
   const [draft, setDraft] = useState({
-    date: "",
+    date: todayISO(),
     group: "",
     name: "",
     task: "",
@@ -57,40 +59,59 @@ export default function Tasks() {
     () => Array.from(new Set(tasks.map((t) => t.name).filter(Boolean))),
     [tasks],
   );
+  const taskTitles = useMemo(
+    () => Array.from(new Set(tasks.map((t) => t.task).filter(Boolean))),
+    [tasks],
+  );
 
-  // Apply filters client-side
+  const textMatch = (a, b) => (!b ? true : String(a || "").toLowerCase().includes(b.toLowerCase()));
+
   const visible = useMemo(() => {
     return tasks.filter((t) => {
       if (activeGroup && t.group !== activeGroup) return false;
-      if (filter.status && t.status !== filter.status) return false;
-      if (filter.name && t.name !== filter.name) return false;
-      if (filter.date && t.date !== filter.date) return false;
+      if (filters.sr && String(t.sr_no) !== filters.sr) return false;
+      if (!textMatch(t.date, filters.date)) return false;
+      if (!textMatch(t.group, filters.group)) return false;
+      if (!textMatch(t.name, filters.name)) return false;
+      if (!textMatch(t.task, filters.task)) return false;
+      if (!textMatch(t.details, filters.details)) return false;
+      if (filters.status && t.status !== filters.status) return false;
       return true;
     });
-  }, [tasks, activeGroup, filter]);
+  }, [tasks, activeGroup, filters]);
 
   const pendingCount = tasks.filter((t) => t.status === "Pending").length;
 
   const insertOne = async (row) => {
     await api.post("/tasks", {
-      date: row.date || null,
-      group: capWords(row.group || activeGroup || ""),
-      name: capWords(row.name || ""),
-      task: capWords(row.task || ""),
-      details: capWords(row.details || ""),
+      date: row.date || todayISO(),
+      group: row.group || activeGroup || "",
+      name: row.name || "",
+      task: row.task || "",
+      details: row.details || "",
       status: row.status || "Pending",
     });
   };
 
   const create = async () => {
-    if (!draft.task.trim()) return;
+    if (!draft.task.trim()) {
+      toast.error("Task is required");
+      return;
+    }
     try {
       await insertOne({ ...draft, group: draft.group || activeGroup });
-      setDraft({ date: "", group: draft.group, name: "", task: "", details: "", status: "Pending" });
+      setDraft({
+        date: todayISO(),
+        group: draft.group,
+        name: "",
+        task: "",
+        details: "",
+        status: "Pending",
+      });
       await load();
       toast.success("Task added");
-    } catch {
-      toast.error("Failed");
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Failed");
     }
   };
 
@@ -108,26 +129,16 @@ export default function Tasks() {
     await load();
   };
 
-  const addAsReminder = async (t) => {
-    try {
-      const base = t.date ? new Date(t.date + "T09:00:00") : new Date(Date.now() + 24 * 3600 * 1000);
-      if (!t.date) base.setHours(9, 0, 0, 0);
-      await api.post("/reminders", {
-        title: t.task || "Task",
-        notes: [t.name && `To: ${t.name}`, t.details].filter(Boolean).join(" — "),
-        fire_at: base.toISOString(),
-        recurrence: "none",
-        source_page: "tasks",
-        source_context: {
-          sr_no: t.sr_no, date: t.date, group: t.group, to: t.name,
-          task: t.task, details: t.details, status: t.status,
-        },
-      });
-      toast.success("Reminder created");
-    } catch {
-      toast.error("Reminder failed");
-    }
-  };
+  const openReminderFor = (t) =>
+    setReminderFor({
+      title: t.task || "Task",
+      notes: [t.name && `To: ${t.name}`, t.details].filter(Boolean).join(" — "),
+      source_page: "tasks",
+      source_context: {
+        sr_no: t.sr_no, date: t.date, group: t.group, to: t.name,
+        task: t.task, details: t.details, status: t.status,
+      },
+    });
 
   const newGroupPrompt = () => {
     const g = window.prompt("New group name (e.g. Personal, Work, Brinda)?", "");
@@ -158,80 +169,34 @@ export default function Tasks() {
         Capture every commitment — by person, by group, by due date. Tick them off as you go.
       </p>
 
-      {/* AI add bar */}
       <AiAddBar
         kind="task"
-        placeholder="e.g. Remind Rahul to send invoice tomorrow · Group: Work"
+        placeholder="e.g. remind rahul to send invoice tomorrow"
         columns={TASK_COLUMNS}
+        quickTags={groups}
+        quickTagPrefix="Group: "
         onConfirm={async (rows) => {
           for (const r of rows) await insertOne(r);
           await load();
         }}
       />
 
-      {/* Filters */}
-      <Card className="p-3 sm:p-4 flex flex-wrap gap-2 sm:gap-3 items-center">
-        <div className="flex items-center gap-2 text-[#B7A98A]/65 text-xs uppercase tracking-[0.2em]">
-          <Filter size={12} /> Filter
-        </div>
-        <select
-          value={filter.status}
-          onChange={(e) => setFilter({ ...filter, status: e.target.value })}
-          className="mm-input max-w-[160px] text-sm"
-          data-testid="filter-status"
-        >
-          <option value="">All statuses</option>
-          {STATUSES.map((s) => <option key={s}>{s}</option>)}
-        </select>
-        <select
-          value={filter.name}
-          onChange={(e) => setFilter({ ...filter, name: e.target.value })}
-          className="mm-input max-w-[180px] text-sm"
-          data-testid="filter-person"
-        >
-          <option value="">All people</option>
-          {people.map((p) => <option key={p}>{p}</option>)}
-        </select>
-        <input
-          type="date"
-          value={filter.date}
-          onChange={(e) => setFilter({ ...filter, date: e.target.value })}
-          className="mm-input max-w-[160px] text-sm"
-          data-testid="filter-date"
-        />
-        {(filter.status || filter.name || filter.date) && (
-          <button
-            onClick={() => setFilter({ status: "", name: "", date: "" })}
-            className="mm-btn-ghost text-xs"
-          >
-            Clear
-          </button>
-        )}
-      </Card>
+      <GroupTabs groups={groups} active={activeGroup} onChange={setActiveGroup} onAdd={newGroupPrompt} />
 
-      {/* Group tabs */}
-      <GroupTabs
-        groups={groups}
-        active={activeGroup}
-        onChange={setActiveGroup}
-        onAdd={newGroupPrompt}
-      />
-
-      {/* Table */}
       <Card className="p-0 overflow-hidden" data-testid="tasks-table">
-        {/* Headers */}
-        <div className={`hidden md:grid ${GRID} gap-3 px-4 py-3 border-b border-[rgba(201,169,97,0.2)] text-[10px] uppercase tracking-[0.2em] text-[#B7A98A]/60`}>
-          <div>Sr</div>
-          <div>Date</div>
-          <div>Group</div>
-          <div>To</div>
-          <div>Task</div>
-          <div>Details</div>
-          <div>Status</div>
+        {/* Headers with filter icons */}
+        <div className={`hidden md:grid ${GRID} gap-3 px-4 py-3 border-b border-[rgba(201,169,97,0.2)]`}>
+          <FilterHeader label="Sr" value={filters.sr} onChange={(v) => setFilters((f) => ({ ...f, sr: v }))} testId="filter-sr" />
+          <FilterHeader label="Date" value={filters.date} onChange={(v) => setFilters((f) => ({ ...f, date: v }))} testId="filter-date" />
+          <FilterHeader label="Group" value={filters.group} options={groups} onChange={(v) => setFilters((f) => ({ ...f, group: v }))} testId="filter-group" />
+          <FilterHeader label="To" value={filters.name} options={people} onChange={(v) => setFilters((f) => ({ ...f, name: v }))} testId="filter-to" />
+          <FilterHeader label="Task" value={filters.task} options={taskTitles} onChange={(v) => setFilters((f) => ({ ...f, task: v }))} testId="filter-task" />
+          <FilterHeader label="Details" value={filters.details} onChange={(v) => setFilters((f) => ({ ...f, details: v }))} testId="filter-details" />
+          <FilterHeader label="Status" value={filters.status} options={STATUSES} onChange={(v) => setFilters((f) => ({ ...f, status: v }))} testId="filter-status" />
           <div />
         </div>
 
-        {/* Manual entry BELOW headers */}
+        {/* Manual entry row BELOW headers */}
         <div
           className={`hidden md:grid ${GRID} gap-3 px-4 py-3 border-b border-[rgba(201,169,97,0.12)] bg-[rgba(201,169,97,0.04)] items-center`}
           data-testid="task-add-row"
@@ -246,7 +211,7 @@ export default function Tasks() {
           />
           <input
             list="task-groups"
-            placeholder={activeGroup || "Group"}
+            placeholder={activeGroup || "+ Group"}
             value={draft.group}
             onChange={(e) => setDraft({ ...draft, group: e.target.value })}
             className="mm-input text-xs !py-1.5"
@@ -254,14 +219,15 @@ export default function Tasks() {
           />
           <input
             list="task-people"
-            placeholder="Person"
+            placeholder="+ Person"
             value={draft.name}
             onChange={(e) => setDraft({ ...draft, name: e.target.value })}
             className="mm-input text-xs !py-1.5"
             data-testid="new-task-to"
           />
           <input
-            placeholder="Task (one-word verb)"
+            list="task-titles"
+            placeholder="+ Task"
             value={draft.task}
             onChange={(e) => setDraft({ ...draft, task: e.target.value })}
             className="mm-input text-xs !py-1.5"
@@ -290,17 +256,13 @@ export default function Tasks() {
           </button>
         </div>
 
-        {/* Rows */}
         {visible.length === 0 ? (
-          <EmptyState
-            title="No tasks match"
-            hint="Try a different group or clear filters."
-          />
+          <EmptyState title="No tasks match" hint="Try a different group or clear filters." />
         ) : (
           visible.map((t, idx) => (
             <div
               key={t.id}
-              className={`grid grid-cols-2 md:${GRID} gap-3 px-4 py-2.5 border-b border-[rgba(201,169,97,0.08)] hover:bg-[rgba(201,169,97,0.04)] transition items-center ${
+              className={`grid grid-cols-2 ${GRID} gap-3 px-4 py-2.5 border-b border-[rgba(201,169,97,0.08)] hover:bg-[rgba(201,169,97,0.04)] transition items-center ${
                 draggingId === t.id ? "opacity-40" : ""
               }`}
               data-testid="task-row"
@@ -310,38 +272,39 @@ export default function Tasks() {
                 type="date"
                 value={t.date || ""}
                 onChange={(e) => patch(t.id, { date: e.target.value })}
-                className="mm-input text-xs !py-1.5"
+                className="mm-input-ghost text-xs !py-1.5"
               />
               <input
                 list="task-groups"
                 defaultValue={t.group || ""}
-                onBlur={(e) => patch(t.id, { group: capWords(e.target.value) })}
+                onBlur={(e) => patch(t.id, { group: e.target.value })}
                 placeholder="—"
-                className="mm-input text-xs !py-1.5"
+                className="mm-input-ghost text-xs !py-1.5"
               />
               <input
                 list="task-people"
                 defaultValue={t.name || ""}
-                onBlur={(e) => patch(t.id, { name: capWords(e.target.value) })}
+                onBlur={(e) => patch(t.id, { name: e.target.value })}
                 placeholder="—"
-                className="mm-input text-xs !py-1.5"
+                className="mm-input-ghost text-xs !py-1.5"
               />
               <input
+                list="task-titles"
                 defaultValue={t.task}
-                onBlur={(e) => patch(t.id, { task: capWords(e.target.value) })}
-                className="mm-input text-xs !py-1.5"
+                onBlur={(e) => patch(t.id, { task: e.target.value })}
+                className="mm-input-ghost text-xs !py-1.5"
                 data-testid="task-edit-title"
               />
               <input
                 defaultValue={t.details || ""}
-                onBlur={(e) => patch(t.id, { details: capWords(e.target.value) })}
+                onBlur={(e) => patch(t.id, { details: e.target.value })}
                 placeholder="—"
-                className="mm-input text-xs !py-1.5"
+                className="mm-input-ghost text-xs !py-1.5"
               />
               <select
                 value={t.status}
                 onChange={(e) => patch(t.id, { status: e.target.value })}
-                className="mm-input text-xs !py-1.5"
+                className="mm-input-ghost text-xs !py-1.5"
               >
                 {STATUSES.map((s) => <option key={s}>{s}</option>)}
               </select>
@@ -355,7 +318,7 @@ export default function Tasks() {
                 onDragEnd={onDragEnd}
                 onUp={idx > 0 ? () => move(t.id, -1) : undefined}
                 onDown={idx < visible.length - 1 ? () => move(t.id, 1) : undefined}
-                onReminder={() => addAsReminder(t)}
+                onReminder={() => openReminderFor(t)}
                 onDelete={() => remove(t.id)}
               />
             </div>
@@ -363,13 +326,15 @@ export default function Tasks() {
         )}
       </Card>
 
-      {/* Datalists for autofill */}
-      <datalist id="task-groups">
-        {groups.map((g) => <option key={g} value={g} />)}
-      </datalist>
-      <datalist id="task-people">
-        {people.map((p) => <option key={p} value={p} />)}
-      </datalist>
+      <datalist id="task-groups">{groups.map((g) => <option key={g} value={g} />)}</datalist>
+      <datalist id="task-people">{people.map((p) => <option key={p} value={p} />)}</datalist>
+      <datalist id="task-titles">{taskTitles.map((tt) => <option key={tt} value={tt} />)}</datalist>
+
+      <ReminderDialog
+        open={!!reminderFor}
+        onClose={() => setReminderFor(null)}
+        defaults={reminderFor || {}}
+      />
 
       <BulkAddDialog
         open={bulkOpen}

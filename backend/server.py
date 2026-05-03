@@ -155,6 +155,7 @@ class Task(TaskIn):
 # Routine
 class RoutineIn(BaseModel):
     group: str = ""  # custom group name (e.g. "Morning", "4 Hours Focus")
+    name: str = ""  # custom sub-label (e.g. person or area of life)
     activity: str
     details: str = ""
     frequency: str = "Daily"  # free-form now (Daily/Weekly/Custom…)
@@ -516,7 +517,7 @@ async def bulk_routines(body: List[RoutineIn], user=Depends(get_current_user)):
 @api.patch("/routines/{rid}", response_model=Routine)
 async def update_routine(rid: str, body: Dict[str, Any], user=Depends(get_current_user)):
     body = {k: v for k, v in body.items()
-            if k in {"group", "activity", "details", "frequency", "priority", "status", "order_index"}}
+            if k in {"group", "name", "activity", "details", "frequency", "priority", "status", "order_index"}}
     body["updated_at"] = now_iso()
     res = await db.routines.find_one_and_update(
         {"id": rid, "user_id": user["id"]}, {"$set": body}, projection={"_id": 0}, return_document=True
@@ -1072,6 +1073,66 @@ async def update_note(nid: str, body: Dict[str, Any], user=Depends(get_current_u
 async def delete_note(nid: str, user=Depends(get_current_user)):
     await db.notes.delete_one({"id": nid, "user_id": user["id"]})
     return {"ok": True}
+
+
+class AppendListReq(BaseModel):
+    # Either match by an existing note title (case-insensitive "contains") or by tag.
+    title_hint: Optional[str] = None  # e.g. "shopping list"
+    tag: Optional[str] = None         # e.g. "shopping"
+    items: List[str]                  # new bullets to add
+    create_if_missing: bool = True
+
+
+@api.post("/notes/append-list", response_model=Note)
+async def append_to_list(body: AppendListReq, user=Depends(get_current_user)):
+    """Find an existing list-style note by title or tag; append items as bullets.
+    If none match, create a new note."""
+    q: Dict[str, Any] = {"user_id": user["id"]}
+    existing = None
+    if body.tag:
+        tag = body.tag.lstrip("#").strip().lower()
+        existing = await db.notes.find_one({**q, "tags": tag}, {"_id": 0})
+    if not existing and body.title_hint:
+        # case-insensitive contains on title
+        existing = await db.notes.find_one(
+            {**q, "title": {"$regex": body.title_hint, "$options": "i"}},
+            {"_id": 0},
+        )
+    new_lines = [f"• {it.strip()}" for it in (body.items or []) if it and it.strip()]
+    if not new_lines:
+        raise HTTPException(400, "No items to append")
+
+    if existing:
+        existing_body = existing.get("body") or ""
+        sep = "\n" if existing_body and not existing_body.endswith("\n") else ""
+        new_body = existing_body + sep + "\n".join(new_lines)
+        await db.notes.update_one(
+            {"id": existing["id"]},
+            {"$set": {"body": new_body, "updated_at": now_iso()}},
+        )
+        updated = await db.notes.find_one({"id": existing["id"]}, {"_id": 0})
+        return Note(**updated)
+
+    if not body.create_if_missing:
+        raise HTTPException(404, "List not found")
+
+    # Create new list note
+    title = body.title_hint or (body.tag and f"#{body.tag.lstrip('#')}") or "New List"
+    tags = []
+    if body.tag:
+        tags = [body.tag.lstrip("#").strip().lower()]
+    doc = {
+        "id": new_id(),
+        "user_id": user["id"],
+        "title": title,
+        "body": "\n".join(new_lines),
+        "tags": tags,
+        "pinned": False,
+        "created_at": now_iso(),
+        "updated_at": now_iso(),
+    }
+    await db.notes.insert_one(dict(doc))
+    return Note(**doc)
 
 
 # ───────────────────────────── affirmations ─────────────────────────────
@@ -1672,6 +1733,161 @@ async def reminder_ics(rid: str, user=Depends(get_current_user)):
     )
 
 
+# ───────────────────── iCal subscription feed ─────────────────────
+def _to_ics_dt(iso_str: str) -> str:
+    try:
+        dt = datetime.fromisoformat(iso_str.replace("Z", "+00:00"))
+    except Exception:
+        return ""
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+
+
+def _rrule_for(recurrence: str) -> str:
+    m = {
+        "daily": "RRULE:FREQ=DAILY", "weekly": "RRULE:FREQ=WEEKLY",
+        "monthly": "RRULE:FREQ=MONTHLY", "quarterly": "RRULE:FREQ=MONTHLY;INTERVAL=3",
+        "half-yearly": "RRULE:FREQ=MONTHLY;INTERVAL=6", "yearly": "RRULE:FREQ=YEARLY",
+    }
+    return m.get((recurrence or "none").lower(), "")
+
+
+@api.get("/cal/feed/token")
+async def cal_feed_token_get(user=Depends(get_current_user)):
+    u = await db.users.find_one({"id": user["id"]}, {"_id": 0})
+    return {"token": (u or {}).get("cal_token")}
+
+
+@api.post("/cal/feed/token")
+async def cal_feed_token_rotate(user=Depends(get_current_user)):
+    tok = secrets.token_urlsafe(24)
+    await db.users.update_one({"id": user["id"]}, {"$set": {"cal_token": tok}})
+    return {"token": tok}
+
+
+@app.get("/api/cal/{token}.ics")
+async def cal_feed_ics(token: str):
+    """PUBLIC endpoint — subscribed from iOS/Google Calendar without auth.
+    Token is long-random, rotatable, and the only identifier."""
+    user = await db.users.find_one({"cal_token": token}, {"_id": 0})
+    if not user:
+        raise HTTPException(404, "Not found")
+    reminders = await db.reminders.find({"user_id": user["id"]}, {"_id": 0}).to_list(2000)
+    now_stamp = _to_ics_dt(now_iso())
+    lines = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Mind Matters//Reminders//EN",
+             "CALSCALE:GREGORIAN", "METHOD:PUBLISH",
+             f"X-WR-CALNAME:Mind Matters — {user.get('first_name','You')}"]
+    for r in reminders:
+        start = _to_ics_dt(r.get("fire_at", ""))
+        if not start:
+            continue
+        uid = f"{r['id']}@mindmatters"
+        title = (r.get("title") or "Reminder").replace("\n", " ")
+        notes = (r.get("notes") or "").replace("\n", "\\n")
+        lines += ["BEGIN:VEVENT", f"UID:{uid}", f"DTSTAMP:{now_stamp}",
+                  f"DTSTART:{start}", f"DTEND:{start}", f"SUMMARY:{title}"]
+        if notes:
+            lines.append(f"DESCRIPTION:{notes}")
+        rrule = _rrule_for(r.get("recurrence", "none"))
+        if rrule:
+            lines.append(rrule)
+        lines += ["BEGIN:VALARM", "ACTION:DISPLAY", "DESCRIPTION:Reminder",
+                  "TRIGGER:-PT10M", "END:VALARM", "END:VEVENT"]
+    lines.append("END:VCALENDAR")
+    body = "\r\n".join(lines) + "\r\n"
+    from fastapi.responses import Response
+    return Response(content=body, media_type="text/calendar; charset=utf-8",
+                    headers={"Content-Disposition": f"inline; filename=mind-matters-{token[:8]}.ics"})
+
+
+class ResendReq(BaseModel):
+    fire_at: Optional[str] = None
+
+
+@api.post("/reminders/{rid}/resend", response_model=Reminder)
+async def reminder_resend(rid: str, body: ResendReq, user=Depends(get_current_user)):
+    orig = await db.reminders.find_one({"id": rid, "user_id": user["id"]}, {"_id": 0})
+    if not orig:
+        raise HTTPException(404, "Reminder not found")
+    fire_at = body.fire_at
+    if not fire_at:
+        rec = (orig.get("recurrence") or "none").lower()
+        try:
+            base = datetime.fromisoformat(orig["fire_at"].replace("Z", "+00:00"))
+        except Exception:
+            base = datetime.now(timezone.utc)
+        delta = {"daily": 1, "weekly": 7, "monthly": 30, "quarterly": 90,
+                 "half-yearly": 183, "yearly": 365}.get(rec, 1)
+        fire_at = (base + timedelta(days=delta)).astimezone(timezone.utc).isoformat()
+    doc = {
+        "id": new_id(), "user_id": user["id"],
+        "title": orig.get("title", "Reminder"), "notes": orig.get("notes", ""),
+        "fire_at": fire_at, "recurrence": orig.get("recurrence", "none"),
+        "source_page": orig.get("source_page"),
+        "source_context": orig.get("source_context"),
+        "sent": False, "created_at": now_iso(),
+    }
+    await db.reminders.insert_one(dict(doc))
+    return Reminder(**doc)
+
+
+# ───────────────────── All-data export (.xlsx) ─────────────────────
+@api.get("/export/data.xlsx")
+async def export_all_xlsx(user=Depends(get_current_user)):
+    try:
+        from openpyxl import Workbook
+    except Exception as e:
+        raise HTTPException(500, f"openpyxl not installed: {e}")
+    wb = Workbook()
+    wb.remove(wb.active)
+    sources = {
+        "Tasks": ("tasks", ["sr_no", "date", "group", "name", "task", "details", "status", "created_at"]),
+        "Routines": ("routines", ["sr_no", "group", "name", "activity", "details", "frequency", "priority", "status", "created_at"]),
+        "CashFlow": ("transactions", ["sr_no", "date", "group", "name", "details", "amount", "remarks", "head", "category", "mode", "created_at"]),
+        "Notes": ("notes", ["title", "body", "tags", "pinned", "created_at"]),
+        "Reminders": ("reminders", ["title", "notes", "fire_at", "recurrence", "source_page", "sent", "created_at"]),
+        "Deadlines": ("deadlines", ["title", "due_date", "notes", "created_at"]),
+    }
+    for sheet_name, (coll_name, cols) in sources.items():
+        rows = await db[coll_name].find({"user_id": user["id"]}, {"_id": 0}).to_list(5000)
+        ws = wb.create_sheet(sheet_name)
+        ws.append(cols)
+        for r in rows:
+            ws.append([str(r.get(c, "")) if r.get(c) is not None else "" for c in cols])
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    from fastapi.responses import Response
+    return Response(
+        content=buf.getvalue(),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": 'attachment; filename="mind-matters-export.xlsx"'},
+    )
+
+
+# ───────────────────── Change password ─────────────────────
+class ChangePasswordReq(BaseModel):
+    current_password: str
+    new_password: str
+
+
+@api.post("/auth/change-password")
+async def change_password(body: ChangePasswordReq, user=Depends(get_current_user)):
+    if len(body.new_password) < 6:
+        raise HTTPException(400, "Password must be at least 6 characters")
+    u = await db.users.find_one({"id": user["id"]}, {"_id": 0})
+    if not u or not u.get("password_hash"):
+        raise HTTPException(400, "No password set — use signup instead")
+    if not _verify_password(body.current_password, u["password_hash"]):
+        raise HTTPException(401, "Current password is wrong")
+    await db.users.update_one(
+        {"id": user["id"]},
+        {"$set": {"password_hash": _hash_password(body.new_password)}},
+    )
+    return {"ok": True}
+
+
 # ───────────────────── Telegram linking + test ─────────────────────
 @api.get("/telegram/status")
 async def tg_status(user=Depends(get_current_user)):
@@ -1919,7 +2135,10 @@ SCHEMA_BY_KIND = {
         "insured_for (Title-Case e.g. 'Self','Wife','Mother','Father','Medical' — only when kind='insurance'; else null), "
         "notes}"
     ),
-    "note": "{title (Title-Case), body, tags:[string lower-case]}",
+    "note": "{title, body, tags:[lowercase], list_title?:string, list_tag?:string, items?:[string]}. "
+            "When the user wants to append bullets to an existing list (e.g. 'add milk, eggs to shopping list' "
+            "or 'add X to #shopping'), set list_title (or list_tag) to the target AND put bullets in items[]. "
+            "Otherwise produce a standalone title+body note.",
     "reminder": (
         "{title (Title-Case), fire_at_local:'YYYY-MM-DDTHH:MM' (interpret 'tomorrow 9am' etc. relative to today), "
         "notes, recurrence:'none'|'daily'|'weekly'|'monthly'|'quarterly'|'half-yearly'|'yearly'}"
@@ -1929,38 +2148,19 @@ SCHEMA_BY_KIND = {
 
 
 def _title_case_smart(s: str) -> str:
-    if not isinstance(s, str) or not s:
-        return s
-    # Smart Title Case: capitalize first letter of each word, keep ALL-CAPS abbreviations
-    words = s.split()
-    out = []
-    for w in words:
-        if len(w) > 1 and w.isupper():
-            out.append(w)  # keep abbreviations like LIC, HDFC
-        else:
-            out.append(w[:1].upper() + w[1:].lower())
-    return " ".join(out)
+    # v2.1: user requested NO auto-capitalisation — feed as the user typed.
+    return s if isinstance(s, str) else s
 
 
 def _normalize_row(kind: str, row: Dict[str, Any]) -> Dict[str, Any]:
-    """Apply Title-Case to known string fields after AI parse."""
+    """Post-process AI-parsed rows. v2.1: no casing, only trim + default-today."""
     if not isinstance(row, dict):
         return row
-    fields = {
-        "task": ["name", "task", "details", "status"],
-        "routine": ["activity", "details"],
-        "expense": ["expense_head", "company", "mode", "notes"],
-        "loan": ["name", "reason", "status"],
-        "investment": ["type", "provider", "insured_for"],
-        "note": ["title"],
-        "reminder": ["title"],
-        "deadline": ["title"],
-    }.get(kind, [])
-    for f in fields:
-        if f in row and isinstance(row[f], str):
-            row[f] = _title_case_smart(row[f])
-    # default date = today for tasks if missing
-    if kind == "task" and not row.get("date"):
+    for k, v in list(row.items()):
+        if isinstance(v, str):
+            row[k] = v.strip()
+    # default date = today for tasks/expenses if missing
+    if kind in ("task", "expense", "deadline") and not row.get("date"):
         row["date"] = today_key()
     return row
 

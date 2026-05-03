@@ -169,6 +169,35 @@ code {
   color: rgba(255, 255, 255, 0.35);
 }
 
+/* Ghost variant — for inline editable table cells. Looks like plain text
+   until hovered/focused, then reveals a subtle editable feel. */
+.mm-input-ghost {
+  background: transparent;
+  border: 1px solid transparent;
+  color: #fff;
+  border-radius: 6px;
+  padding: 0.4rem 0.5rem;
+  outline: none;
+  transition: border-color 180ms ease, background 180ms ease;
+  width: 100%;
+  font-size: inherit;
+}
+.mm-input-ghost:hover {
+  border-color: rgba(201, 169, 97, 0.18);
+  background: rgba(201, 169, 97, 0.04);
+}
+.mm-input-ghost:focus {
+  border-color: rgba(201, 169, 97, 0.4);
+  background: rgba(255, 255, 255, 0.04);
+}
+.mm-input-ghost::placeholder {
+  color: rgba(255, 255, 255, 0.3);
+}
+/* Trim built-in date picker padding inside ghost cells */
+.mm-input-ghost[type="date"] {
+  padding-right: 0.25rem;
+}
+
 .mm-chip {
   display: inline-flex;
   align-items: center;

@@ -3,9 +3,8 @@ import { api, BACKEND_URL } from "@/lib/api";
 import { Card, SectionTitle, EmptyState } from "@/components/Primitives";
 import AiAddBar from "@/components/AiAddBar";
 import BulkAddDialog from "@/components/BulkAddDialog";
-import { BellRing, Plus, Trash2, Download, Check, Clock, Upload } from "lucide-react";
+import { BellRing, Plus, Trash2, Download, Check, Clock, Upload, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
-import { capWords } from "@/lib/format";
 
 const REMINDER_COLUMNS = [
   { key: "title", label: "Title", type: "text", width: "1.4fr" },
@@ -88,6 +87,16 @@ export default function Reminders() {
   const remove = async (id) => {
     await api.delete(`/reminders/${id}`);
     await load();
+  };
+
+  const resend = async (id) => {
+    try {
+      await api.post(`/reminders/${id}/resend`, {});
+      await load();
+      toast.success("Re-scheduled");
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Could not resend");
+    }
   };
 
   const downloadIcs = (id) => {
@@ -298,15 +307,31 @@ export default function Reminders() {
               <div className="px-5 py-3 border-b border-[rgba(201,169,97,0.15)] text-[10px] uppercase tracking-[0.3em] text-[#B7A98A]/70 flex items-center gap-2">
                 <Check size={11} /> Sent
               </div>
-              {past.slice(0, 8).map((r) => (
+              {past.slice(0, 20).map((r) => (
                 <div
                   key={r.id}
-                  className="grid grid-cols-[1fr_auto_auto] gap-3 px-5 py-3 border-b border-[rgba(201,169,97,0.08)] items-center opacity-60"
+                  className="grid grid-cols-[1fr_auto_auto_auto] gap-3 px-5 py-3 border-b border-[rgba(201,169,97,0.08)] items-center opacity-70"
+                  data-testid="reminder-past-row"
                 >
-                  <div className="text-sm">{r.title}</div>
+                  <div className="text-sm">
+                    {r.title}
+                    {r.recurrence && r.recurrence !== "none" && (
+                      <span className="ml-2 text-[10px] uppercase tracking-[0.2em] text-[#B7A98A]/50">
+                        · {r.recurrence}
+                      </span>
+                    )}
+                  </div>
                   <div className="text-xs text-[#B7A98A]/55">
                     {new Date(r.fire_at).toLocaleString()}
                   </div>
+                  <button
+                    onClick={() => resend(r.id)}
+                    className="text-[#B7A98A]/65 hover:text-[#E4C98C] transition p-1"
+                    title="Send again with the same setup"
+                    data-testid="reminder-resend"
+                  >
+                    <RotateCcw size={14} />
+                  </button>
                   <button
                     onClick={() => remove(r.id)}
                     className="text-[#B7A98A]/50 hover:text-[#E4C98C] transition p-1"

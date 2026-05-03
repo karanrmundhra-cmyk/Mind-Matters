@@ -79,6 +79,47 @@ with the R.K.M. brand logo. AI-first input on every page (type → confirm → d
 - **Tests**: backend 13/13 v2.0 pytest pass; frontend 14/15 Playwright pass
   (one MEDIUM testid alias fixed post-test — Tasks #new-row `new-task-task`).
 
+### v2.1 — UX revamp: filter-per-column · quick-tags · reminder modal · calendar sync (2026-02)
+- **Global**: auto-capitalization removed (frontend `capWords`, backend
+  `_title_case_smart` + `_normalize_row`). All string inputs preserve the
+  user's exact text. Default date = today on every manual entry row.
+- **AiAddBar tagline** changed to "Type & review before saving."
+- **Quick-tag pills** on AI bar: existing groups (Tasks/Routines/Cash Flow)
+  and hashtags (Notes) render as tappable chips that inject
+  `Group: <name>` or `#<tag>` into the textarea.
+- **Per-column filters**: every table header has a tiny filter icon
+  (Excel-style popover with search + one-click distinct values). The old
+  top-bar Filter card is gone.
+- **ReminderDialog**: row bell icons now open a macOS-Reminders-style modal
+  (title / date / time / recurrence: None, Every Day, Every Week, Every
+  Month, Every 3 Months, Every 6 Months, Every Year). No more auto-create.
+- **Notes list-append**: `POST /api/notes/append-list` matches by title
+  substring or tag, appends bullets to the found list, or creates a new
+  one. AI prompt teaches the model to return `list_title` / `list_tag` +
+  `items[]` so "add milk, eggs to #shopping" updates the existing list.
+- **Notes reminder** now applies to the **entire note/list**, not per line.
+- **Routines**: added "Name" column between Group and Task; PATCH accepts it.
+- **Cash Flow**: "Bulk add" button removed — upload-only (same bulk parser).
+- **Calendar subscription**: iCal feed URL (`GET /api/cal/{token}.ics`) —
+  public, rotatable token endpoint in Settings. Paste into iOS / Google /
+  Outlook Calendar to auto-sync every reminder. Step-by-step instructions
+  shown for each platform.
+- **Reminders "Send again"**: `POST /api/reminders/{id}/resend` duplicates a
+  sent reminder with `fire_at` shifted by recurrence period (or +1 day).
+- **Settings rewritten**: Account block shows real email; Change Password
+  form (`POST /api/auth/change-password`, bcrypt); Calendar Subscription
+  with copy + iOS/Google steps + rotate; Telegram step-by-step BotFather
+  guide; Data Export (`GET /api/export/data.xlsx` — multi-sheet xlsx of
+  tasks/routines/cash flow/notes/reminders/deadlines); About.
+- **Table UX**: new `.mm-input-ghost` CSS — inputs look like plain text
+  until hovered / focused, restoring v1.3 readability with v2 editability.
+- **Bug fix**: Tailwind purge was stripping dynamic `md:grid-cols-[…]`
+  template classes → tables stacked vertically. Safelisted the three
+  grid-template strings in `tailwind.config.js`.
+- **Tests**: 16/18 v2.1 backend pytest pass (2 failures are test-script
+  strictness bugs, not product bugs). All 14 frontend smoke assertions
+  pass (testids, redirects, reminder dialog flow, settings sections).
+
 ## What's implemented
 
 ### v1 (initial, 2026-02)
