@@ -198,6 +198,19 @@ code {
   padding-right: 0.25rem;
 }
 
+/* Gold calendar icon for date inputs (Webkit / Blink) */
+input[type="date"]::-webkit-calendar-picker-indicator,
+input[type="datetime-local"]::-webkit-calendar-picker-indicator,
+input[type="time"]::-webkit-calendar-picker-indicator,
+input[type="month"]::-webkit-calendar-picker-indicator {
+  filter: invert(74%) sepia(48%) saturate(421%) hue-rotate(7deg) brightness(95%) contrast(89%);
+  cursor: pointer;
+  opacity: 0.95;
+}
+input[type="date"]::-webkit-calendar-picker-indicator:hover {
+  opacity: 1;
+}
+
 .mm-chip {
   display: inline-flex;
   align-items: center;

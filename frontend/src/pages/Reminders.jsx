@@ -239,66 +239,7 @@ export default function Reminders() {
             {upcoming.length === 0 ? (
               <div className="px-5 py-6 text-sm text-[#B7A98A]/50">No upcoming reminders.</div>
             ) : (
-              upcoming.map((r) => (
-                <div
-                  key={r.id}
-                  className="px-5 py-3 border-b border-[rgba(201,169,97,0.1)]"
-                  data-testid="reminder-row"
-                >
-                  <div className="grid grid-cols-[1fr_auto_auto_auto] gap-3 items-center">
-                    <div>
-                      <input
-                        defaultValue={r.title}
-                        onBlur={(e) => patch(r.id, { title: e.target.value })}
-                        className="bg-transparent outline-none text-sm mm-text-gold-bright font-medium w-full"
-                      />
-                      {r.notes && (
-                        <div className="text-xs text-[#B7A98A]/60 mt-1">{r.notes}</div>
-                      )}
-                    </div>
-                    <input
-                      type="datetime-local"
-                      value={toLocal(r.fire_at)}
-                      onChange={(e) => patch(r.id, { fire_at: toUTC(e.target.value) })}
-                      className="mm-input text-xs !py-1.5 max-w-[200px]"
-                    />
-                    <button
-                      onClick={() => downloadIcs(r.id)}
-                      className="text-[#B7A98A]/70 hover:text-[#E4C98C] transition p-1"
-                      title="Download .ics (add to iOS Calendar)"
-                      data-testid="reminder-ics-btn"
-                    >
-                      <Download size={14} />
-                    </button>
-                    <button
-                      onClick={() => remove(r.id)}
-                      className="text-[#B7A98A]/70 hover:text-[#E4C98C] transition p-1"
-                      data-testid="reminder-delete"
-                    >
-                      <Trash2 size={14} />
-                    </button>
-                  </div>
-                  {r.source_page && r.source_context && (
-                    <div className="mt-3 rounded-lg border border-[rgba(201,169,97,0.15)] bg-black/20 p-3" data-testid="reminder-source-context">
-                      <div className="text-[9px] uppercase tracking-[0.25em] text-[#B7A98A]/55 mb-2">
-                        From {r.source_page.replace("-", " ")}
-                      </div>
-                      <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-xs">
-                        {Object.entries(r.source_context)
-                          .filter(([k]) => !["id", "user_id"].includes(k))
-                          .map(([k, v]) => (
-                            <React.Fragment key={k}>
-                              <div className="text-[#B7A98A]/55 uppercase tracking-[0.18em] text-[10px]">{k}</div>
-                              <div className="mm-text-gold-bright break-words">
-                                {typeof v === "object" ? JSON.stringify(v) : String(v ?? "—")}
-                              </div>
-                            </React.Fragment>
-                          ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              ))
+              renderGroupedUpcoming(upcoming, { patch, remove, downloadIcs, toLocal, toUTC })
             )}
           </Card>
 

@@ -60,6 +60,19 @@ export default function Notes() {
     return Array.from(s);
   }, [notes]);
 
+  // Existing notes whose body starts with bullets ("• ") or contains hyphen list lines
+  // are surfaced as one-tap "Add to <Title>" pills above the AI bar.
+  const listTitles = useMemo(() => {
+    return notes
+      .filter((n) => /^\s*[-•*]/m.test(n.body || ""))
+      .map((n) => n.title || "")
+      .filter(Boolean);
+  }, [notes]);
+  const noteQuickTags = useMemo(
+    () => Array.from(new Set([...listTitles, ...allTags.map((t) => `#${t}`)])),
+    [listTitles, allTags],
+  );
+
   const insertOne = async (row) => {
     // v2.1: AI may return kind='note' OR signal list-append intent via list_title/list_tag + items
     const listTitle = row.list_title || row.list_name || null;
@@ -171,11 +184,11 @@ export default function Notes() {
 
       <AiAddBar
         kind="note"
-        placeholder="e.g. add milk, eggs to #shopping · idea: start a Sunday review ritual"
+        placeholder="e.g. add milk, eggs to Shopping List · or 'idea: sunday review' #personal"
         columns={NOTE_COLUMNS}
         describe={describe}
-        quickTags={allTags}
-        quickTagPrefix="#"
+        quickTags={noteQuickTags}
+        quickTagPrefix=""
         onConfirm={async (rows) => {
           for (const r of rows) await insertOne(r);
           await load();

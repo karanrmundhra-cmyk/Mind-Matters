@@ -74,10 +74,6 @@ export default function AiAddBar({ kind, placeholder, onConfirm, describe, colum
 
   return (
     <div className="mm-glass p-4" data-testid="ai-add-bar">
-      <div className="flex items-center gap-2 text-[10px] uppercase tracking-[0.3em] text-[#B7A98A]/70 mb-2">
-        <Sparkles size={11} className="mm-text-gold" />
-        <span>Type &amp; review before saving.</span>
-      </div>
       {quickTags && quickTags.length > 0 && (
         <div className="flex flex-wrap gap-1.5 mb-2" data-testid="ai-quick-tags">
           {quickTags.map((t) => (

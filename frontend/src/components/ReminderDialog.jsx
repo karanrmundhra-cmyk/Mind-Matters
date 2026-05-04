@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { api } from "@/lib/api";
-import { X, BellRing } from "lucide-react";
+import { X, BellRing, Check } from "lucide-react";
 import { toast } from "sonner";
 
 const RECURRENCE_PRESETS = [
@@ -11,6 +11,7 @@ const RECURRENCE_PRESETS = [
   { value: "quarterly", label: "Every 3 Months" },
   { value: "half-yearly", label: "Every 6 Months" },
   { value: "yearly", label: "Every Year" },
+  { value: "custom", label: "Custom…" },
 ];
 
 function nextHourIso() {
@@ -21,32 +22,36 @@ function nextHourIso() {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-/**
- * ReminderDialog — macOS-Reminders-style sheet for setting a reminder.
- *
- * Props:
- *   open: boolean
- *   onClose: () => void
- *   defaults: { title?, notes?, fire_at?, recurrence?, source_page?, source_context? }
- *   onCreated?: (reminder) => void
- */
+function fmtWhen(iso) {
+  if (!iso) return "—";
+  try {
+    const d = new Date(iso);
+    return d.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+  } catch {
+    return iso;
+  }
+}
+
 export default function ReminderDialog({ open, onClose, defaults = {}, onCreated }) {
   const [title, setTitle] = useState("");
   const [notes, setNotes] = useState("");
   const [fireAt, setFireAt] = useState(nextHourIso());
+  const [whenSet, setWhenSet] = useState(false);
   const [recurrence, setRecurrence] = useState("none");
+  const [customRec, setCustomRec] = useState("");
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     if (open) {
       setTitle(defaults.title || "");
       setNotes(defaults.notes || "");
-      setFireAt(
-        defaults.fire_at
-          ? new Date(defaults.fire_at).toISOString().slice(0, 16)
-          : nextHourIso(),
-      );
+      const initial = defaults.fire_at
+        ? new Date(defaults.fire_at).toISOString().slice(0, 16)
+        : nextHourIso();
+      setFireAt(initial);
+      setWhenSet(false);
       setRecurrence(defaults.recurrence || "none");
+      setCustomRec(defaults.custom_recurrence || "");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
@@ -61,14 +66,16 @@ export default function ReminderDialog({ open, onClose, defaults = {}, onCreated
     setBusy(true);
     try {
       const utc = new Date(fireAt).toISOString();
-      const { data } = await api.post("/reminders", {
+      const payload = {
         title: title.trim(),
         notes: notes.trim(),
         fire_at: utc,
-        recurrence,
+        recurrence: recurrence === "custom" ? "custom" : recurrence,
+        custom_recurrence: recurrence === "custom" ? customRec.trim() : null,
         source_page: defaults.source_page || null,
         source_context: defaults.source_context || null,
-      });
+      };
+      const { data } = await api.post("/reminders", payload);
       toast.success("Reminder set");
       onCreated?.(data);
       onClose();
@@ -124,13 +131,36 @@ export default function ReminderDialog({ open, onClose, defaults = {}, onCreated
           </div>
           <div>
             <div className="text-[10px] uppercase tracking-[0.25em] text-[#B7A98A]/60 mb-1.5">When</div>
-            <input
-              type="datetime-local"
-              value={fireAt}
-              onChange={(e) => setFireAt(e.target.value)}
-              className="mm-input text-sm"
-              data-testid="reminder-dialog-when"
-            />
+            <div className="flex gap-2 items-stretch">
+              <input
+                type="datetime-local"
+                value={fireAt}
+                onChange={(e) => {
+                  setFireAt(e.target.value);
+                  setWhenSet(false);
+                }}
+                className="mm-input text-sm flex-1"
+                data-testid="reminder-dialog-when"
+              />
+              <button
+                type="button"
+                onClick={() => setWhenSet(true)}
+                className={`text-xs px-3 rounded-lg border transition flex items-center gap-1 ${
+                  whenSet
+                    ? "border-[#C9A961] bg-[rgba(201,169,97,0.12)] mm-text-gold-bright"
+                    : "border-[rgba(201,169,97,0.25)] text-[#B7A98A]/80 hover:border-[#C9A961]"
+                }`}
+                data-testid="reminder-dialog-when-set"
+                title="Confirm this time"
+              >
+                <Check size={12} /> Set
+              </button>
+            </div>
+            {whenSet && (
+              <div className="text-[10px] mm-text-gold mt-1.5 uppercase tracking-[0.2em]">
+                ✓ Scheduled for {fmtWhen(fireAt)}
+              </div>
+            )}
           </div>
           <div>
             <div className="text-[10px] uppercase tracking-[0.25em] text-[#B7A98A]/60 mb-1.5">Recurrence</div>
@@ -146,6 +176,16 @@ export default function ReminderDialog({ open, onClose, defaults = {}, onCreated
                 </option>
               ))}
             </select>
+            {recurrence === "custom" && (
+              <input
+                type="text"
+                value={customRec}
+                onChange={(e) => setCustomRec(e.target.value)}
+                placeholder="e.g. every 15 days · every Saturday · bi-monthly · weekends"
+                className="mm-input text-sm mt-2"
+                data-testid="reminder-dialog-custom-recurrence"
+              />
+            )}
           </div>
         </div>
 

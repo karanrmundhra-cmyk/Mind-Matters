@@ -20,12 +20,12 @@ const CAT_LABEL = { income: "Income", expense: "Expense", asset: "Asset", liabil
 const TX_COLUMNS = [
   { key: "date", label: "Date", type: "date", width: "120px" },
   { key: "group", label: "Group", type: "text", width: "120px" },
-  { key: "name", label: "Name", type: "text", width: "1fr" },
+  { key: "vendor", label: "Vendor", type: "text", width: "1fr" },
   { key: "details", label: "Details", type: "text", width: "1.2fr" },
   { key: "amount", label: "Amount", type: "number", width: "110px" },
-  { key: "remarks", label: "Remarks", type: "text", width: "1fr" },
+  { key: "mode", label: "Mode", type: "text", width: "1fr" },
   { key: "head", label: "Head", type: "text", width: "120px" },
-  { key: "category", label: "Category", type: "select", options: CATEGORIES, width: "120px" },
+  { key: "category", label: "Category", type: "text", width: "120px" },
 ];
 
 const GRID = "md:grid-cols-[40px_105px_110px_1fr_1fr_110px_1fr_110px_110px_140px]";
@@ -44,10 +44,10 @@ export default function CashFlow() {
   const [draft, setDraft] = useState({
     date: todayISO(),
     group: "",
-    name: "",
+    vendor: "",
     details: "",
     amount: "",
-    remarks: "",
+    mode: "",
     head: "",
     category: "expense",
   });
@@ -109,20 +109,23 @@ export default function CashFlow() {
 
   const insertOne = async (row) => {
     const cat = (row.category || "expense").toLowerCase();
+    const vendor = row.vendor || row.name || row.company || "";
+    const mode = row.mode || row.remarks || "Cash";
     await api.post("/transactions", {
       date: row.date || todayISO(),
       amount: Math.abs(Number(row.amount) || 0),
       group: row.group || activeGroup || "",
-      name: row.name || row.company || "",
+      name: vendor,
+      vendor,
       details: row.details || row.notes || "",
-      remarks: row.remarks || "",
+      remarks: mode,
+      mode,
       head: row.head || row.expense_head || "",
-      category: CATEGORIES.includes(cat) ? cat : "expense",
-      company: row.name || row.company || "",
+      category: cat,
+      company: vendor,
       notes: row.details || row.notes || "",
       expense_head: row.head || row.expense_head || "",
       direction: cat === "income" || cat === "asset" ? "in" : "out",
-      mode: row.mode || "Bank",
     });
   };
 
@@ -136,10 +139,10 @@ export default function CashFlow() {
       setDraft({
         date: todayISO(),
         group: draft.group,
-        name: "",
+        vendor: "",
         details: "",
         amount: "",
-        remarks: "",
+        mode: "",
         head: "",
         category: draft.category,
       });
@@ -218,7 +221,7 @@ export default function CashFlow() {
   return (
     <div className="space-y-5 mm-fade-in" data-testid="cashflow-page">
       <SectionTitle
-        subtitle="Money, loans, investments & insurance"
+        subtitle="All Things Money"
         title="Cash Flow"
         right={
           <div className="flex items-center gap-2">
@@ -245,10 +248,7 @@ export default function CashFlow() {
           </div>
         }
       />
-      <p className="text-xs sm:text-sm text-[#B7A98A]/65 -mt-3 max-w-2xl">
-        Unified ledger — log income, expenses, assets (investments) and liabilities (loans, insurance
-        premiums). Group them any way you like; totals update per group.
-      </p>
+      <p className="text-xs sm:text-sm text-[#B7A98A]/65 -mt-3 max-w-2xl">Unified Ledger.</p>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
         <Stat testid="cashflow-tile-income" label="Income" value={fmtINR(totals.income)} />
@@ -303,10 +303,10 @@ export default function CashFlow() {
           <FilterHeader label="Sr" value={filters.sr} onChange={(v) => setFilters((f) => ({ ...f, sr: v }))} />
           <FilterHeader label="Date" value={filters.date} onChange={(v) => setFilters((f) => ({ ...f, date: v }))} />
           <FilterHeader label="Group" value={filters.group} options={groups} onChange={(v) => setFilters((f) => ({ ...f, group: v }))} />
-          <FilterHeader label="Name" value={filters.name} options={names} onChange={(v) => setFilters((f) => ({ ...f, name: v }))} />
+          <FilterHeader label="Vendor" value={filters.name} options={names} onChange={(v) => setFilters((f) => ({ ...f, name: v }))} />
           <FilterHeader label="Details" value={filters.details} onChange={(v) => setFilters((f) => ({ ...f, details: v }))} />
           <FilterHeader label="Amount" value={filters.amount} onChange={(v) => setFilters((f) => ({ ...f, amount: v }))} />
-          <FilterHeader label="Remarks" value={filters.remarks} onChange={(v) => setFilters((f) => ({ ...f, remarks: v }))} />
+          <FilterHeader label="Mode" value={filters.remarks} onChange={(v) => setFilters((f) => ({ ...f, remarks: v }))} />
           <FilterHeader label="Head" value={filters.head} options={heads} onChange={(v) => setFilters((f) => ({ ...f, head: v }))} />
           <FilterHeader label="Category" value={filters.category} options={CATEGORIES} onChange={(v) => setFilters((f) => ({ ...f, category: v }))} />
           <div />
@@ -316,15 +316,13 @@ export default function CashFlow() {
         <div className={`hidden md:grid ${GRID} gap-3 px-4 py-3 border-b border-[rgba(201,169,97,0.12)] bg-[rgba(201,169,97,0.04)] items-center`} data-testid="manual-add">
           <div className="mm-text-gold/60 text-xs">#new</div>
           <input type="date" value={draft.date} onChange={(e) => setDraft({ ...draft, date: e.target.value })} className="mm-input text-xs !py-1.5" />
-          <input list="tx-groups" placeholder={activeGroup || "+ Group"} value={draft.group} onChange={(e) => setDraft({ ...draft, group: e.target.value })} className="mm-input text-xs !py-1.5" data-testid="new-tx-group" />
-          <input list="tx-names" placeholder="+ Name" value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} className="mm-input text-xs !py-1.5" />
-          <input placeholder="+ Details" value={draft.details} onChange={(e) => setDraft({ ...draft, details: e.target.value })} className="mm-input text-xs !py-1.5" />
-          <input type="number" placeholder="Amount" value={draft.amount} onChange={(e) => setDraft({ ...draft, amount: e.target.value })} className="mm-input text-xs !py-1.5" data-testid="new-tx-amount" />
-          <input placeholder="+ Remarks" value={draft.remarks} onChange={(e) => setDraft({ ...draft, remarks: e.target.value })} className="mm-input text-xs !py-1.5" />
-          <input list="tx-heads" placeholder="+ Head" value={draft.head} onChange={(e) => setDraft({ ...draft, head: e.target.value })} className="mm-input text-xs !py-1.5" />
-          <select value={draft.category} onChange={(e) => setDraft({ ...draft, category: e.target.value })} className="mm-input text-xs !py-1.5" data-testid="tx-add-category">
-            {CATEGORIES.map((c) => <option key={c} value={c}>{CAT_LABEL[c]}</option>)}
-          </select>
+          <input list="tx-groups" placeholder={activeGroup || "+ Create Custom"} value={draft.group} onChange={(e) => setDraft({ ...draft, group: e.target.value })} className="mm-input text-xs !py-1.5" data-testid="new-tx-group" />
+          <input list="tx-vendors" placeholder="+ Create Custom" value={draft.vendor} onChange={(e) => setDraft({ ...draft, vendor: e.target.value })} className="mm-input text-xs !py-1.5" />
+          <input list="tx-details" placeholder="+ Create Custom" value={draft.details} onChange={(e) => setDraft({ ...draft, details: e.target.value })} className="mm-input text-xs !py-1.5" />
+          <input type="number" placeholder="+ Amount" value={draft.amount} onChange={(e) => setDraft({ ...draft, amount: e.target.value })} className="mm-input text-xs !py-1.5" data-testid="new-tx-amount" />
+          <input list="tx-modes" placeholder="+ Create Custom" value={draft.mode} onChange={(e) => setDraft({ ...draft, mode: e.target.value })} className="mm-input text-xs !py-1.5" />
+          <input list="tx-heads" placeholder="+ Create Custom" value={draft.head} onChange={(e) => setDraft({ ...draft, head: e.target.value })} className="mm-input text-xs !py-1.5" />
+          <input list="tx-categories" value={draft.category} onChange={(e) => setDraft({ ...draft, category: e.target.value })} className="mm-input text-xs !py-1.5" placeholder="+ Create Custom" data-testid="tx-add-category" />
           <button onClick={add} disabled={!Number(draft.amount)} className="mm-btn-primary text-xs flex items-center justify-center gap-1.5 disabled:opacity-40 !py-1.5" data-testid="new-tx-submit">
             <Plus size={13} /> Add
           </button>
@@ -344,14 +342,16 @@ export default function CashFlow() {
                 <div className="mm-text-gold/80 text-xs">#{t.sr_no || idx + 1}</div>
                 <input type="date" value={t.date || ""} onChange={(e) => patch(t.id, { date: e.target.value })} className="mm-input-ghost text-xs" />
                 <input list="tx-groups" defaultValue={t.group || ""} onBlur={(e) => patch(t.id, { group: e.target.value })} className="mm-input-ghost text-xs" placeholder="—" />
-                <input list="tx-names" defaultValue={t.name || t.company || ""} onBlur={(e) => patch(t.id, { name: e.target.value, company: e.target.value })} className="mm-input-ghost text-xs" placeholder="—" />
-                <input defaultValue={t.details || t.notes || ""} onBlur={(e) => patch(t.id, { details: e.target.value, notes: e.target.value })} className="mm-input-ghost text-xs" placeholder="—" />
+                <input list="tx-vendors" defaultValue={t.vendor || t.name || t.company || ""} onBlur={(e) => patch(t.id, { vendor: e.target.value, name: e.target.value, company: e.target.value })} className="mm-input-ghost text-xs" placeholder="—" />
+                <input list="tx-details" defaultValue={t.details || t.notes || ""} onBlur={(e) => patch(t.id, { details: e.target.value, notes: e.target.value })} className="mm-input-ghost text-xs" placeholder="—" />
                 <input type="number" defaultValue={t.amount} onBlur={(e) => patch(t.id, { amount: Number(e.target.value) })} className="mm-input-ghost text-xs" />
-                <input defaultValue={t.remarks || ""} onBlur={(e) => patch(t.id, { remarks: e.target.value })} className="mm-input-ghost text-xs" placeholder="—" />
+                <input list="tx-modes" defaultValue={t.mode || t.remarks || ""} onBlur={(e) => patch(t.id, { mode: e.target.value, remarks: e.target.value })} className="mm-input-ghost text-xs" placeholder="—" />
                 <input list="tx-heads" defaultValue={t.head || t.expense_head || ""} onBlur={(e) => patch(t.id, { head: e.target.value, expense_head: e.target.value })} className="mm-input-ghost text-xs" />
-                <select value={cat} onChange={(e) => patch(t.id, { category: e.target.value, direction: (e.target.value === "income" || e.target.value === "asset") ? "in" : "out" })} className="mm-input-ghost text-xs">
-                  {CATEGORIES.map((c) => <option key={c} value={c}>{CAT_LABEL[c]}</option>)}
-                </select>
+                <input list="tx-categories" defaultValue={cat} onBlur={(e) => {
+                  const v = e.target.value.toLowerCase();
+                  const dir = (v === "income" || v === "asset") ? "in" : "out";
+                  patch(t.id, { category: v, direction: dir });
+                }} className="mm-input-ghost text-xs" />
                 <RowActions
                   kind="tx"
                   rowId={t.id}
@@ -372,8 +372,17 @@ export default function CashFlow() {
       </Card>
 
       <datalist id="tx-groups">{groups.map((g) => <option key={g} value={g} />)}</datalist>
-      <datalist id="tx-names">{names.map((n) => <option key={n} value={n} />)}</datalist>
+      <datalist id="tx-vendors">{names.map((n) => <option key={n} value={n} />)}</datalist>
+      <datalist id="tx-details">
+        {Array.from(new Set(rows.map((r) => r.details || r.notes).filter(Boolean))).map((d) => <option key={d} value={d} />)}
+      </datalist>
+      <datalist id="tx-modes">
+        {Array.from(new Set(["Cash", "Card", "UPI", "Bank", "Cheque", ...rows.map((r) => r.mode || r.remarks).filter(Boolean)])).map((m) => <option key={m} value={m} />)}
+      </datalist>
       <datalist id="tx-heads">{heads.map((h) => <option key={h} value={h} />)}</datalist>
+      <datalist id="tx-categories">
+        {Array.from(new Set([...CATEGORIES, ...rows.map((r) => r.category).filter(Boolean)])).map((c) => <option key={c} value={c} />)}
+      </datalist>
 
       <ReminderDialog open={!!reminderFor} onClose={() => setReminderFor(null)} defaults={reminderFor || {}} />
     </div>

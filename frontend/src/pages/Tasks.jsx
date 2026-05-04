@@ -8,7 +8,7 @@ import RowActions from "@/components/RowActions";
 import ReminderDialog from "@/components/ReminderDialog";
 import FilterHeader from "@/components/FilterHeader";
 import { useReorder } from "@/lib/useReorder";
-import { Plus, Upload } from "lucide-react";
+import { Plus, Upload, Check } from "lucide-react";
 import { toast } from "sonner";
 import { todayISO } from "@/lib/format";
 
@@ -67,7 +67,7 @@ export default function Tasks() {
   const textMatch = (a, b) => (!b ? true : String(a || "").toLowerCase().includes(b.toLowerCase()));
 
   const visible = useMemo(() => {
-    return tasks.filter((t) => {
+    const filtered = tasks.filter((t) => {
       if (activeGroup && t.group !== activeGroup) return false;
       if (filters.sr && String(t.sr_no) !== filters.sr) return false;
       if (!textMatch(t.date, filters.date)) return false;
@@ -78,9 +78,25 @@ export default function Tasks() {
       if (filters.status && t.status !== filters.status) return false;
       return true;
     });
+    // Done tasks go to the bottom; preserve relative order otherwise.
+    return [...filtered].sort((a, b) => {
+      const ad = a.status === "Done" ? 1 : 0;
+      const bd = b.status === "Done" ? 1 : 0;
+      return ad - bd;
+    });
   }, [tasks, activeGroup, filters]);
 
   const pendingCount = tasks.filter((t) => t.status === "Pending").length;
+
+  const advanceOnEnter = (e) => {
+    if (e.key !== "Enter") return;
+    e.preventDefault();
+    const row = e.currentTarget.closest('[data-row="entry"]');
+    if (!row) return;
+    const fields = Array.from(row.querySelectorAll("input,select"));
+    const idx = fields.indexOf(e.currentTarget);
+    if (idx >= 0 && idx < fields.length - 1) fields[idx + 1].focus();
+  };
 
   const insertOne = async (row) => {
     await api.post("/tasks", {
@@ -166,12 +182,12 @@ export default function Tasks() {
         }
       />
       <p className="text-xs sm:text-sm text-[#B7A98A]/65 -mt-3 max-w-2xl">
-        Capture every commitment — by person, by group, by due date. Tick them off as you go.
+        Capture every commitment. Tick them off as you go.
       </p>
 
       <AiAddBar
         kind="task"
-        placeholder="e.g. remind rahul to send invoice tomorrow"
+        placeholder="e.g. remind rahul to send invoice tomorrow #Group: Work — adds time/date? I'll offer a reminder too"
         columns={TASK_COLUMNS}
         quickTags={groups}
         quickTagPrefix="Group: "
@@ -200,52 +216,60 @@ export default function Tasks() {
         <div
           className={`hidden md:grid ${GRID} gap-3 px-4 py-3 border-b border-[rgba(201,169,97,0.12)] bg-[rgba(201,169,97,0.04)] items-center`}
           data-testid="task-add-row"
+          data-row="entry"
         >
           <div className="mm-text-gold/60 text-xs">#new</div>
           <input
             type="date"
             value={draft.date}
             onChange={(e) => setDraft({ ...draft, date: e.target.value })}
+            onKeyDown={advanceOnEnter}
             className="mm-input text-xs !py-1.5"
             data-testid="new-task-date"
           />
           <input
             list="task-groups"
-            placeholder={activeGroup || "+ Group"}
+            placeholder={activeGroup || "+ Create Custom"}
             value={draft.group}
             onChange={(e) => setDraft({ ...draft, group: e.target.value })}
+            onKeyDown={advanceOnEnter}
             className="mm-input text-xs !py-1.5"
             data-testid="new-task-group"
           />
           <input
             list="task-people"
-            placeholder="+ Person"
+            placeholder="+ Create Custom"
             value={draft.name}
             onChange={(e) => setDraft({ ...draft, name: e.target.value })}
+            onKeyDown={advanceOnEnter}
             className="mm-input text-xs !py-1.5"
             data-testid="new-task-to"
           />
           <input
             list="task-titles"
-            placeholder="+ Task"
+            placeholder="+ Create Custom"
             value={draft.task}
             onChange={(e) => setDraft({ ...draft, task: e.target.value })}
+            onKeyDown={advanceOnEnter}
             className="mm-input text-xs !py-1.5"
             data-testid="new-task-task"
           />
           <input
-            placeholder="Details"
+            list="task-details"
+            placeholder="+ Create Custom"
             value={draft.details}
             onChange={(e) => setDraft({ ...draft, details: e.target.value })}
+            onKeyDown={advanceOnEnter}
             className="mm-input text-xs !py-1.5"
           />
-          <select
+          <input
+            list="task-statuses"
             value={draft.status}
             onChange={(e) => setDraft({ ...draft, status: e.target.value })}
+            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); create(); } }}
             className="mm-input text-xs !py-1.5"
-          >
-            {STATUSES.map((s) => <option key={s}>{s}</option>)}
-          </select>
+            placeholder="+ Create Custom"
+          />
           <button
             onClick={create}
             disabled={!draft.task.trim()}
@@ -267,7 +291,21 @@ export default function Tasks() {
               }`}
               data-testid="task-row"
             >
-              <div className="mm-text-gold/80 text-xs">#{t.sr_no}</div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => patch(t.id, { status: t.status === "Done" ? "Pending" : "Done" })}
+                  className={`w-5 h-5 rounded-full border flex items-center justify-center transition shrink-0 ${
+                    t.status === "Done"
+                      ? "bg-gradient-to-br from-[#E4C98C] to-[#C9A961] border-[#C9A961] text-black"
+                      : "border-[rgba(201,169,97,0.35)] hover:border-[#E4C98C]"
+                  }`}
+                  data-testid="task-tick"
+                  title="Mark done"
+                >
+                  {t.status === "Done" && <Check size={11} strokeWidth={2.5} />}
+                </button>
+                <span className="mm-text-gold/80 text-xs">#{t.sr_no}</span>
+              </div>
               <input
                 type="date"
                 value={t.date || ""}
@@ -296,18 +334,18 @@ export default function Tasks() {
                 data-testid="task-edit-title"
               />
               <input
+                list="task-details"
                 defaultValue={t.details || ""}
                 onBlur={(e) => patch(t.id, { details: e.target.value })}
                 placeholder="—"
                 className="mm-input-ghost text-xs !py-1.5"
               />
-              <select
-                value={t.status}
-                onChange={(e) => patch(t.id, { status: e.target.value })}
+              <input
+                list="task-statuses"
+                defaultValue={t.status}
+                onBlur={(e) => patch(t.id, { status: e.target.value })}
                 className="mm-input-ghost text-xs !py-1.5"
-              >
-                {STATUSES.map((s) => <option key={s}>{s}</option>)}
-              </select>
+              />
               <RowActions
                 kind="task"
                 rowId={t.id}
@@ -329,6 +367,12 @@ export default function Tasks() {
       <datalist id="task-groups">{groups.map((g) => <option key={g} value={g} />)}</datalist>
       <datalist id="task-people">{people.map((p) => <option key={p} value={p} />)}</datalist>
       <datalist id="task-titles">{taskTitles.map((tt) => <option key={tt} value={tt} />)}</datalist>
+      <datalist id="task-details">
+        {Array.from(new Set(tasks.map((t) => t.details).filter(Boolean))).map((d) => <option key={d} value={d} />)}
+      </datalist>
+      <datalist id="task-statuses">
+        {Array.from(new Set([...STATUSES, ...tasks.map((t) => t.status).filter(Boolean)])).map((s) => <option key={s} value={s} />)}
+      </datalist>
 
       <ReminderDialog
         open={!!reminderFor}

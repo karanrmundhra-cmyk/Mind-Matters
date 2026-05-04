@@ -211,14 +211,14 @@ class Loan(LoanIn):
 class TransactionIn(BaseModel):
     date: Optional[str] = None
     amount: float
-    name: str = ""  # person / entity (e.g. loan "to/from", investment provider)
-    details: str = ""  # what it is
-    remarks: str = ""  # interest rate, insured_for, repayment note, etc.
-    head: str = "Uncategorized"  # auto-categorised expense head
-    category: Literal["income", "expense", "asset", "liability"] = "expense"
-    group: str = ""  # custom user-defined tab (e.g. "Personal", "Business", "Brinda")
-    mode: str = "Cash"
-    # legacy fields kept for backwards-compat
+    name: str = ""  # legacy / kept for back-compat
+    vendor: str = ""  # v2.2 — preferred display label
+    details: str = ""
+    remarks: str = ""  # legacy
+    mode: str = "Cash"  # v2.2 — preferred for "mode of payment"
+    head: str = "Uncategorized"
+    category: str = "expense"  # was Literal — now free text so users can add custom
+    group: str = ""
     company: str = ""
     expense_head: str = "Uncategorized"
     direction: Literal["in", "out"] = "out"
@@ -636,9 +636,12 @@ async def reorder_items(resource: str, body: ReorderReq, user=Depends(get_curren
     if resource not in _REORDER_COLLECTIONS:
         raise HTTPException(400, "Unsupported resource")
     coll = db[resource]
+    # Update both order_index AND sr_no so visible Sr column reflects new order.
     for idx, _id in enumerate(body.ids):
-        await coll.update_one({"id": _id, "user_id": user["id"]},
-                              {"$set": {"order_index": idx, "updated_at": now_iso()}})
+        await coll.update_one(
+            {"id": _id, "user_id": user["id"]},
+            {"$set": {"order_index": idx, "sr_no": idx + 1, "updated_at": now_iso()}},
+        )
     return {"ok": True, "count": len(body.ids)}
 
 
@@ -779,7 +782,7 @@ async def create_transaction(body: TransactionIn, user=Depends(get_current_user)
 @api.patch("/transactions/{tid}", response_model=Transaction)
 async def update_transaction(tid: str, body: Dict[str, Any], user=Depends(get_current_user)):
     allowed = {"date", "amount", "mode", "company", "expense_head", "direction",
-               "account", "notes", "name", "details", "remarks", "head",
+               "account", "notes", "name", "vendor", "details", "remarks", "head",
                "category", "group", "order_index"}
     body = {k: v for k, v in body.items() if k in allowed}
     body["updated_at"] = now_iso()
@@ -886,6 +889,10 @@ async def upload_transactions(
         d = str(row.get("date") or today_key())[:10]
         amt = abs(amount)
         company = str(row.get("company") or "")[:80]
+        head = str(row.get("expense_head") or "Uncategorized")[:60]
+        mode = str(row.get("mode") or "Bank")[:40]
+        notes = str(row.get("notes") or "")[:200]
+        direction = "in" if str(row.get("direction", "out")).lower() == "in" else "out"
         # duplicate check: same user + date + amount + similar company
         existing = await db.transactions.find_one({
             "user_id": user["id"], "date": d, "amount": amt,
@@ -894,14 +901,23 @@ async def upload_transactions(
         doc = {
             "id": new_id(),
             "user_id": user["id"],
+            "sr_no": 0,
+            "order_index": 0,
             "date": d,
             "amount": amt,
-            "mode": str(row.get("mode") or "Bank")[:40],
+            "mode": mode,
             "company": company,
-            "expense_head": str(row.get("expense_head") or "Uncategorized")[:60],
-            "direction": "in" if str(row.get("direction", "out")).lower() == "in" else "out",
+            "vendor": company,
+            "name": company,
+            "expense_head": head,
+            "head": head,
+            "category": "income" if direction == "in" else "expense",
+            "group": "",
+            "direction": direction,
             "account": account,
-            "notes": str(row.get("notes") or "")[:200],
+            "notes": notes,
+            "details": notes,
+            "remarks": mode,
             "source": "upload",
             "created_at": now_iso(),
             "updated_at": now_iso(),
@@ -1639,14 +1655,83 @@ async def share_document_telegram(body: ShareDocReq, user=Depends(get_current_us
     return {"ok": bool(res and res.get("ok")), "telegram": res}
 
 
+# ───────────────────── Reset & seed (v2.2) ─────────────────────
+class ResetReq(BaseModel):
+    confirm: str  # must equal "RESET"
+
+
+@api.post("/reset/seed")
+async def reset_and_seed(body: ResetReq, user=Depends(get_current_user)):
+    """Wipe this user's data and seed exactly one example per page so a new
+    user immediately understands the layout."""
+    if body.confirm != "RESET":
+        raise HTTPException(400, "Send {confirm:'RESET'} to proceed")
+    uid = user["id"]
+    today = today_key()
+    for c in ("tasks", "routines", "transactions", "notes",
+              "reminders", "deadlines", "routine_logs"):
+        await db[c].delete_many({"user_id": uid})
+
+    # Seeds
+    await db.tasks.insert_one({
+        "id": new_id(), "user_id": uid, "sr_no": 1, "order_index": 0,
+        "date": today, "group": "Personal", "name": "Brinda",
+        "task": "call about repair", "details": "follow up on the bar unit quote",
+        "status": "Pending",
+        "created_at": now_iso(), "updated_at": now_iso(),
+    })
+    await db.routines.insert_one({
+        "id": new_id(), "user_id": uid, "sr_no": 1, "order_index": 0,
+        "group": "Morning", "name": "Self", "activity": "20 min walk",
+        "details": "around the block + breathing", "frequency": "Daily",
+        "priority": "Medium", "status": "Active",
+        "created_at": now_iso(), "updated_at": now_iso(),
+    })
+    await db.transactions.insert_one({
+        "id": new_id(), "user_id": uid, "sr_no": 1, "order_index": 0,
+        "date": today, "group": "Personal", "name": "Coffee Shop",
+        "vendor": "Coffee Shop", "details": "morning latte",
+        "amount": 280, "remarks": "", "mode": "Card", "head": "Food & Drink",
+        "category": "expense",
+        "company": "Coffee Shop", "expense_head": "Food & Drink",
+        "direction": "out", "account": "Personal", "notes": "morning latte",
+        "source": "manual", "created_at": now_iso(), "updated_at": now_iso(),
+    })
+    await db.notes.insert_one({
+        "id": new_id(), "user_id": uid,
+        "title": "Shopping List",
+        "body": "• milk\n• eggs\n• bread",
+        "tags": ["shopping"], "pinned": False,
+        "created_at": now_iso(), "updated_at": now_iso(),
+    })
+    await db.reminders.insert_one({
+        "id": new_id(), "user_id": uid,
+        "title": "Welcome to Mind Matters",
+        "notes": "Tap the + or AI bar on any page to capture your first item.",
+        "fire_at": (datetime.now(timezone.utc) + timedelta(hours=2)).isoformat(),
+        "recurrence": "none", "sent": False,
+        "source_page": None, "source_context": None,
+        "created_at": now_iso(),
+    })
+    await db.deadlines.insert_one({
+        "id": new_id(), "user_id": uid,
+        "title": "Quarterly Review",
+        "due_date": (datetime.now(timezone.utc) + timedelta(days=30)).date().isoformat(),
+        "notes": "first one's a sample — edit or delete me",
+        "created_at": now_iso(),
+    })
+    return {"ok": True, "seeded": 6}
+
+
 # ───────────────────── Reminders ─────────────────────
 class ReminderIn(BaseModel):
     title: str
     notes: Optional[str] = ""
     fire_at: str  # ISO datetime in UTC
-    recurrence: Optional[Literal["none", "daily", "weekly", "monthly", "quarterly", "half-yearly", "yearly"]] = "none"
-    source_page: Optional[str] = None  # e.g. "tasks" | "cash-flow" | "routines" | "notes"
-    source_context: Optional[Dict[str, Any]] = None  # snapshot of the row this reminder came from
+    recurrence: Optional[str] = "none"  # v2.2: free text — supports "every 15 days" etc.
+    custom_recurrence: Optional[str] = None  # human-readable label for "custom" preset
+    source_page: Optional[str] = None
+    source_context: Optional[Dict[str, Any]] = None
 
 
 class Reminder(BaseModel):
@@ -1656,6 +1741,7 @@ class Reminder(BaseModel):
     notes: str = ""
     fire_at: str
     recurrence: str = "none"
+    custom_recurrence: Optional[str] = None
     sent: bool = False
     source_page: Optional[str] = None
     source_context: Optional[Dict[str, Any]] = None
@@ -1675,6 +1761,7 @@ async def create_reminder(body: ReminderIn, user=Depends(get_current_user)):
         "id": new_id(), "user_id": user["id"],
         "title": body.title, "notes": body.notes or "",
         "fire_at": body.fire_at, "recurrence": body.recurrence or "none",
+        "custom_recurrence": body.custom_recurrence,
         "source_page": body.source_page,
         "source_context": body.source_context,
         "sent": False, "created_at": now_iso(),
@@ -1685,8 +1772,8 @@ async def create_reminder(body: ReminderIn, user=Depends(get_current_user)):
 
 @api.patch("/reminders/{rid}", response_model=Reminder)
 async def update_reminder(rid: str, body: Dict[str, Any], user=Depends(get_current_user)):
-    allowed = {"title", "notes", "fire_at", "recurrence", "sent",
-               "source_page", "source_context"}
+    allowed = {"title", "notes", "fire_at", "recurrence", "custom_recurrence",
+               "sent", "source_page", "source_context"}
     body = {k: v for k, v in body.items() if k in allowed}
     res = await db.reminders.find_one_and_update(
         {"id": rid, "user_id": user["id"]}, {"$set": body},

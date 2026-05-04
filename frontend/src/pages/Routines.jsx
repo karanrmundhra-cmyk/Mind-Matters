@@ -218,8 +218,9 @@ export default function Routines() {
             data-testid="new-routine-activity"
           />
           <input
+            list="routine-details"
             className="mm-input text-xs !py-1.5"
-            placeholder="Details"
+            placeholder="+ Create Custom"
             value={draft.details}
             onChange={(e) => setDraft({ ...draft, details: e.target.value })}
           />
@@ -228,7 +229,7 @@ export default function Routines() {
             value={draft.frequency}
             onChange={(e) => setDraft({ ...draft, frequency: e.target.value })}
             className="mm-input text-xs !py-1.5"
-            placeholder="Daily / custom"
+            placeholder="+ Create Custom"
           />
           <button
             onClick={add}
@@ -272,7 +273,7 @@ export default function Routines() {
                 <input list="routine-groups" defaultValue={r.group || ""} onBlur={(e) => patch(r.id, { group: e.target.value })} placeholder="—" className="mm-input-ghost text-xs" />
                 <input list="routine-names" defaultValue={r.name || ""} onBlur={(e) => patch(r.id, { name: e.target.value })} placeholder="—" className="mm-input-ghost text-xs" />
                 <input list="routine-activities" defaultValue={r.activity} onBlur={(e) => patch(r.id, { activity: e.target.value })} className="mm-input-ghost text-xs" />
-                <input defaultValue={r.details || ""} onBlur={(e) => patch(r.id, { details: e.target.value })} placeholder="—" className="mm-input-ghost text-xs" />
+                <input list="routine-details" defaultValue={r.details || ""} onBlur={(e) => patch(r.id, { details: e.target.value })} placeholder="—" className="mm-input-ghost text-xs" />
                 <input list="routine-freqs" defaultValue={r.frequency || "Daily"} onBlur={(e) => patch(r.id, { frequency: e.target.value })} className="mm-input-ghost text-xs" />
                 <div className="flex items-center gap-1">
                   {streak > 0 && (
@@ -303,6 +304,9 @@ export default function Routines() {
       <datalist id="routine-groups">{groups.map((g) => <option key={g} value={g} />)}</datalist>
       <datalist id="routine-names">{names.map((n) => <option key={n} value={n} />)}</datalist>
       <datalist id="routine-activities">{activities.map((a) => <option key={a} value={a} />)}</datalist>
+      <datalist id="routine-details">
+        {Array.from(new Set(routines.map((r) => r.details).filter(Boolean))).map((d) => <option key={d} value={d} />)}
+      </datalist>
       <datalist id="routine-freqs">{freqs.map((f) => <option key={f} value={f} />)}</datalist>
 
       <ReminderDialog open={!!reminderFor} onClose={() => setReminderFor(null)} defaults={reminderFor || {}} />

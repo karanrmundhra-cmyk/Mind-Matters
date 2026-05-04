@@ -52,9 +52,14 @@ export default function FilterHeader({
       {open && (
         <div
           ref={ref}
-          className={`absolute top-5 z-30 w-56 mm-glass p-2 rounded-lg shadow-2xl normal-case tracking-normal ${
+          className={`absolute top-5 z-30 w-56 p-2 rounded-lg shadow-2xl normal-case tracking-normal border border-[rgba(201,169,97,0.35)] ${
             align === "right" ? "right-0" : "left-0"
           }`}
+          style={{
+            background: "linear-gradient(180deg, rgba(20,17,11,0.97) 0%, rgba(12,11,9,0.97) 100%)",
+            backdropFilter: "blur(16px)",
+            WebkitBackdropFilter: "blur(16px)",
+          }}
         >
           <input
             autoFocus
