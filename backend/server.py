@@ -1655,6 +1655,43 @@ async def share_document_telegram(body: ShareDocReq, user=Depends(get_current_us
     return {"ok": bool(res and res.get("ok")), "telegram": res}
 
 
+# ───────────────────── Telegram setup PDF ─────────────────────
+@api.get("/docs/telegram-setup.pdf")
+async def telegram_setup_pdf():
+    """Public — step-by-step PDF guide for linking a private Telegram bot."""
+    headers = ["Step", "What to do"]
+    rows = [
+        ["1", "Open Telegram and search for @BotFather. Open the chat and tap Start."],
+        ["2", "Send /newbot. BotFather will ask for a display name (e.g. \"Mind Matters\")."],
+        ["3", "Choose a unique username ending in 'bot' (e.g. mindmatters_karan_bot)."],
+        ["4", "BotFather replies with an HTTP API token like 7123456789:AAH...XYZ. Copy it."],
+        ["5", "In Mind Matters → Settings → Connect Telegram, paste the token (or send to admin) and Save."],
+        ["6", "Tap 'Generate code' in Settings — a deep-link button appears."],
+        ["7", "Tap 'Open in Telegram'. Inside the chat, tap Start. Your account is now linked."],
+        ["8", "From now on, send any text or receipt photo to your bot. AI will parse and confirm."],
+        ["9", "Reminders also auto-ping you on Telegram at the scheduled time."],
+        ["10", "To unlink later, return to Settings → Connect Telegram → Unlink."],
+    ]
+    pdf = render_simple_statement(
+        title="Telegram Bot — Setup Guide",
+        subtitle="Mind Matters · 2-way private bot in 10 steps",
+        meta={"App": "Mind Matters", "Version": "v2.2", "Last updated": today_key()},
+        table_headers=headers,
+        table_rows=rows,
+        summary_rows=[
+            ("Tip", "Each user runs their own private bot — your data never crosses accounts."),
+            ("Need help?", "Settings → Connect Telegram has live status + test-ping button."),
+        ],
+        footer="© Mind Matters — Personal Operating System",
+    )
+    from fastapi.responses import Response
+    return Response(
+        content=pdf,
+        media_type="application/pdf",
+        headers={"Content-Disposition": 'attachment; filename="mind-matters-telegram-setup.pdf"'},
+    )
+
+
 # ───────────────────── Reset & seed (v2.2) ─────────────────────
 class ResetReq(BaseModel):
     confirm: str  # must equal "RESET"

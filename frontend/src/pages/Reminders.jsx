@@ -22,6 +22,113 @@ const isoLocalNowPlusHour = () => {
   )}:${pad(d.getMinutes())}`;
 };
 
+const SOURCE_LABEL = {
+  tasks: "From Tasks",
+  routines: "From Routines",
+  "cash-flow": "From Cash Flow",
+  cashflow: "From Cash Flow",
+  notes: "From Notes",
+  reminders: "Standalone",
+};
+
+function renderGroupedUpcoming(upcoming, helpers) {
+  // Group by source_page; "standalone" bucket for reminders without a source.
+  const groups = {};
+  for (const r of upcoming) {
+    const key = r.source_page || "standalone";
+    if (!groups[key]) groups[key] = [];
+    groups[key].push(r);
+  }
+  const ordered = ["tasks", "routines", "cash-flow", "cashflow", "notes", "standalone"]
+    .filter((k) => groups[k] && groups[k].length)
+    .concat(Object.keys(groups).filter(
+      (k) => !["tasks", "routines", "cash-flow", "cashflow", "notes", "standalone"].includes(k),
+    ));
+
+  return ordered.map((key) => (
+    <div key={key} data-testid={`reminder-group-${key}`}>
+      <div className="px-5 py-2 bg-[rgba(201,169,97,0.06)] border-b border-[rgba(201,169,97,0.12)] text-[10px] uppercase tracking-[0.3em] mm-text-gold">
+        {SOURCE_LABEL[key] || `From ${key}`} · {groups[key].length}
+      </div>
+      {groups[key].map((r) => (
+        <UpcomingRow key={r.id} r={r} {...helpers} />
+      ))}
+    </div>
+  ));
+}
+
+function UpcomingRow({ r, patch, remove, downloadIcs, toLocal, toUTC }) {
+  const ctx = r.source_context || {};
+  const ctxFields = Object.entries(ctx).filter(([, v]) => v !== null && v !== undefined && v !== "");
+  return (
+    <div
+      className="px-5 py-3 border-b border-[rgba(201,169,97,0.08)]"
+      data-testid="reminder-row"
+    >
+      <div className="grid grid-cols-1 md:grid-cols-[1.4fr_200px_140px_1fr_auto_auto] gap-3 items-center">
+        <input
+          defaultValue={r.title}
+          onBlur={(e) => patch(r.id, { title: e.target.value })}
+          className="mm-input-ghost text-sm"
+        />
+        <input
+          type="datetime-local"
+          defaultValue={toLocal(r.fire_at)}
+          onBlur={(e) => patch(r.id, { fire_at: toUTC(e.target.value) })}
+          className="mm-input-ghost text-xs"
+        />
+        <select
+          defaultValue={r.recurrence || "none"}
+          onChange={(e) => patch(r.id, { recurrence: e.target.value })}
+          className="mm-input-ghost text-xs"
+        >
+          <option value="none">One-time</option>
+          <option value="daily">Daily</option>
+          <option value="weekly">Weekly</option>
+          <option value="monthly">Monthly</option>
+          <option value="quarterly">Quarterly</option>
+          <option value="half-yearly">Half-Yearly</option>
+          <option value="yearly">Yearly</option>
+        </select>
+        <input
+          defaultValue={r.notes || ""}
+          onBlur={(e) => patch(r.id, { notes: e.target.value })}
+          placeholder="Notes"
+          className="mm-input-ghost text-xs"
+        />
+        <button
+          onClick={() => downloadIcs(r.id)}
+          className="text-[#B7A98A]/65 hover:text-[#E4C98C] transition p-1"
+          title="Download .ics"
+          data-testid="reminder-download-ics"
+        >
+          <Download size={14} />
+        </button>
+        <button
+          onClick={() => remove(r.id)}
+          className="text-[#B7A98A]/55 hover:text-[#E4C98C] transition p-1"
+          data-testid="reminder-delete"
+        >
+          <Trash2 size={14} />
+        </button>
+      </div>
+      {ctxFields.length > 0 && (
+        <div
+          className="mt-2 ml-1 text-[11px] rounded-md border border-[rgba(201,169,97,0.18)] bg-[rgba(201,169,97,0.03)] px-3 py-1.5 flex flex-wrap gap-x-3 gap-y-0.5"
+          data-testid="reminder-source-context"
+        >
+          {ctxFields.map(([k, v]) => (
+            <span key={k} className="text-[#B7A98A]/70">
+              <span className="text-[#B7A98A]/45 mr-1">{k}:</span>
+              <span className="mm-text-gold-bright">{String(v)}</span>
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function Reminders() {
   const [items, setItems] = useState([]);
   const [tgLinked, setTgLinked] = useState(false);
@@ -61,8 +168,8 @@ export default function Reminders() {
     if (!draft.title.trim() || !draft.fire_at_local) return;
     try {
       await api.post("/reminders", {
-        title: capWords(draft.title),
-        notes: capWords(draft.notes),
+        title: draft.title,
+        notes: draft.notes,
         fire_at: toUTC(draft.fire_at_local),
         recurrence: draft.recurrence,
       });
@@ -124,8 +231,8 @@ export default function Reminders() {
     if (!fire_iso && row.fire_at_local) fire_iso = new Date(row.fire_at_local).toISOString();
     if (!fire_iso) return;
     await api.post("/reminders", {
-      title: capWords(row.title || "Reminder"),
-      notes: capWords(row.notes || ""),
+      title: row.title || "Reminder",
+      notes: row.notes || "",
       fire_at: fire_iso,
       recurrence: row.recurrence || "none",
     });

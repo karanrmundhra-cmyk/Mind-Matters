@@ -79,6 +79,33 @@ with the R.K.M. brand logo. AI-first input on every page (type → confirm → d
 - **Tests**: backend 13/13 v2.0 pytest pass; frontend 14/15 Playwright pass
   (one MEDIUM testid alias fixed post-test — Tasks #new-row `new-task-task`).
 
+### v2.2 — Reminders grouped by source · Tasks tick · Vendor/Mode rename · Setup PDF · Reset & Seed (2026-02)
+- **Tasks**: each row gets a circular tick button. Clicking it toggles
+  Pending↔Done; "Done" rows automatically sink to the bottom (sort by status).
+- **Reminders page rewrite**: upcoming reminders are grouped by `source_page`
+  (Tasks / Routines / Cash Flow / Notes / Standalone). The buggy
+  `renderGroupedUpcoming` reference + missing `capWords` import that broke the
+  page at session start are fixed; auto-capitalization is fully removed here.
+- **Cash Flow column rename**: Name → Vendor, Remarks → Mode. Backend keeps
+  both fields populated for backwards compat (`vendor`, `mode` written
+  alongside legacy `name`, `remarks` on every insert/patch).
+- **"+ Create Custom" placeholders** on every `#new` row across Tasks /
+  Routines / Cash Flow datalist inputs — communicates "type anything new or
+  pick from the dropdown".
+- **AI bar tagline removed**: "Type & review before saving" caption stripped
+  per user feedback (the AiAddBar is now silent until parsed rows appear).
+- **Reset & Seed**: `POST /api/reset/seed` (body `{confirm:"RESET"}`) wipes
+  this user's tasks/routines/transactions/notes/reminders/deadlines and seeds
+  exactly one example per page. Useful for new users to see the layout.
+- **Bank statement upload mapped to v2.2 schema**: `/api/transactions/upload`
+  now writes `vendor`, `mode`, `head`, `category` alongside legacy fields.
+- **Telegram setup PDF**: new public `GET /api/docs/telegram-setup.pdf`
+  renders a 10-step BotFather setup guide; Settings page has a "Setup PDF"
+  download button on the Telegram card.
+- **Notes list-append AI prompt**: AI returns `list_title`/`list_tag`+`items`
+  → `POST /api/notes/append-list` patches the existing list instead of
+  creating duplicates.
+
 ### v2.1 — UX revamp: filter-per-column · quick-tags · reminder modal · calendar sync (2026-02)
 - **Global**: auto-capitalization removed (frontend `capWords`, backend
   `_title_case_smart` + `_normalize_row`). All string inputs preserve the

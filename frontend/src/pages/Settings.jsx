@@ -74,6 +74,16 @@ export default function Settings() {
   const icsUrl = calToken ? `${base}/api/cal/${calToken}.ics` : null;
   const webcalUrl = icsUrl ? icsUrl.replace(/^https?:/, "webcal:") : null;
 
+  const downloadTelegramPdf = () => {
+    const url = `${base}/api/docs/telegram-setup.pdf`;
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "mind-matters-telegram-setup.pdf";
+    a.target = "_blank";
+    a.rel = "noreferrer";
+    a.click();
+  };
+
   const downloadExport = async () => {
     try {
       const res = await api.get("/export/data.xlsx", { responseType: "blob" });
@@ -242,8 +252,18 @@ export default function Settings() {
 
       {/* Telegram bot setup */}
       <Card className="p-5" data-testid="settings-telegram">
-        <div className="flex items-center gap-2 text-[10px] uppercase tracking-[0.3em] text-[#B7A98A]/65 mb-3">
-          <Send size={12} /> Connect Telegram
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2 text-[10px] uppercase tracking-[0.3em] text-[#B7A98A]/65">
+            <Send size={12} /> Connect Telegram
+          </div>
+          <button
+            onClick={downloadTelegramPdf}
+            className="mm-btn-ghost text-xs flex items-center gap-1.5"
+            data-testid="tg-setup-pdf"
+            title="Download a step-by-step PDF guide"
+          >
+            <Download size={12} /> Setup PDF
+          </button>
         </div>
         {status?.linked ? (
           <div className="space-y-3">
