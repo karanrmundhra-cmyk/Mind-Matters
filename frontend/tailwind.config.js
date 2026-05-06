@@ -11,6 +11,7 @@ module.exports = {
     "md:grid-cols-[50px_130px_130px_1.1fr_1.1fr_130px_140px]",
     "md:grid-cols-[60px_140px_140px_1.1fr_1.1fr_140px_140px]",
     "md:grid-cols-[40px_105px_110px_1fr_1fr_110px_1fr_110px_110px_140px]",
+    "md:grid-cols-[60px_140px_110px_1fr_1fr_110px_1fr_110px_120px_140px]",
   ],
   theme: {
   	extend: {

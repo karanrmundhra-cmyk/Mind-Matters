@@ -79,6 +79,52 @@ with the R.K.M. brand logo. AI-first input on every page (type → confirm → d
 - **Tests**: backend 13/13 v2.0 pytest pass; frontend 14/15 Playwright pass
   (one MEDIUM testid alias fixed post-test — Tasks #new-row `new-task-task`).
 
+### v2.4 — Tasks page hotfix · Cash Flow parity · Notes redesign · Quick Add 5-way · Bot smarter (2026-02)
+- **🔥 P0 hotfix**: Tasks page was crashing (500 from `/api/tasks`) because the
+  Pydantic `Task.status` was a `Literal["Pending","Done","Follow-Up"]` and the
+  v2.3 dropdown wrote "Completed". Loosened to `str` so any value (including
+  custom statuses) round-trips.
+- **Cash Flow** — parity with Tasks/Routines:
+  - Editable Sr `<input type=number>` (`tx-sr-input`) with backend
+    re-sequence; auto sr_no on create/upload; compact on delete; backfill on
+    list-read for legacy docs.
+  - Filter dropdowns now show distinct option lists for Sr / Date / Details /
+    Amount / Mode (was free-text only). Category dropdown lists ONLY
+    categories present in data (no phantom values).
+  - Category cell is now a `<select>` with income/expense/asset/liability +
+    custom values + "+ Custom…" sentinel. Direction auto-derived.
+  - Date column widened to 140px (was 105px) so "2026-02-04" renders fully.
+  - Enter-key navigates to next field on data rows (matches Tasks/Routines).
+- **Bulk upload fixed**: `/api/transactions/upload` now writes `sr_no` from
+  `_next_sr` instead of 0, increments per row. Verified: 4-row CSV inserted
+  with sr_no 2-5 chained correctly.
+- **AI expense parser**: rewritten with examples — extracts `vendor` (insurer/
+  merchant), `name` (beneficiary), `amount` (handles "5 lakhs" → 500000),
+  `head` (Insurance/Food/Travel/etc.), `mode`, `category`. "insurance from
+  bajaj karan 5 lakhs" → `{vendor:Bajaj, name:Karan, amount:500000,
+  head:Insurance, mode:Bank, category:liability}`.
+- **AI notes**: prompt now treats single-item buy/get/pickup phrases ("buy
+  soap", "get bread") as shopping-list appends, not standalone notes.
+- **Notes UI**:
+  - Removed `#` hashtag prefix everywhere — tags shown as plain pills.
+  - "+ Custom" tag chip lets user create new tags inline (added to the
+    selected note).
+  - Top-right toolbar now shows `{count} note(s)` chip + Bulk add button
+    (replaces the old "+ New note" button — matches Tasks/Routines pattern).
+  - "+" icon moved into the search bar for inline note creation.
+  - Search placeholder updated to "Search notes & tags".
+- **Quick Add** now shows all 5 kinds: Task · Routine · Expense · Note ·
+  Reminder. Switched from `/api/ai/parse` to `/api/parse/bulk` for richer
+  schemas (group, vendor, recurrence, list-append, reminder_at). Auto-creates
+  linked reminder when `reminder_at` is parsed for tasks.
+- **Telegram bot** smarter routing:
+  - Strips question prefixes ("what is/are", "show", "list", "give me", "tell
+    me", "fetch") before regex matching.
+  - Detects "NAME's tasks", "NAME tasks" (short input), and possessive forms.
+  - Cleans trailing 's' so "brindas tasks" → person="Brinda".
+  - "what is brindas tasks" now returns a tasks PDF instead of saving the
+    sentence as a new task.
+
 ### v2.3 — Smarter AI · editable Sr · status auto-tick · prominent Set button (2026-02)
 - **Tasks AI parser**: now extracts `date`, `group` (from `#group:` / `Group:`),
   `name` (To person), `task` (verb), `details`, `status`, AND `reminder_at`

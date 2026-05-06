@@ -204,28 +204,51 @@ def _format_preview(kind, p):
 
 
 # ───────────────────────── Statement query parsing ─────────────────────────
+def _clean_name(raw: str) -> str:
+    """Strip trailing possessive 's' / apostrophe-s and Title-Case."""
+    n = raw.strip().rstrip("'’")
+    # If the captured token ends in a bare 's' and stripping it yields a sensible name,
+    # drop it (e.g. "brindas" → "Brinda"). Skip when the name is short or already Title-Case singular.
+    if len(n) > 3 and n.lower().endswith("s") and not n.lower().endswith("ss"):
+        n = n[:-1]
+    return n.strip().title()
+
+
 def _detect_statement_query(text: str):
     """If user asked for a statement, return (kind, person_or_month). Else None."""
     if not text:
         return None
-    t = text.lower().strip()
+    t = text.lower().strip().rstrip("?.!")
+    # Strip leading question/imperative starters so the rest of the regexes match.
+    t = re.sub(r"^(what(?:'s| is| are)?|show|list|give\s+me|tell\s+me|give|fetch|get|pull|find)\s+(me\s+)?", "", t)
+    t = re.sub(r"^(the\s+)?", "", t)
     # tasks/pending of NAME
-    m = re.search(r"(?:pending|open)\s+tasks?\s+(?:of|for)\s+([a-z][a-z .'-]{1,40})", t)
+    m = re.search(r"(?:pending|open|all)?\s*tasks?\s+(?:of|for)\s+([a-z][a-z .'-]{1,40})", t)
     if m:
-        return ("tasks", m.group(1).strip().title())
-    m = re.search(r"tasks?\s+(?:of|for)\s+([a-z][a-z .'-]{1,40})", t)
+        return ("tasks", _clean_name(m.group(1)))
+    # NAME's tasks  /  NAMEs tasks
+    m = re.search(r"^([a-z][a-z .'-]{1,40})['']?s?\s+(?:pending\s+)?tasks?$", t)
     if m:
-        return ("tasks", m.group(1).strip().title())
+        return ("tasks", _clean_name(m.group(1)))
+    # NAME tasks (loose match — only when text is short)
+    if len(t.split()) <= 4:
+        m = re.search(r"^([a-z][a-z .'-]{1,40})\s+(?:pending\s+)?tasks?$", t)
+        if m:
+            return ("tasks", _clean_name(m.group(1)))
     # loan statement of NAME
     m = re.search(r"loan\s+(?:statement|summary|report|details?)\s+(?:of|for)\s+([a-z][a-z .'-]{1,40})", t)
     if m:
-        return ("loan", m.group(1).strip().title())
+        return ("loan", _clean_name(m.group(1)))
     m = re.search(r"(?:statement|loan)s?\s+(?:of|for)\s+([a-z][a-z .'-]{1,40})", t)
     if m:
-        return ("loan", m.group(1).strip().title())
+        return ("loan", _clean_name(m.group(1)))
+    m = re.search(r"^([a-z][a-z .'-]{1,40})['']?s?\s+(?:loan|loans)\s+(?:statement|summary)?$", t)
+    if m:
+        return ("loan", _clean_name(m.group(1)))
     # cash flow / expenses this month
     if any(p in t for p in ("cash flow", "this month expenses", "month expenses",
-                            "expense statement", "expense summary")):
+                            "expense statement", "expense summary",
+                            "monthly expense", "spending this month")):
         return ("transactions", None)
     return None
 

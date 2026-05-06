@@ -69,7 +69,7 @@ export default function Notes() {
       .filter(Boolean);
   }, [notes]);
   const noteQuickTags = useMemo(
-    () => Array.from(new Set([...listTitles, ...allTags.map((t) => `#${t}`)])),
+    () => Array.from(new Set([...listTitles, ...allTags])),
     [listTitles, allTags],
   );
 
@@ -161,19 +161,15 @@ export default function Notes() {
         title="Notes & Affirmations"
         right={
           <div className="flex items-center gap-2">
+            <span className="mm-chip" data-testid="notes-count-chip">
+              {notes.length} note{notes.length === 1 ? "" : "s"}
+            </span>
             <button
               onClick={() => setBulkOpen(true)}
               className="mm-btn-ghost text-xs flex items-center gap-1.5"
               data-testid="bulk-add-open"
             >
               <Upload size={12} /> Bulk add
-            </button>
-            <button
-              onClick={create}
-              className="mm-btn-primary text-sm flex items-center gap-1.5"
-              data-testid="new-note-btn"
-            >
-              <Plus size={14} /> New note
             </button>
           </div>
         }
@@ -184,7 +180,7 @@ export default function Notes() {
 
       <AiAddBar
         kind="note"
-        placeholder="e.g. add milk, eggs to Shopping List · or 'idea: sunday review' #personal"
+        placeholder="e.g. add milk to shopping list · or 'idea: sunday review'"
         columns={NOTE_COLUMNS}
         describe={describe}
         quickTags={noteQuickTags}
@@ -203,18 +199,27 @@ export default function Notes() {
               <input
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
-                placeholder="Search all notes"
+                placeholder="Search notes & tags"
                 className="bg-transparent outline-none text-sm w-full"
                 data-testid="notes-search"
               />
+              <button
+                onClick={create}
+                className="text-[#B7A98A]/65 hover:text-[#E4C98C] transition shrink-0"
+                title="New note"
+                data-testid="new-note-btn"
+              >
+                <Plus size={16} />
+              </button>
             </div>
           </Card>
 
           {allTags.length > 0 && (
-            <div className="flex flex-wrap gap-1.5">
+            <div className="flex flex-wrap gap-1.5" data-testid="notes-tag-list">
               <button
                 onClick={() => setFilterTag("")}
                 className={`mm-chip ${!filterTag ? "mm-chip-gold" : ""}`}
+                data-testid="notes-tag-all"
               >
                 All
               </button>
@@ -223,10 +228,29 @@ export default function Notes() {
                   key={t}
                   onClick={() => setFilterTag(t === filterTag ? "" : t)}
                   className={`mm-chip ${filterTag === t ? "mm-chip-gold" : ""}`}
+                  data-testid={`notes-tag-${t}`}
                 >
-                  #{t}
+                  {t}
                 </button>
               ))}
+              <button
+                onClick={() => {
+                  const name = window.prompt("New tag name?", "");
+                  if (name && name.trim() && selected) {
+                    const tag = name.trim().toLowerCase();
+                    const next = Array.from(new Set([...(selected.tags || []), tag]));
+                    save({ tags: next });
+                    setFilterTag(tag);
+                  } else if (!selected) {
+                    toast("Select a note first to add a tag.");
+                  }
+                }}
+                className="mm-chip"
+                data-testid="notes-tag-create"
+                title="Create a new tag and add it to the selected note"
+              >
+                + Custom
+              </button>
             </div>
           )}
 
@@ -327,7 +351,7 @@ export default function Notes() {
                     onClick={() => toggleTag(t)}
                     className={`mm-chip ${(selected.tags || []).includes(t) ? "mm-chip-gold" : ""}`}
                   >
-                    #{t}
+                    {t}
                   </button>
                 ))}
               </div>

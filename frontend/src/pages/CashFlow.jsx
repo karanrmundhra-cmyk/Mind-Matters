@@ -28,7 +28,7 @@ const TX_COLUMNS = [
   { key: "category", label: "Category", type: "text", width: "120px" },
 ];
 
-const GRID = "md:grid-cols-[40px_105px_110px_1fr_1fr_110px_1fr_110px_110px_140px]";
+const GRID = "md:grid-cols-[60px_140px_110px_1fr_1fr_110px_1fr_110px_120px_140px]";
 
 export default function CashFlow() {
   const [rows, setRows] = useState([]);
@@ -68,13 +68,57 @@ export default function CashFlow() {
     [rows],
   );
   const names = useMemo(
-    () => Array.from(new Set(rows.map((r) => r.name || r.company).filter(Boolean))),
+    () => Array.from(new Set(rows.map((r) => r.vendor || r.name || r.company).filter(Boolean))),
     [rows],
   );
   const heads = useMemo(
     () => Array.from(new Set(rows.map((r) => r.head || r.expense_head).filter(Boolean))),
     [rows],
   );
+  const dateOptions = useMemo(
+    () => Array.from(new Set(rows.map((r) => r.date).filter(Boolean))).sort().reverse(),
+    [rows],
+  );
+  const detailOptions = useMemo(
+    () => Array.from(new Set(rows.map((r) => r.details || r.notes).filter(Boolean))),
+    [rows],
+  );
+  const amountOptions = useMemo(
+    () => Array.from(new Set(rows.map((r) => String(r.amount || "")).filter(Boolean))),
+    [rows],
+  );
+  const modeOptions = useMemo(
+    () => Array.from(new Set(["Cash", "Card", "UPI", "Bank", "Cheque", ...rows.map((r) => r.mode || r.remarks).filter(Boolean)])),
+    [rows],
+  );
+  const srOptions = useMemo(
+    () => rows.map((r) => String(r.sr_no || "")).filter(Boolean),
+    [rows],
+  );
+  const categoryOptions = useMemo(
+    () => Array.from(new Set([...rows.map((r) => r.category).filter(Boolean), ...CATEGORIES])),
+    [rows],
+  );
+  // Filter dropdown should ONLY list categories that actually appear in the data
+  const categoryOptionsInData = useMemo(
+    () => Array.from(new Set(rows.map((r) => r.category).filter(Boolean))),
+    [rows],
+  );
+
+  const advanceOnEnter = (e) => {
+    if (e.key !== "Enter") return;
+    e.preventDefault();
+    const row = e.currentTarget.closest('[data-row]');
+    if (!row) return;
+    const fields = Array.from(row.querySelectorAll("input,select")).filter(
+      (el) => !el.disabled && el.type !== "hidden",
+    );
+    const idx = fields.indexOf(e.currentTarget);
+    if (idx >= 0 && idx < fields.length - 1) {
+      fields[idx + 1].focus();
+      if (fields[idx + 1].select) fields[idx + 1].select?.();
+    }
+  };
 
   const txt = (a, b) => (!b ? true : String(a || "").toLowerCase().includes(b.toLowerCase()));
   const visible = useMemo(
@@ -86,10 +130,10 @@ export default function CashFlow() {
         if (filters.sr && String(r.sr_no || "") !== filters.sr) return false;
         if (!txt(r.date, filters.date)) return false;
         if (!txt(r.group, filters.group)) return false;
-        if (!txt(r.name || r.company, filters.name)) return false;
+        if (!txt(r.vendor || r.name || r.company, filters.name)) return false;
         if (!txt(r.details || r.notes, filters.details)) return false;
         if (filters.amount && String(r.amount || "").includes(filters.amount) === false) return false;
-        if (!txt(r.remarks, filters.remarks)) return false;
+        if (!txt(r.mode || r.remarks, filters.remarks)) return false;
         if (!txt(r.head || r.expense_head, filters.head)) return false;
         return true;
       }),
@@ -110,21 +154,24 @@ export default function CashFlow() {
   const insertOne = async (row) => {
     const cat = (row.category || "expense").toLowerCase();
     const vendor = row.vendor || row.name || row.company || "";
-    const mode = row.mode || row.remarks || "Cash";
+    const personName = row.name && row.name !== vendor ? row.name : "";
+    const mode = row.mode || row.remarks || "Bank";
+    const head = row.head || row.expense_head || "";
+    const details = row.details || row.notes || "";
     await api.post("/transactions", {
       date: row.date || todayISO(),
       amount: Math.abs(Number(row.amount) || 0),
       group: row.group || activeGroup || "",
-      name: vendor,
+      name: personName || vendor,
       vendor,
-      details: row.details || row.notes || "",
+      details,
       remarks: mode,
       mode,
-      head: row.head || row.expense_head || "",
+      head,
       category: cat,
       company: vendor,
-      notes: row.details || row.notes || "",
-      expense_head: row.head || row.expense_head || "",
+      notes: details,
+      expense_head: head,
       direction: cat === "income" || cat === "asset" ? "in" : "out",
     });
   };
@@ -300,29 +347,46 @@ export default function CashFlow() {
       <Card className="p-0 overflow-hidden" data-testid="tx-table">
         {/* Headers w/ filter icons */}
         <div className={`hidden md:grid ${GRID} gap-3 px-4 py-3 border-b border-[rgba(201,169,97,0.2)]`}>
-          <FilterHeader label="Sr" value={filters.sr} onChange={(v) => setFilters((f) => ({ ...f, sr: v }))} />
-          <FilterHeader label="Date" value={filters.date} onChange={(v) => setFilters((f) => ({ ...f, date: v }))} />
+          <FilterHeader label="Sr" value={filters.sr} options={srOptions} onChange={(v) => setFilters((f) => ({ ...f, sr: v }))} />
+          <FilterHeader label="Date" value={filters.date} options={dateOptions} onChange={(v) => setFilters((f) => ({ ...f, date: v }))} />
           <FilterHeader label="Group" value={filters.group} options={groups} onChange={(v) => setFilters((f) => ({ ...f, group: v }))} />
           <FilterHeader label="Vendor" value={filters.name} options={names} onChange={(v) => setFilters((f) => ({ ...f, name: v }))} />
-          <FilterHeader label="Details" value={filters.details} onChange={(v) => setFilters((f) => ({ ...f, details: v }))} />
-          <FilterHeader label="Amount" value={filters.amount} onChange={(v) => setFilters((f) => ({ ...f, amount: v }))} />
-          <FilterHeader label="Mode" value={filters.remarks} onChange={(v) => setFilters((f) => ({ ...f, remarks: v }))} />
+          <FilterHeader label="Details" value={filters.details} options={detailOptions} onChange={(v) => setFilters((f) => ({ ...f, details: v }))} />
+          <FilterHeader label="Amount" value={filters.amount} options={amountOptions} onChange={(v) => setFilters((f) => ({ ...f, amount: v }))} />
+          <FilterHeader label="Mode" value={filters.remarks} options={modeOptions} onChange={(v) => setFilters((f) => ({ ...f, remarks: v }))} />
           <FilterHeader label="Head" value={filters.head} options={heads} onChange={(v) => setFilters((f) => ({ ...f, head: v }))} />
-          <FilterHeader label="Category" value={filters.category} options={CATEGORIES} onChange={(v) => setFilters((f) => ({ ...f, category: v }))} />
+          <FilterHeader label="Category" value={filters.category} options={categoryOptionsInData} onChange={(v) => setFilters((f) => ({ ...f, category: v }))} />
           <div />
         </div>
 
         {/* Manual entry bar BELOW headers */}
-        <div className={`hidden md:grid ${GRID} gap-3 px-4 py-3 border-b border-[rgba(201,169,97,0.12)] bg-[rgba(201,169,97,0.04)] items-center`} data-testid="manual-add">
+        <div className={`hidden md:grid ${GRID} gap-3 px-4 py-3 border-b border-[rgba(201,169,97,0.12)] bg-[rgba(201,169,97,0.04)] items-center`} data-testid="manual-add" data-row="entry">
           <div className="mm-text-gold/60 text-xs">#new</div>
-          <input type="date" value={draft.date} onChange={(e) => setDraft({ ...draft, date: e.target.value })} className="mm-input text-xs !py-1.5" />
-          <input list="tx-groups" placeholder={activeGroup || "+ Create Custom"} value={draft.group} onChange={(e) => setDraft({ ...draft, group: e.target.value })} className="mm-input text-xs !py-1.5" data-testid="new-tx-group" />
-          <input list="tx-vendors" placeholder="+ Create Custom" value={draft.vendor} onChange={(e) => setDraft({ ...draft, vendor: e.target.value })} className="mm-input text-xs !py-1.5" />
-          <input list="tx-details" placeholder="+ Create Custom" value={draft.details} onChange={(e) => setDraft({ ...draft, details: e.target.value })} className="mm-input text-xs !py-1.5" />
-          <input type="number" placeholder="+ Amount" value={draft.amount} onChange={(e) => setDraft({ ...draft, amount: e.target.value })} className="mm-input text-xs !py-1.5" data-testid="new-tx-amount" />
-          <input list="tx-modes" placeholder="+ Create Custom" value={draft.mode} onChange={(e) => setDraft({ ...draft, mode: e.target.value })} className="mm-input text-xs !py-1.5" />
-          <input list="tx-heads" placeholder="+ Create Custom" value={draft.head} onChange={(e) => setDraft({ ...draft, head: e.target.value })} className="mm-input text-xs !py-1.5" />
-          <input list="tx-categories" value={draft.category} onChange={(e) => setDraft({ ...draft, category: e.target.value })} className="mm-input text-xs !py-1.5" placeholder="+ Create Custom" data-testid="tx-add-category" />
+          <input type="date" value={draft.date} onChange={(e) => setDraft({ ...draft, date: e.target.value })} onKeyDown={advanceOnEnter} className="mm-input text-xs !py-1.5" />
+          <input list="tx-groups" placeholder={activeGroup || "+ Create Custom"} value={draft.group} onChange={(e) => setDraft({ ...draft, group: e.target.value })} onKeyDown={advanceOnEnter} className="mm-input text-xs !py-1.5" data-testid="new-tx-group" />
+          <input list="tx-vendors" placeholder="+ Create Custom" value={draft.vendor} onChange={(e) => setDraft({ ...draft, vendor: e.target.value })} onKeyDown={advanceOnEnter} className="mm-input text-xs !py-1.5" />
+          <input list="tx-details" placeholder="+ Create Custom" value={draft.details} onChange={(e) => setDraft({ ...draft, details: e.target.value })} onKeyDown={advanceOnEnter} className="mm-input text-xs !py-1.5" />
+          <input type="number" placeholder="+ Amount" value={draft.amount} onChange={(e) => setDraft({ ...draft, amount: e.target.value })} onKeyDown={advanceOnEnter} className="mm-input text-xs !py-1.5" data-testid="new-tx-amount" />
+          <input list="tx-modes" placeholder="+ Create Custom" value={draft.mode} onChange={(e) => setDraft({ ...draft, mode: e.target.value })} onKeyDown={advanceOnEnter} className="mm-input text-xs !py-1.5" />
+          <input list="tx-heads" placeholder="+ Create Custom" value={draft.head} onChange={(e) => setDraft({ ...draft, head: e.target.value })} onKeyDown={advanceOnEnter} className="mm-input text-xs !py-1.5" />
+          <select
+            value={categoryOptions.includes(draft.category) ? draft.category : "expense"}
+            onChange={(e) => {
+              const v = e.target.value;
+              if (v === "__custom__") {
+                const custom = window.prompt("New category name?", "");
+                if (custom && custom.trim()) setDraft({ ...draft, category: custom.trim() });
+              } else {
+                setDraft({ ...draft, category: v });
+              }
+            }}
+            onKeyDown={advanceOnEnter}
+            className="mm-input text-xs !py-1.5"
+            data-testid="tx-add-category"
+          >
+            {categoryOptions.map((c) => <option key={c} value={c}>{c}</option>)}
+            <option value="__custom__">+ Custom…</option>
+          </select>
           <button onClick={add} disabled={!Number(draft.amount)} className="mm-btn-primary text-xs flex items-center justify-center gap-1.5 disabled:opacity-40 !py-1.5" data-testid="new-tx-submit">
             <Plus size={13} /> Add
           </button>
@@ -338,20 +402,48 @@ export default function CashFlow() {
                 key={t.id}
                 className={`grid grid-cols-2 ${GRID} gap-3 px-4 py-2.5 border-b border-[rgba(201,169,97,0.08)] hover:bg-[rgba(201,169,97,0.04)] items-center ${draggingId === t.id ? "opacity-40" : ""}`}
                 data-testid="tx-row"
+                data-row="data"
               >
-                <div className="mm-text-gold/80 text-xs">#{t.sr_no || idx + 1}</div>
-                <input type="date" value={t.date || ""} onChange={(e) => patch(t.id, { date: e.target.value })} className="mm-input-ghost text-xs" />
-                <input list="tx-groups" defaultValue={t.group || ""} onBlur={(e) => patch(t.id, { group: e.target.value })} className="mm-input-ghost text-xs" placeholder="—" />
-                <input list="tx-vendors" defaultValue={t.vendor || t.name || t.company || ""} onBlur={(e) => patch(t.id, { vendor: e.target.value, name: e.target.value, company: e.target.value })} className="mm-input-ghost text-xs" placeholder="—" />
-                <input list="tx-details" defaultValue={t.details || t.notes || ""} onBlur={(e) => patch(t.id, { details: e.target.value, notes: e.target.value })} className="mm-input-ghost text-xs" placeholder="—" />
-                <input type="number" defaultValue={t.amount} onBlur={(e) => patch(t.id, { amount: Number(e.target.value) })} className="mm-input-ghost text-xs" />
-                <input list="tx-modes" defaultValue={t.mode || t.remarks || ""} onBlur={(e) => patch(t.id, { mode: e.target.value, remarks: e.target.value })} className="mm-input-ghost text-xs" placeholder="—" />
-                <input list="tx-heads" defaultValue={t.head || t.expense_head || ""} onBlur={(e) => patch(t.id, { head: e.target.value, expense_head: e.target.value })} className="mm-input-ghost text-xs" />
-                <input list="tx-categories" defaultValue={cat} onBlur={(e) => {
-                  const v = e.target.value.toLowerCase();
-                  const dir = (v === "income" || v === "asset") ? "in" : "out";
-                  patch(t.id, { category: v, direction: dir });
-                }} className="mm-input-ghost text-xs" />
+                <input
+                  type="number"
+                  min="1"
+                  defaultValue={t.sr_no || idx + 1}
+                  onBlur={(e) => {
+                    const n = parseInt(e.target.value, 10);
+                    if (n && n !== t.sr_no) patch(t.id, { sr_no: n });
+                  }}
+                  onKeyDown={advanceOnEnter}
+                  className="mm-input-ghost text-xs !py-1.5 w-12"
+                  data-testid="tx-sr-input"
+                />
+                <input type="date" value={t.date || ""} onChange={(e) => patch(t.id, { date: e.target.value })} onKeyDown={advanceOnEnter} className="mm-input-ghost text-xs" />
+                <input list="tx-groups" defaultValue={t.group || ""} onBlur={(e) => patch(t.id, { group: e.target.value })} onKeyDown={advanceOnEnter} className="mm-input-ghost text-xs" placeholder="—" />
+                <input list="tx-vendors" defaultValue={t.vendor || t.name || t.company || ""} onBlur={(e) => patch(t.id, { vendor: e.target.value, name: e.target.value, company: e.target.value })} onKeyDown={advanceOnEnter} className="mm-input-ghost text-xs" placeholder="—" />
+                <input list="tx-details" defaultValue={t.details || t.notes || ""} onBlur={(e) => patch(t.id, { details: e.target.value, notes: e.target.value })} onKeyDown={advanceOnEnter} className="mm-input-ghost text-xs" placeholder="—" />
+                <input type="number" defaultValue={t.amount} onBlur={(e) => patch(t.id, { amount: Number(e.target.value) })} onKeyDown={advanceOnEnter} className="mm-input-ghost text-xs" />
+                <input list="tx-modes" defaultValue={t.mode || t.remarks || ""} onBlur={(e) => patch(t.id, { mode: e.target.value, remarks: e.target.value })} onKeyDown={advanceOnEnter} className="mm-input-ghost text-xs" placeholder="—" />
+                <input list="tx-heads" defaultValue={t.head || t.expense_head || ""} onBlur={(e) => patch(t.id, { head: e.target.value, expense_head: e.target.value })} onKeyDown={advanceOnEnter} className="mm-input-ghost text-xs" />
+                <select
+                  defaultValue={categoryOptions.includes(cat) ? cat : "expense"}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    if (v === "__custom__") {
+                      const custom = window.prompt("New category name?", "");
+                      if (!custom || !custom.trim()) { e.target.value = cat; return; }
+                      const dir = (custom.toLowerCase() === "income" || custom.toLowerCase() === "asset") ? "in" : "out";
+                      patch(t.id, { category: custom.trim().toLowerCase(), direction: dir });
+                    } else {
+                      const dir = (v === "income" || v === "asset") ? "in" : "out";
+                      patch(t.id, { category: v, direction: dir });
+                    }
+                  }}
+                  onKeyDown={advanceOnEnter}
+                  className="mm-input-ghost text-xs"
+                  data-testid="tx-category-select"
+                >
+                  {categoryOptions.map((c) => <option key={c} value={c}>{c}</option>)}
+                  <option value="__custom__">+ Custom…</option>
+                </select>
                 <RowActions
                   kind="tx"
                   rowId={t.id}

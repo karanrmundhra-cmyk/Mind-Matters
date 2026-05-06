@@ -139,7 +139,7 @@ class TaskIn(BaseModel):
     name: str = ""  # responsible person / "to"
     task: str
     details: str = ""
-    status: Literal["Pending", "Done", "Follow-Up"] = "Pending"
+    status: str = "Pending"  # free text — common values: Pending, Completed, Done (legacy), Follow-Up, or any custom user value
     group: str = ""  # custom group, user-defined (replaces block1..4)
 
 
@@ -814,15 +814,25 @@ async def list_transactions(
         q["date"] = {"$regex": f"^{month}"}
     if expense_head:
         q["expense_head"] = expense_head
-    docs = await db.transactions.find(q, {"_id": 0}).sort("date", -1).to_list(10000)
+    docs = await db.transactions.find(q, {"_id": 0}).sort("sr_no", 1).to_list(10000)
+    # Backfill sr_no for any legacy docs missing it.
+    if any((d.get("sr_no") or 0) <= 0 for d in docs):
+        ordered = sorted(docs, key=lambda d: d.get("created_at", ""))
+        for i, d in enumerate(ordered, 1):
+            if (d.get("sr_no") or 0) != i:
+                await db.transactions.update_one({"id": d["id"]}, {"$set": {"sr_no": i}})
+                d["sr_no"] = i
+        docs = sorted(ordered, key=lambda d: d.get("sr_no", 0))
     return docs
 
 
 @api.post("/transactions", response_model=Transaction)
 async def create_transaction(body: TransactionIn, user=Depends(get_current_user)):
+    sr = await _next_sr("transactions", user["id"])
     doc = {
         **body.model_dump(),
         "id": new_id(),
+        "sr_no": sr,
         "user_id": user["id"],
         "date": body.date or today_key(),
         "created_at": now_iso(),
@@ -836,9 +846,18 @@ async def create_transaction(body: TransactionIn, user=Depends(get_current_user)
 async def update_transaction(tid: str, body: Dict[str, Any], user=Depends(get_current_user)):
     allowed = {"date", "amount", "mode", "company", "expense_head", "direction",
                "account", "notes", "name", "vendor", "details", "remarks", "head",
-               "category", "group", "order_index"}
+               "category", "group", "order_index", "sr_no"}
     body = {k: v for k, v in body.items() if k in allowed}
     body["updated_at"] = now_iso()
+    if "sr_no" in body:
+        try:
+            new_sr = max(1, int(body["sr_no"]))
+        except Exception:
+            body.pop("sr_no", None)
+            new_sr = None
+        if new_sr is not None:
+            await _resequence_sr("transactions", user["id"], tid, new_sr)
+            body["sr_no"] = new_sr
     res = await db.transactions.find_one_and_update(
         {"id": tid, "user_id": user["id"]}, {"$set": body}, projection={"_id": 0}, return_document=True
     )
@@ -850,6 +869,7 @@ async def update_transaction(tid: str, body: Dict[str, Any], user=Depends(get_cu
 @api.delete("/transactions/{tid}")
 async def delete_transaction(tid: str, user=Depends(get_current_user)):
     await db.transactions.delete_one({"id": tid, "user_id": user["id"]})
+    await _compact_sr("transactions", user["id"])
     return {"ok": True}
 
 
@@ -932,6 +952,7 @@ async def upload_transactions(
     categorized = await _ai_categorize(raw_rows)
     inserted = []
     pending = []  # duplicates - to be confirmed by user
+    next_sr = await _next_sr("transactions", user["id"])
     for row in categorized:
         try:
             amount = float(row.get("amount", 0) or 0)
@@ -954,7 +975,7 @@ async def upload_transactions(
         doc = {
             "id": new_id(),
             "user_id": user["id"],
-            "sr_no": 0,
+            "sr_no": next_sr,
             "order_index": 0,
             "date": d,
             "amount": amt,
@@ -980,6 +1001,7 @@ async def upload_transactions(
             continue
         await db.transactions.insert_one(dict(doc))
         inserted.append({k: v for k, v in doc.items() if k != "_id"})
+        next_sr += 1
     return {"inserted": len(inserted), "transactions": inserted,
             "duplicate_count": len(pending), "duplicates": pending}
 
@@ -2308,9 +2330,25 @@ SCHEMA_BY_KIND = {
         "{group:'Morning', name:'Father', activity:'Yoga', details:'', frequency:'Daily'}"
     ),
     "expense": (
-        "{date:'YYYY-MM-DD', amount:number, expense_head (one word, Title-Case, e.g. 'Food','Travel','Utilities'), "
-        "company (Title-Case merchant), mode ('Card'|'Cash'|'UPI'|'Bank'|'Cheque'), "
-        "direction:'out'|'in', notes}"
+        "{date:'YYYY-MM-DD' (default to today if missing), "
+        "amount:number (handle 'lakhs'→×100000, 'crore'→×10000000, 'k'→×1000), "
+        "vendor (the company/provider/merchant name e.g. 'Bajaj', 'Starbucks', 'SBI'; "
+        "for insurance, this is the insurer like 'Bajaj','LIC','HDFC Ergo'), "
+        "name (the person involved — beneficiary, borrower, payer; e.g. 'Karan' from 'insurance for karan'), "
+        "details (free-text rest; for insurance include who it's for), "
+        "head (one-word category Title-Case e.g. 'Insurance','Food','Travel','Loan','Investment','Salary'), "
+        "mode ('Card'|'Cash'|'UPI'|'Bank'|'Cheque'; default 'Bank' if not specified), "
+        "category ('income'|'expense'|'asset'|'liability' — use 'liability' for insurance/loans-given, "
+        "'asset' for investments/loans-taken/FDs, 'income' for salary/refund/interest received, 'expense' otherwise), "
+        "group (free text bucket if user mentions one; else '')}\n"
+        "EXAMPLE 1: 'insurance from bajaj karan 5 lakhs' → "
+        "{date:today, amount:500000, vendor:'Bajaj', name:'Karan', details:'insurance for karan', head:'Insurance', mode:'Bank', category:'liability', group:''}\n"
+        "EXAMPLE 2: '450 coffee at starbucks card' → "
+        "{date:today, amount:450, vendor:'Starbucks', name:'', details:'coffee', head:'Food', mode:'Card', category:'expense', group:''}\n"
+        "EXAMPLE 3: 'sbi fd 2 lakhs at 7.1%' → "
+        "{date:today, amount:200000, vendor:'SBI', name:'', details:'FD at 7.1%', head:'Investment', mode:'Bank', category:'asset', group:''}\n"
+        "EXAMPLE 4: 'lent brinda 50000 at 9%' → "
+        "{date:today, amount:50000, vendor:'', name:'Brinda', details:'lent at 9%', head:'Loan', mode:'Bank', category:'asset', group:''}"
     ),
     "loan": (
         "{date:'YYYY-MM-DD', name (Title-Case), amount:number, "
@@ -2329,9 +2367,14 @@ SCHEMA_BY_KIND = {
         "notes}"
     ),
     "note": "{title, body, tags:[lowercase], list_title?:string, list_tag?:string, items?:[string]}. "
-            "When the user wants to append bullets to an existing list (e.g. 'add milk, eggs to shopping list' "
-            "or 'add X to #shopping'), set list_title (or list_tag) to the target AND put bullets in items[]. "
-            "Otherwise produce a standalone title+body note.",
+            "When the user wants to append bullets to an existing list (e.g. 'add milk, eggs to shopping list', "
+            "'add X to <list>', or single-item buy/get/pick-up phrases like 'buy soap', 'get bread', "
+            "'pick up dry cleaning', 'order coffee filters'), ALWAYS prefer list-append: set "
+            "list_title='Shopping List' (or the named list if specified) AND put bullets in items[]. "
+            "Recognize tag context: 'add X to #shopping' → list_tag='shopping', items=['X']. "
+            "Only when user is clearly writing a fresh thought/idea/journal entry "
+            "(e.g. 'idea: sunday review', 'note about meeting today') should you produce a "
+            "standalone {title, body} note WITHOUT items[].",
     "reminder": (
         "{title (Title-Case), fire_at_local:'YYYY-MM-DDTHH:MM' (interpret 'tomorrow 9am' etc. relative to today), "
         "notes, recurrence:'none'|'daily'|'weekly'|'monthly'|'quarterly'|'half-yearly'|'yearly'}"

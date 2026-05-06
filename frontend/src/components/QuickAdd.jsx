@@ -3,6 +3,22 @@ import { X, Sparkles } from "lucide-react";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
 
+const KINDS = [
+  { value: "task", label: "Task" },
+  { value: "routine", label: "Routine" },
+  { value: "expense", label: "Expense" },
+  { value: "note", label: "Note" },
+  { value: "reminder", label: "Reminder" },
+];
+
+const PLACEHOLDER = {
+  task: "Remind Rahul to send invoice tomorrow",
+  routine: "Morning walk at park daily, self",
+  expense: "Insurance from Bajaj for Karan 5 lakhs",
+  note: "Add milk to shopping list",
+  reminder: "Call dad every Sunday at 9am",
+};
+
 export default function QuickAdd({ open, onClose, defaultKind = "task" }) {
   const [kind, setKind] = useState(defaultKind);
   const [text, setText] = useState("");
@@ -13,44 +29,93 @@ export default function QuickAdd({ open, onClose, defaultKind = "task" }) {
     if (!msg) return;
     setLoading(true);
     try {
-      const { data } = await api.post("/ai/parse", { text: msg, kind });
-      const parsed = data.parsed;
-      if (!parsed) throw new Error("AI could not parse");
-
-      const actualKind = parsed.kind || kind;
-      if (actualKind === "task") {
-        await api.post("/tasks", {
-          task: parsed.task || msg,
-          name: parsed.name || "",
-          details: parsed.details || "",
-          date: parsed.date || null,
-          status: parsed.status || "Pending",
-        });
-        toast.success("Task added");
-      } else if (actualKind === "expense") {
-        await api.post("/transactions", {
-          amount: Number(parsed.amount) || 0,
-          expense_head: parsed.expense_head || "Uncategorized",
-          company: parsed.company || "",
-          direction: parsed.direction || "out",
-          date: parsed.date || null,
-          mode: parsed.mode || "Cash",
-          notes: parsed.notes || "",
-        });
-        toast.success("Expense logged");
-      } else if (actualKind === "note") {
-        await api.post("/notes", {
-          title: parsed.title || msg.slice(0, 40),
-          body: parsed.body || msg,
-          tags: parsed.tags || [],
-        });
-        toast.success("Note saved");
-      } else {
-        toast.error("Could not understand — try again.");
+      // Use the bulk parser for richer schemas (group, vendor, recurrence, list-append, etc.)
+      const { data } = await api.post("/parse/bulk", { kind, text: msg });
+      const rows = data.rows || [];
+      if (!rows.length) {
+        toast.error("Could not parse — try rephrasing.");
+        return;
       }
+
+      for (const r of rows) {
+        if (kind === "task") {
+          const created = await api.post("/tasks", {
+            task: r.task || msg,
+            name: r.name || "",
+            details: r.details || "",
+            date: r.date || null,
+            status: r.status || "Pending",
+            group: r.group || "",
+          });
+          if (r.reminder_at) {
+            try {
+              await api.post("/reminders", {
+                title: r.task ? `${r.task}${r.name ? " — " + r.name : ""}` : "Task",
+                notes: [r.name && `To: ${r.name}`, r.details].filter(Boolean).join(" — "),
+                fire_at: new Date(r.reminder_at).toISOString(),
+                recurrence: "none",
+                source_page: "tasks",
+                source_context: created?.data || {},
+              });
+            } catch { /* non-fatal */ }
+          }
+        } else if (kind === "routine") {
+          await api.post("/routines", {
+            group: r.group || "",
+            name: r.name || "",
+            activity: r.activity || msg,
+            details: r.details || "",
+            frequency: r.frequency || "Daily",
+          });
+        } else if (kind === "expense") {
+          const cat = (r.category || "expense").toLowerCase();
+          const vendor = r.vendor || r.company || "";
+          const personName = r.name && r.name !== vendor ? r.name : vendor;
+          const mode = r.mode || "Bank";
+          const head = r.head || r.expense_head || "";
+          const details = r.details || r.notes || "";
+          await api.post("/transactions", {
+            amount: Math.abs(Number(r.amount) || 0),
+            date: r.date || null,
+            mode, vendor, name: personName, company: vendor,
+            details, notes: details, head, expense_head: head,
+            category: cat, group: r.group || "",
+            remarks: mode,
+            direction: cat === "income" || cat === "asset" ? "in" : "out",
+          });
+        } else if (kind === "note") {
+          const items = Array.isArray(r.items) ? r.items
+                      : (typeof r.items === "string" ? [r.items] : null);
+          if ((r.list_title || r.list_tag) && items?.length) {
+            await api.post("/notes/append-list", {
+              title_hint: r.list_title || null,
+              tag: r.list_tag || null,
+              items, create_if_missing: true,
+            });
+          } else {
+            await api.post("/notes", {
+              title: r.title || msg.slice(0, 40),
+              body: r.body || msg,
+              tags: r.tags || [],
+            });
+          }
+        } else if (kind === "reminder") {
+          let fire_iso = r.fire_at;
+          if (!fire_iso && r.fire_at_local) fire_iso = new Date(r.fire_at_local).toISOString();
+          if (fire_iso) {
+            await api.post("/reminders", {
+              title: r.title || msg,
+              notes: r.notes || "",
+              fire_at: fire_iso,
+              recurrence: r.recurrence || "none",
+            });
+          }
+        }
+      }
+      toast.success(`${KINDS.find((k) => k.value === kind)?.label || "Item"} added`);
       setText("");
       onClose();
-    } catch (e) {
+    } catch {
       toast.error("Quick-add failed");
     } finally {
       setLoading(false);
@@ -80,19 +145,19 @@ export default function QuickAdd({ open, onClose, defaultKind = "task" }) {
           </button>
         </div>
 
-        <div className="flex gap-2 mb-3">
-          {["task", "expense", "note"].map((k) => (
+        <div className="flex flex-wrap gap-2 mb-3">
+          {KINDS.map((k) => (
             <button
-              key={k}
-              onClick={() => setKind(k)}
-              data-testid={`quick-add-kind-${k}`}
-              className={`px-3 py-1.5 rounded-full text-xs capitalize transition ${
-                kind === k
+              key={k.value}
+              onClick={() => setKind(k.value)}
+              data-testid={`quick-add-kind-${k.value}`}
+              className={`px-3 py-1.5 rounded-full text-xs transition ${
+                kind === k.value
                   ? "bg-white text-black"
                   : "border border-white/15 text-white/70 hover:bg-white/5"
               }`}
             >
-              {k}
+              {k.label}
             </button>
           ))}
         </div>
@@ -101,13 +166,7 @@ export default function QuickAdd({ open, onClose, defaultKind = "task" }) {
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && e.metaKey && submit()}
-          placeholder={
-            kind === "task"
-              ? "Remind Rahul to send invoice tomorrow"
-              : kind === "expense"
-                ? "Spent 450 at Starbucks on coffee"
-                : "Idea: build a weekly review ritual..."
-          }
+          placeholder={PLACEHOLDER[kind]}
           rows={3}
           className="mm-input text-sm"
           data-testid="quick-add-input"
