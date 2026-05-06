@@ -417,6 +417,23 @@ async def _compact_sr(collection: str, user_id: str):
         await db[collection].update_one({"id": d["id"]}, {"$set": {"sr_no": i}})
 
 
+async def _resequence_sr(collection: str, user_id: str, target_id: str, new_sr: int):
+    """Move target_id's sr_no to new_sr and shift the rest to keep numbering contiguous."""
+    docs = await db[collection].find(
+        {"user_id": user_id}, {"_id": 0, "id": 1, "sr_no": 1}
+    ).sort("sr_no", 1).to_list(20000)
+    # Pull target out
+    others = [d for d in docs if d.get("id") != target_id]
+    # Clamp new_sr within [1, len(others) + 1]
+    new_sr = max(1, min(new_sr, len(others) + 1))
+    insert_at = new_sr - 1
+    others.insert(insert_at, {"id": target_id})
+    for i, d in enumerate(others, 1):
+        await db[collection].update_one(
+            {"id": d["id"], "user_id": user_id}, {"$set": {"sr_no": i}}
+        )
+
+
 @api.post("/tasks", response_model=Task)
 async def create_task(body: TaskIn, user=Depends(get_current_user)):
     sr = await _next_sr("tasks", user["id"])
@@ -456,8 +473,21 @@ async def bulk_create_tasks(body: List[TaskIn], user=Depends(get_current_user)):
 @api.patch("/tasks/{task_id}", response_model=Task)
 async def update_task(task_id: str, body: Dict[str, Any], user=Depends(get_current_user)):
     body = {k: v for k, v in body.items()
-            if k in {"date", "name", "task", "details", "status", "group", "order_index"}}
+            if k in {"date", "name", "task", "details", "status", "group", "order_index", "sr_no"}}
+    # Status compatibility: accept "Completed" alongside legacy "Done"
+    if body.get("status") == "Completed":
+        body["status"] = "Completed"  # keep as-is
     body["updated_at"] = now_iso()
+    # If sr_no is being explicitly edited, re-sequence siblings around the new value.
+    if "sr_no" in body:
+        try:
+            new_sr = max(1, int(body["sr_no"]))
+        except Exception:
+            body.pop("sr_no", None)
+            new_sr = None
+        if new_sr is not None:
+            await _resequence_sr("tasks", user["id"], task_id, new_sr)
+            body["sr_no"] = new_sr
     res = await db.tasks.find_one_and_update(
         {"id": task_id, "user_id": user["id"]},
         {"$set": body},
@@ -481,15 +511,25 @@ async def delete_task(task_id: str, user=Depends(get_current_user)):
 # ───────────────────────────── routines ─────────────────────────────
 @api.get("/routines", response_model=List[Routine])
 async def list_routines(user=Depends(get_current_user)):
-    docs = await db.routines.find({"user_id": user["id"]}, {"_id": 0}).sort("created_at", 1).to_list(1000)
+    docs = await db.routines.find({"user_id": user["id"]}, {"_id": 0}).sort("sr_no", 1).to_list(1000)
+    # Backfill sr_no for any old docs missing it (one-time, ordered by created_at).
+    if any((d.get("sr_no") or 0) <= 0 for d in docs):
+        ordered = sorted(docs, key=lambda d: d.get("created_at", ""))
+        for i, d in enumerate(ordered, 1):
+            if (d.get("sr_no") or 0) != i:
+                await db.routines.update_one({"id": d["id"]}, {"$set": {"sr_no": i}})
+                d["sr_no"] = i
+        docs = sorted(ordered, key=lambda d: d.get("sr_no", 0))
     return [Routine(**d) for d in docs]
 
 
 @api.post("/routines", response_model=Routine)
 async def create_routine(body: RoutineIn, user=Depends(get_current_user)):
+    sr = await _next_sr("routines", user["id"])
     doc = {
         **body.model_dump(),
         "id": new_id(),
+        "sr_no": sr,
         "user_id": user["id"],
         "created_at": now_iso(),
         "updated_at": now_iso(),
@@ -501,14 +541,17 @@ async def create_routine(body: RoutineIn, user=Depends(get_current_user)):
 @api.post("/routines/bulk", response_model=List[Routine])
 async def bulk_routines(body: List[RoutineIn], user=Depends(get_current_user)):
     out = []
+    sr = await _next_sr("routines", user["id"])
     for b in body:
         doc = {
             **b.model_dump(),
             "id": new_id(),
+            "sr_no": sr,
             "user_id": user["id"],
             "created_at": now_iso(),
             "updated_at": now_iso(),
         }
+        sr += 1
         await db.routines.insert_one(dict(doc))
         out.append(Routine(**doc))
     return out
@@ -517,8 +560,17 @@ async def bulk_routines(body: List[RoutineIn], user=Depends(get_current_user)):
 @api.patch("/routines/{rid}", response_model=Routine)
 async def update_routine(rid: str, body: Dict[str, Any], user=Depends(get_current_user)):
     body = {k: v for k, v in body.items()
-            if k in {"group", "name", "activity", "details", "frequency", "priority", "status", "order_index"}}
+            if k in {"group", "name", "activity", "details", "frequency", "priority", "status", "order_index", "sr_no"}}
     body["updated_at"] = now_iso()
+    if "sr_no" in body:
+        try:
+            new_sr = max(1, int(body["sr_no"]))
+        except Exception:
+            body.pop("sr_no", None)
+            new_sr = None
+        if new_sr is not None:
+            await _resequence_sr("routines", user["id"], rid, new_sr)
+            body["sr_no"] = new_sr
     res = await db.routines.find_one_and_update(
         {"id": rid, "user_id": user["id"]}, {"$set": body}, projection={"_id": 0}, return_document=True
     )
@@ -531,6 +583,7 @@ async def update_routine(rid: str, body: Dict[str, Any], user=Depends(get_curren
 async def delete_routine(rid: str, user=Depends(get_current_user)):
     await db.routines.delete_one({"id": rid, "user_id": user["id"]})
     await db.routine_logs.delete_many({"routine_id": rid, "user_id": user["id"]})
+    await _compact_sr("routines", user["id"])
     return {"ok": True}
 
 
@@ -2227,16 +2280,32 @@ def _parse_csv_to_rows(content: bytes) -> List[Dict[str, Any]]:
 
 SCHEMA_BY_KIND = {
     "task": (
-        "{name (responsible person — Title-Case proper noun, e.g. 'Brinda'), "
-        "task (ONE-WORD verb, Title-Case, e.g. 'Repair', 'Call', 'Follow-Up', 'Buy', 'Sell', 'Inform', 'Share', 'Pay'), "
-        "details (everything else, Title-Case for proper nouns, e.g. 'Bar Unit'), "
-        "date:'YYYY-MM-DD' or null (default to today's date if missing), "
-        "status:'Pending'|'Done'|'Follow-Up' (default 'Pending')}"
+        "{date:'YYYY-MM-DD' or null (extract dates like '05/06/2026', '5 June 2026', 'tomorrow' relative to today; null only if user truly gave no date), "
+        "group (free text — extract from '#group:<name>', 'Group: <name>', 'group: <name>', 'in <group>'; e.g. 'work', 'personal', 'Brinda'; preserve user's exact case), "
+        "name (the responsible person — the one being asked TO do something; e.g. 'Rahul' from 'remind Rahul to call', 'Brinda' from 'ask Brinda for invoice'), "
+        "task (a short ONE-WORD action verb in user's case e.g. 'Call', 'Send', 'Remind', 'Buy', 'Pay', 'Follow-Up'), "
+        "details (the rest of the sentence — what about / what to do; e.g. 'Send invoice for the bar unit'), "
+        "status:'Pending' (default), "
+        "reminder_at:'YYYY-MM-DDTHH:MM' or null (ONLY when the user gave both a date AND a clock time like '4:00 pm', '16:00', '9am' — interpret 12h with am/pm; ignore timezone abbreviations like 'IST' for now since the local clock already matches user's locale)}\n"
+        "EXAMPLE 1: input 'Remind rahul to send invoice #group: work on 05/06/2026 4:00 pm ist' → "
+        "{date:'2026-06-05', group:'work', name:'rahul', task:'Send', details:'invoice', status:'Pending', reminder_at:'2026-06-05T16:00'}\n"
+        "EXAMPLE 2: input 'call brinda about repair tomorrow' → "
+        "{date:'(tomorrow's ISO date)', group:'', name:'brinda', task:'Call', details:'about repair', status:'Pending', reminder_at:null}\n"
+        "EXAMPLE 3: input 'pay electricity bill' → "
+        "{date:null, group:'', name:'', task:'Pay', details:'electricity bill', status:'Pending', reminder_at:null}"
     ),
     "routine": (
-        "{time_block:'block1'|'block2'|'block3'|'block4'|'block5'|... (use 'block1' if unsure), "
-        "activity (Title-Case), details (Title-Case), "
-        "frequency:'Daily'|'Weekly'|'Monthly'|'Quarterly'|'Half-Yearly'|'Yearly'}"
+        "{group (free text — the bucket the routine belongs to; for time-of-day words ('morning','evening','night','afternoon') USE that as group; otherwise pick a sensible category like 'Health','Work','Family'; preserve user's case), "
+        "name (the person who performs it — 'Self','Wife','Father' etc. from words like 'self','me','i','wife','father','mother','children'), "
+        "activity (a short verb-led title e.g. 'Walk', 'Meditate', 'Stretch'), "
+        "details (location/qualifier e.g. 'at park', '30 min', 'with breathing'), "
+        "frequency:'Daily'|'Weekly'|'Monthly'|'Quarterly'|'Half-Yearly'|'Yearly' (default 'Daily')}\n"
+        "EXAMPLE 1: input 'morning walk at park daily self' → "
+        "{group:'Morning', name:'Self', activity:'Walk', details:'at park', frequency:'Daily'}\n"
+        "EXAMPLE 2: input 'evening meditation 20 min for wife weekly' → "
+        "{group:'Evening', name:'Wife', activity:'Meditation', details:'20 min', frequency:'Weekly'}\n"
+        "EXAMPLE 3: input 'father morning yoga' → "
+        "{group:'Morning', name:'Father', activity:'Yoga', details:'', frequency:'Daily'}"
     ),
     "expense": (
         "{date:'YYYY-MM-DD', amount:number, expense_head (one word, Title-Case, e.g. 'Food','Travel','Utilities'), "

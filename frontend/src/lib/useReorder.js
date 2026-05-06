@@ -18,13 +18,18 @@ export function useReorder(resource, rows, setRows, opts = {}) {
 
   const commit = useCallback(
     async (ordered) => {
+      // Optimistically update sr_no on rows so the visible Sr column reflects new order.
+      setRows((current) => {
+        const rank = new Map(ordered.map((r, i) => [r.id, i + 1]));
+        return current.map((r) => (rank.has(r.id) ? { ...r, sr_no: rank.get(r.id) } : r));
+      });
       try {
         await api.post(`/${resource}/reorder`, { ids: ordered.map((r) => r.id) });
       } catch {
         // swallow — state already updated optimistically; user can refresh
       }
     },
-    [resource],
+    [resource, setRows],
   );
 
   const move = useCallback(

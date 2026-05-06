@@ -79,6 +79,53 @@ with the R.K.M. brand logo. AI-first input on every page (type → confirm → d
 - **Tests**: backend 13/13 v2.0 pytest pass; frontend 14/15 Playwright pass
   (one MEDIUM testid alias fixed post-test — Tasks #new-row `new-task-task`).
 
+### v2.3 — Smarter AI · editable Sr · status auto-tick · prominent Set button (2026-02)
+- **Tasks AI parser**: now extracts `date`, `group` (from `#group:` / `Group:`),
+  `name` (To person), `task` (verb), `details`, `status`, AND `reminder_at`
+  when a clock time is given. The frontend auto-creates a linked reminder when
+  `reminder_at` is present. Example "Remind rahul to send invoice #group:work
+  on 05/06/2026 4:00 pm" → all fields filled + reminder for 5 Jun 4 PM.
+- **Routines AI parser**: smarter mapping — time-of-day words ("morning",
+  "evening") become `group`, person words ("self", "wife") become `name`,
+  verb becomes `activity`, qualifier ("at park") becomes `details`. Example
+  "morning walk at park daily self" → group=Morning · name=Self · activity=Walk
+  · details=at park · frequency=Daily.
+- **Editable Sr column**: Tasks AND Routines now have a `<input type=number>`
+  for the Sr cell. Editing it triggers a backend resequence
+  (`PATCH /tasks/{id}` or `/routines/{id}` with `{sr_no:N}`) that shifts other
+  rows to keep numbering contiguous.
+- **Routine sr_no fix**: routine create/bulk now assign sr_no automatically;
+  delete compacts the sequence; `/routines` list backfills sr_no for any
+  legacy docs missing it (one-time migration on first read).
+- **Up/down arrows + drag**: useReorder now optimistically updates `sr_no` on
+  every row in state (before the POST returns) so the visible Sr number
+  changes immediately on move. POST `/api/{tasks|routines|transactions}/reorder`
+  also writes sr_no = idx+1 on the server.
+- **Task status**: select dropdown with Pending / Completed / Follow-Up + any
+  custom statuses ever entered + a "+ Custom…" sentinel that prompts for a
+  new name. "Done" still treated as completed for backward compat.
+- **Auto-tick on Completed**: setting status to "Completed" via the dropdown
+  auto-fills the tick AND sinks the row to the bottom (sort by status). Tick
+  toggles between Pending and Completed.
+- **Filter parity**: every header on Tasks (Sr, Date, Group, To, Task, Details,
+  Status) and Routines (Sr, Group, Name, Task, Details, Frequency) now passes
+  `options=[distinct values]` to FilterHeader so users see one-click pick
+  lists like the existing To/Status filters. Frequency filter no longer shows
+  values that don't exist in the data.
+- **Frequency dropdown**: replaced the freeform input on Routines with a
+  proper `<select>` (Daily/Weekly/Monthly/Quarterly/Half-Yearly/Yearly + any
+  user-added custom values + "+ Custom…" sentinel).
+- **Enter-key navigation**: pressing Enter inside any input/select on a
+  Tasks or Routines data row now jumps focus to the next field in the same
+  row (selection auto-selects). Already worked on the #new entry row;
+  now extended to existing rows.
+- **Date column width** (Tasks): widened to 140px so dates like "05/06/2026"
+  are fully visible.
+- **Reminder Dialog Set button**: redesigned as a prominent gold-gradient
+  pill ("Set time" / "Time set" toggle) next to the date picker, with a
+  helper subtitle explaining the flow. Main CTA renamed from
+  "Create Reminder" → "Set Reminder".
+
 ### v2.2 — Reminders grouped by source · Tasks tick · Vendor/Mode rename · Setup PDF · Reset & Seed (2026-02)
 - **Tasks**: each row gets a circular tick button. Clicking it toggles
   Pending↔Done; "Done" rows automatically sink to the bottom (sort by status).

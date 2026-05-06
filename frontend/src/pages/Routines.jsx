@@ -21,7 +21,7 @@ const ROUTINE_COLUMNS = [
   { key: "frequency", label: "Frequency", type: "text", width: "140px" },
 ];
 
-const GRID = "md:grid-cols-[50px_130px_130px_1.1fr_1.1fr_130px_140px]";
+const GRID = "md:grid-cols-[60px_140px_140px_1.1fr_1.1fr_140px_140px]";
 
 export default function Routines() {
   const [routines, setRoutines] = useState([]);
@@ -62,12 +62,41 @@ export default function Routines() {
     () => Array.from(new Set(routines.map((r) => r.activity).filter(Boolean))),
     [routines],
   );
+  const detailsOpts = useMemo(
+    () => Array.from(new Set(routines.map((r) => r.details).filter(Boolean))),
+    [routines],
+  );
+  const srOptions = useMemo(
+    () => routines.map((r) => String(r.sr_no || "")).filter(Boolean),
+    [routines],
+  );
   const freqs = useMemo(
     () => Array.from(new Set([...DEFAULT_FREQS, ...routines.map((r) => r.frequency).filter(Boolean)])),
     [routines],
   );
+  // Only show filter options for frequencies actually present in the data
+  // (so the dropdown doesn't list values that don't exist).
+  const freqOptionsInData = useMemo(
+    () => Array.from(new Set(routines.map((r) => r.frequency).filter(Boolean))),
+    [routines],
+  );
 
   const textMatch = (a, b) => (!b ? true : String(a || "").toLowerCase().includes(b.toLowerCase()));
+
+  const advanceOnEnter = (e) => {
+    if (e.key !== "Enter") return;
+    e.preventDefault();
+    const row = e.currentTarget.closest('[data-row]');
+    if (!row) return;
+    const fields = Array.from(row.querySelectorAll("input,select")).filter(
+      (el) => !el.disabled && el.type !== "hidden",
+    );
+    const idx = fields.indexOf(e.currentTarget);
+    if (idx >= 0 && idx < fields.length - 1) {
+      fields[idx + 1].focus();
+      if (fields[idx + 1].select) fields[idx + 1].select?.();
+    }
+  };
 
   const visible = useMemo(
     () =>
@@ -178,12 +207,12 @@ export default function Routines() {
 
       <Card className="p-0 overflow-hidden" data-testid="routines-table">
         <div className={`hidden md:grid ${GRID} gap-3 px-4 py-3 border-b border-[rgba(201,169,97,0.2)]`}>
-          <FilterHeader label="Sr" value={filters.sr} onChange={(v) => setFilters((f) => ({ ...f, sr: v }))} />
+          <FilterHeader label="Sr" value={filters.sr} options={srOptions} onChange={(v) => setFilters((f) => ({ ...f, sr: v }))} />
           <FilterHeader label="Group" value={filters.group} options={groups} onChange={(v) => setFilters((f) => ({ ...f, group: v }))} />
           <FilterHeader label="Name" value={filters.name} options={names} onChange={(v) => setFilters((f) => ({ ...f, name: v }))} />
           <FilterHeader label="Task" value={filters.activity} options={activities} onChange={(v) => setFilters((f) => ({ ...f, activity: v }))} />
-          <FilterHeader label="Details" value={filters.details} onChange={(v) => setFilters((f) => ({ ...f, details: v }))} />
-          <FilterHeader label="Frequency" value={filters.frequency} options={freqs} onChange={(v) => setFilters((f) => ({ ...f, frequency: v }))} />
+          <FilterHeader label="Details" value={filters.details} options={detailsOpts} onChange={(v) => setFilters((f) => ({ ...f, details: v }))} />
+          <FilterHeader label="Frequency" value={filters.frequency} options={freqOptionsInData} onChange={(v) => setFilters((f) => ({ ...f, frequency: v }))} />
           <div />
         </div>
 
@@ -191,6 +220,7 @@ export default function Routines() {
         <div
           className={`hidden md:grid ${GRID} gap-3 px-4 py-3 border-b border-[rgba(201,169,97,0.12)] bg-[rgba(201,169,97,0.04)] items-center`}
           data-testid="routine-add-row"
+          data-row="entry"
         >
           <div className="mm-text-gold/60 text-xs">#new</div>
           <input
@@ -198,6 +228,7 @@ export default function Routines() {
             placeholder={activeGroup || "+ Group"}
             value={draft.group}
             onChange={(e) => setDraft({ ...draft, group: e.target.value })}
+            onKeyDown={advanceOnEnter}
             className="mm-input text-xs !py-1.5"
             data-testid="new-routine-group"
           />
@@ -206,6 +237,7 @@ export default function Routines() {
             placeholder="+ Name"
             value={draft.name}
             onChange={(e) => setDraft({ ...draft, name: e.target.value })}
+            onKeyDown={advanceOnEnter}
             className="mm-input text-xs !py-1.5"
             data-testid="new-routine-name"
           />
@@ -215,6 +247,7 @@ export default function Routines() {
             placeholder="+ Task"
             value={draft.activity}
             onChange={(e) => setDraft({ ...draft, activity: e.target.value })}
+            onKeyDown={advanceOnEnter}
             data-testid="new-routine-activity"
           />
           <input
@@ -223,14 +256,26 @@ export default function Routines() {
             placeholder="+ Create Custom"
             value={draft.details}
             onChange={(e) => setDraft({ ...draft, details: e.target.value })}
+            onKeyDown={advanceOnEnter}
           />
-          <input
-            list="routine-freqs"
+          <select
             value={draft.frequency}
-            onChange={(e) => setDraft({ ...draft, frequency: e.target.value })}
+            onChange={(e) => {
+              const v = e.target.value;
+              if (v === "__custom__") {
+                const custom = window.prompt("Custom frequency (e.g. 'Twice a week')?", "");
+                if (custom && custom.trim()) setDraft({ ...draft, frequency: custom.trim() });
+              } else {
+                setDraft({ ...draft, frequency: v });
+              }
+            }}
+            onKeyDown={advanceOnEnter}
             className="mm-input text-xs !py-1.5"
-            placeholder="+ Create Custom"
-          />
+            data-testid="new-routine-frequency"
+          >
+            {freqs.map((f) => <option key={f} value={f}>{f}</option>)}
+            <option value="__custom__">+ Custom…</option>
+          </select>
           <button
             onClick={add}
             disabled={!draft.activity.trim()}
@@ -255,6 +300,7 @@ export default function Routines() {
                   draggingId === r.id ? "opacity-40" : ""
                 }`}
                 data-testid="routine-row"
+                data-row="data"
               >
                 <div className="flex items-center gap-2">
                   <button
@@ -268,13 +314,43 @@ export default function Routines() {
                   >
                     {done && <Check size={12} strokeWidth={2.5} />}
                   </button>
-                  <span className="mm-text-gold/70 text-xs">#{r.sr_no || idx + 1}</span>
+                  <input
+                    type="number"
+                    min="1"
+                    defaultValue={r.sr_no || ""}
+                    onBlur={(e) => {
+                      const n = parseInt(e.target.value, 10);
+                      if (n && n !== r.sr_no) patch(r.id, { sr_no: n });
+                    }}
+                    onKeyDown={advanceOnEnter}
+                    className="mm-input-ghost text-xs !py-1.5 w-12"
+                    data-testid="routine-sr-input"
+                    title="Drag the row or edit this number to reorder"
+                  />
                 </div>
-                <input list="routine-groups" defaultValue={r.group || ""} onBlur={(e) => patch(r.id, { group: e.target.value })} placeholder="—" className="mm-input-ghost text-xs" />
-                <input list="routine-names" defaultValue={r.name || ""} onBlur={(e) => patch(r.id, { name: e.target.value })} placeholder="—" className="mm-input-ghost text-xs" />
-                <input list="routine-activities" defaultValue={r.activity} onBlur={(e) => patch(r.id, { activity: e.target.value })} className="mm-input-ghost text-xs" />
-                <input list="routine-details" defaultValue={r.details || ""} onBlur={(e) => patch(r.id, { details: e.target.value })} placeholder="—" className="mm-input-ghost text-xs" />
-                <input list="routine-freqs" defaultValue={r.frequency || "Daily"} onBlur={(e) => patch(r.id, { frequency: e.target.value })} className="mm-input-ghost text-xs" />
+                <input list="routine-groups" defaultValue={r.group || ""} onBlur={(e) => patch(r.id, { group: e.target.value })} onKeyDown={advanceOnEnter} placeholder="—" className="mm-input-ghost text-xs" />
+                <input list="routine-names" defaultValue={r.name || ""} onBlur={(e) => patch(r.id, { name: e.target.value })} onKeyDown={advanceOnEnter} placeholder="—" className="mm-input-ghost text-xs" />
+                <input list="routine-activities" defaultValue={r.activity} onBlur={(e) => patch(r.id, { activity: e.target.value })} onKeyDown={advanceOnEnter} className="mm-input-ghost text-xs" />
+                <input list="routine-details" defaultValue={r.details || ""} onBlur={(e) => patch(r.id, { details: e.target.value })} onKeyDown={advanceOnEnter} placeholder="—" className="mm-input-ghost text-xs" />
+                <select
+                  defaultValue={freqs.includes(r.frequency) ? r.frequency : "Daily"}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    if (v === "__custom__") {
+                      const custom = window.prompt("Custom frequency (e.g. 'Twice a week')?", "");
+                      if (custom && custom.trim()) patch(r.id, { frequency: custom.trim() });
+                      else e.target.value = r.frequency || "Daily";
+                    } else {
+                      patch(r.id, { frequency: v });
+                    }
+                  }}
+                  onKeyDown={advanceOnEnter}
+                  className="mm-input-ghost text-xs"
+                  data-testid="routine-frequency-select"
+                >
+                  {freqs.map((f) => <option key={f} value={f}>{f}</option>)}
+                  <option value="__custom__">+ Custom…</option>
+                </select>
                 <div className="flex items-center gap-1">
                   {streak > 0 && (
                     <div className="mm-chip mm-chip-gold flex items-center gap-1 text-[10px]">

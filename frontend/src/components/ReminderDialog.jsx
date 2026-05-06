@@ -131,7 +131,7 @@ export default function ReminderDialog({ open, onClose, defaults = {}, onCreated
           </div>
           <div>
             <div className="text-[10px] uppercase tracking-[0.25em] text-[#B7A98A]/60 mb-1.5">When</div>
-            <div className="flex gap-2 items-stretch">
+            <div className="flex flex-col sm:flex-row gap-2 items-stretch">
               <input
                 type="datetime-local"
                 value={fireAt}
@@ -145,20 +145,24 @@ export default function ReminderDialog({ open, onClose, defaults = {}, onCreated
               <button
                 type="button"
                 onClick={() => setWhenSet(true)}
-                className={`text-xs px-3 rounded-lg border transition flex items-center gap-1 ${
+                className={`text-xs px-4 py-2 rounded-lg font-medium tracking-wide border transition flex items-center justify-center gap-1.5 shrink-0 ${
                   whenSet
-                    ? "border-[#C9A961] bg-[rgba(201,169,97,0.12)] mm-text-gold-bright"
-                    : "border-[rgba(201,169,97,0.25)] text-[#B7A98A]/80 hover:border-[#C9A961]"
+                    ? "border-[#C9A961] bg-gradient-to-r from-[#E4C98C] to-[#C9A961] text-black"
+                    : "border-[#C9A961] bg-[rgba(201,169,97,0.1)] mm-text-gold-bright hover:bg-[rgba(201,169,97,0.2)]"
                 }`}
                 data-testid="reminder-dialog-when-set"
                 title="Confirm this time"
               >
-                <Check size={12} /> Set
+                <Check size={13} strokeWidth={2.5} /> {whenSet ? "Time set" : "Set time"}
               </button>
             </div>
-            {whenSet && (
-              <div className="text-[10px] mm-text-gold mt-1.5 uppercase tracking-[0.2em]">
+            {whenSet ? (
+              <div className="text-[10px] mm-text-gold-bright mt-2 uppercase tracking-[0.2em]">
                 ✓ Scheduled for {fmtWhen(fireAt)}
+              </div>
+            ) : (
+              <div className="text-[10px] text-[#B7A98A]/55 mt-2">
+                Pick a date & time, then tap <span className="mm-text-gold-bright">Set time</span> to confirm.
               </div>
             )}
           </div>
@@ -203,7 +207,7 @@ export default function ReminderDialog({ open, onClose, defaults = {}, onCreated
             className="mm-btn-primary text-sm disabled:opacity-40"
             data-testid="reminder-dialog-create"
           >
-            {busy ? "Creating…" : "Create Reminder"}
+            {busy ? "Setting…" : "Set Reminder"}
           </button>
         </div>
       </div>

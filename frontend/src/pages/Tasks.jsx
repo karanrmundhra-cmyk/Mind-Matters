@@ -12,18 +12,18 @@ import { Plus, Upload, Check } from "lucide-react";
 import { toast } from "sonner";
 import { todayISO } from "@/lib/format";
 
-const STATUSES = ["Pending", "Done", "Follow-Up"];
+const STATUSES = ["Pending", "Completed", "Follow-Up"];
 
 const TASK_COLUMNS = [
-  { key: "date", label: "Date", type: "date", width: "120px" },
+  { key: "date", label: "Date", type: "date", width: "140px" },
   { key: "group", label: "Group", type: "text", width: "120px" },
   { key: "name", label: "To", type: "text", width: "140px" },
   { key: "task", label: "Task", type: "text", width: "1.2fr" },
   { key: "details", label: "Details", type: "text", width: "1fr" },
-  { key: "status", label: "Status", type: "select", options: STATUSES, width: "120px" },
+  { key: "status", label: "Status", type: "select", options: STATUSES, width: "130px" },
 ];
 
-const GRID = "md:grid-cols-[50px_110px_110px_140px_1.1fr_1fr_110px_140px]";
+const GRID = "md:grid-cols-[60px_140px_120px_140px_1.1fr_1fr_130px_140px]";
 
 export default function Tasks() {
   const [tasks, setTasks] = useState([]);
@@ -63,8 +63,26 @@ export default function Tasks() {
     () => Array.from(new Set(tasks.map((t) => t.task).filter(Boolean))),
     [tasks],
   );
+  const dateOptions = useMemo(
+    () => Array.from(new Set(tasks.map((t) => t.date).filter(Boolean))).sort().reverse(),
+    [tasks],
+  );
+  const detailOptions = useMemo(
+    () => Array.from(new Set(tasks.map((t) => t.details).filter(Boolean))),
+    [tasks],
+  );
+  const srOptions = useMemo(
+    () => tasks.map((t) => String(t.sr_no || "")).filter(Boolean),
+    [tasks],
+  );
+  const statusOptions = useMemo(
+    () => Array.from(new Set([...STATUSES, ...tasks.map((t) => t.status).filter(Boolean)])),
+    [tasks],
+  );
 
   const textMatch = (a, b) => (!b ? true : String(a || "").toLowerCase().includes(b.toLowerCase()));
+
+  const isDone = (t) => t.status === "Completed" || t.status === "Done";
 
   const visible = useMemo(() => {
     const filtered = tasks.filter((t) => {
@@ -78,35 +96,67 @@ export default function Tasks() {
       if (filters.status && t.status !== filters.status) return false;
       return true;
     });
-    // Done tasks go to the bottom; preserve relative order otherwise.
+    // Completed/Done tasks go to the bottom; preserve relative order otherwise.
     return [...filtered].sort((a, b) => {
-      const ad = a.status === "Done" ? 1 : 0;
-      const bd = b.status === "Done" ? 1 : 0;
+      const ad = isDone(a) ? 1 : 0;
+      const bd = isDone(b) ? 1 : 0;
       return ad - bd;
     });
   }, [tasks, activeGroup, filters]);
 
   const pendingCount = tasks.filter((t) => t.status === "Pending").length;
 
+  // Move focus to the next focusable input/select within the same row when Enter is pressed.
+  // If the current element is a <select> with the dropdown open, the browser will handle Enter
+  // (closing the dropdown) and we don't intercept.
   const advanceOnEnter = (e) => {
     if (e.key !== "Enter") return;
+    const tag = e.currentTarget.tagName;
     e.preventDefault();
-    const row = e.currentTarget.closest('[data-row="entry"]');
+    const row = e.currentTarget.closest('[data-row]');
     if (!row) return;
-    const fields = Array.from(row.querySelectorAll("input,select"));
+    const fields = Array.from(row.querySelectorAll("input,select")).filter(
+      (el) => !el.disabled && el.type !== "hidden",
+    );
     const idx = fields.indexOf(e.currentTarget);
-    if (idx >= 0 && idx < fields.length - 1) fields[idx + 1].focus();
+    if (idx >= 0 && idx < fields.length - 1) {
+      fields[idx + 1].focus();
+      if (fields[idx + 1].select) fields[idx + 1].select?.();
+    }
+    // suppress unused
+    void tag;
   };
 
   const insertOne = async (row) => {
-    await api.post("/tasks", {
+    const status = row.status === "Done" ? "Completed" : (row.status || "Pending");
+    const { data } = await api.post("/tasks", {
       date: row.date || todayISO(),
       group: row.group || activeGroup || "",
       name: row.name || "",
       task: row.task || "",
       details: row.details || "",
-      status: row.status || "Pending",
+      status,
     });
+    // If the AI extracted a reminder time, auto-create a reminder linked to this task.
+    if (row.reminder_at) {
+      try {
+        const fire_iso = new Date(row.reminder_at).toISOString();
+        await api.post("/reminders", {
+          title: row.task ? `${row.task}${row.name ? " — " + row.name : ""}` : (row.task || "Task"),
+          notes: [row.name && `To: ${row.name}`, row.details].filter(Boolean).join(" — "),
+          fire_at: fire_iso,
+          recurrence: "none",
+          source_page: "tasks",
+          source_context: {
+            sr_no: data?.sr_no, date: data?.date, group: data?.group,
+            to: data?.name, task: data?.task, details: data?.details, status: data?.status,
+          },
+        });
+      } catch {
+        /* non-fatal */
+      }
+    }
+    return data;
   };
 
   const create = async () => {
@@ -202,13 +252,13 @@ export default function Tasks() {
       <Card className="p-0 overflow-hidden" data-testid="tasks-table">
         {/* Headers with filter icons */}
         <div className={`hidden md:grid ${GRID} gap-3 px-4 py-3 border-b border-[rgba(201,169,97,0.2)]`}>
-          <FilterHeader label="Sr" value={filters.sr} onChange={(v) => setFilters((f) => ({ ...f, sr: v }))} testId="filter-sr" />
-          <FilterHeader label="Date" value={filters.date} onChange={(v) => setFilters((f) => ({ ...f, date: v }))} testId="filter-date" />
+          <FilterHeader label="Sr" value={filters.sr} options={srOptions} onChange={(v) => setFilters((f) => ({ ...f, sr: v }))} testId="filter-sr" />
+          <FilterHeader label="Date" value={filters.date} options={dateOptions} onChange={(v) => setFilters((f) => ({ ...f, date: v }))} testId="filter-date" />
           <FilterHeader label="Group" value={filters.group} options={groups} onChange={(v) => setFilters((f) => ({ ...f, group: v }))} testId="filter-group" />
           <FilterHeader label="To" value={filters.name} options={people} onChange={(v) => setFilters((f) => ({ ...f, name: v }))} testId="filter-to" />
           <FilterHeader label="Task" value={filters.task} options={taskTitles} onChange={(v) => setFilters((f) => ({ ...f, task: v }))} testId="filter-task" />
-          <FilterHeader label="Details" value={filters.details} onChange={(v) => setFilters((f) => ({ ...f, details: v }))} testId="filter-details" />
-          <FilterHeader label="Status" value={filters.status} options={STATUSES} onChange={(v) => setFilters((f) => ({ ...f, status: v }))} testId="filter-status" />
+          <FilterHeader label="Details" value={filters.details} options={detailOptions} onChange={(v) => setFilters((f) => ({ ...f, details: v }))} testId="filter-details" />
+          <FilterHeader label="Status" value={filters.status} options={statusOptions} onChange={(v) => setFilters((f) => ({ ...f, status: v }))} testId="filter-status" />
           <div />
         </div>
 
@@ -290,32 +340,47 @@ export default function Tasks() {
                 draggingId === t.id ? "opacity-40" : ""
               }`}
               data-testid="task-row"
+              data-row="data"
             >
               <div className="flex items-center gap-2">
                 <button
-                  onClick={() => patch(t.id, { status: t.status === "Done" ? "Pending" : "Done" })}
+                  onClick={() => patch(t.id, { status: isDone(t) ? "Pending" : "Completed" })}
                   className={`w-5 h-5 rounded-full border flex items-center justify-center transition shrink-0 ${
-                    t.status === "Done"
+                    isDone(t)
                       ? "bg-gradient-to-br from-[#E4C98C] to-[#C9A961] border-[#C9A961] text-black"
                       : "border-[rgba(201,169,97,0.35)] hover:border-[#E4C98C]"
                   }`}
                   data-testid="task-tick"
                   title="Mark done"
                 >
-                  {t.status === "Done" && <Check size={11} strokeWidth={2.5} />}
+                  {isDone(t) && <Check size={11} strokeWidth={2.5} />}
                 </button>
-                <span className="mm-text-gold/80 text-xs">#{t.sr_no}</span>
+                <input
+                  type="number"
+                  min="1"
+                  defaultValue={t.sr_no || ""}
+                  onBlur={(e) => {
+                    const n = parseInt(e.target.value, 10);
+                    if (n && n !== t.sr_no) patch(t.id, { sr_no: n });
+                  }}
+                  onKeyDown={advanceOnEnter}
+                  className="mm-input-ghost text-xs !py-1.5 w-12"
+                  data-testid="task-sr-input"
+                  title="Drag the row or edit this number to reorder"
+                />
               </div>
               <input
                 type="date"
                 value={t.date || ""}
                 onChange={(e) => patch(t.id, { date: e.target.value })}
+                onKeyDown={advanceOnEnter}
                 className="mm-input-ghost text-xs !py-1.5"
               />
               <input
                 list="task-groups"
                 defaultValue={t.group || ""}
                 onBlur={(e) => patch(t.id, { group: e.target.value })}
+                onKeyDown={advanceOnEnter}
                 placeholder="—"
                 className="mm-input-ghost text-xs !py-1.5"
               />
@@ -323,6 +388,7 @@ export default function Tasks() {
                 list="task-people"
                 defaultValue={t.name || ""}
                 onBlur={(e) => patch(t.id, { name: e.target.value })}
+                onKeyDown={advanceOnEnter}
                 placeholder="—"
                 className="mm-input-ghost text-xs !py-1.5"
               />
@@ -330,6 +396,7 @@ export default function Tasks() {
                 list="task-titles"
                 defaultValue={t.task}
                 onBlur={(e) => patch(t.id, { task: e.target.value })}
+                onKeyDown={advanceOnEnter}
                 className="mm-input-ghost text-xs !py-1.5"
                 data-testid="task-edit-title"
               />
@@ -337,15 +404,31 @@ export default function Tasks() {
                 list="task-details"
                 defaultValue={t.details || ""}
                 onBlur={(e) => patch(t.id, { details: e.target.value })}
+                onKeyDown={advanceOnEnter}
                 placeholder="—"
                 className="mm-input-ghost text-xs !py-1.5"
               />
-              <input
-                list="task-statuses"
-                defaultValue={t.status}
-                onBlur={(e) => patch(t.id, { status: e.target.value })}
+              <select
+                defaultValue={statusOptions.includes(t.status) ? t.status : "Pending"}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  if (v === "__custom__") {
+                    const custom = window.prompt("New status name?", "");
+                    if (custom && custom.trim()) patch(t.id, { status: custom.trim() });
+                    else e.target.value = t.status;
+                  } else {
+                    patch(t.id, { status: v });
+                  }
+                }}
+                onKeyDown={advanceOnEnter}
                 className="mm-input-ghost text-xs !py-1.5"
-              />
+                data-testid="task-status-select"
+              >
+                {statusOptions.map((s) => (
+                  <option key={s} value={s}>{s}</option>
+                ))}
+                <option value="__custom__">+ Custom…</option>
+              </select>
               <RowActions
                 kind="task"
                 rowId={t.id}
