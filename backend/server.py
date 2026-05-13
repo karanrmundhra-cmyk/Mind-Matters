@@ -377,6 +377,87 @@ async def login(body: LoginReq):
     return {"token": token, "user": User(**user_resp)}
 
 
+# ───────────────────────── Password reset ─────────────────────────
+class ForgotReq(BaseModel):
+    email: str
+
+
+class ResetReq(BaseModel):
+    email: str
+    code: str
+    new_password: str = Field(min_length=6, max_length=128)
+
+
+@api.post("/auth/forgot")
+async def auth_forgot(body: ForgotReq):
+    """Generate a 6-digit reset code and store it.
+    Returns {ok:true, code:<6 digits>} in this single-user dev deployment so
+    the user can see the code immediately. Once Resend / SMTP is wired we'll
+    omit the field and send it via email instead.
+    """
+    email = body.email.strip().lower()
+    user = await db.users.find_one({"email": email}, {"_id": 0, "id": 1})
+    # Always succeed so we don't leak whether an email is registered.
+    if not user:
+        return {"ok": True, "delivered_via": "none"}
+    import secrets
+    code = f"{secrets.randbelow(10**6):06d}"
+    expires_iso = (datetime.now(timezone.utc) + timedelta(minutes=30)).isoformat()
+    await db.password_resets.update_one(
+        {"user_id": user["id"]},
+        {"$set": {
+            "user_id": user["id"],
+            "email": email,
+            "code_hash": _hash_password(code),
+            "expires_at": expires_iso,
+            "consumed": False,
+            "created_at": now_iso(),
+        }},
+        upsert=True,
+    )
+    # If Telegram is linked for this user, also DM the code to them.
+    delivered_via = "screen"
+    try:
+        tg_link = await db.tg_links.find_one({"user_id": user["id"]}, {"_id": 0})
+        if tg_link and tg_link.get("chat_id"):
+            from tg import tg_send
+            await tg_send(
+                tg_link["chat_id"],
+                f"🔐 Mind Matters password reset code: *{code}*\nExpires in 30 min.",
+                parse_mode="Markdown",
+            )
+            delivered_via = "telegram+screen"
+    except Exception as e:
+        logger.warning(f"forgot-password TG send failed: {e}")
+    return {"ok": True, "code": code, "delivered_via": delivered_via, "expires_at": expires_iso}
+
+
+@api.post("/auth/reset", response_model=TokenResp)
+async def auth_reset(body: ResetReq):
+    email = body.email.strip().lower()
+    user = await db.users.find_one({"email": email}, {"_id": 0})
+    if not user:
+        raise HTTPException(400, "Invalid code")
+    rec = await db.password_resets.find_one({"user_id": user["id"], "consumed": False}, {"_id": 0})
+    if not rec:
+        raise HTTPException(400, "Invalid or expired code")
+    if rec.get("expires_at", "") < datetime.now(timezone.utc).isoformat():
+        raise HTTPException(400, "Code expired — request a new one")
+    if not _verify_password(body.code.strip(), rec["code_hash"]):
+        raise HTTPException(400, "Invalid code")
+    # Apply new password
+    await db.users.update_one(
+        {"id": user["id"]},
+        {"$set": {"password_hash": _hash_password(body.new_password), "updated_at": now_iso()}},
+    )
+    await db.password_resets.update_one(
+        {"user_id": user["id"]}, {"$set": {"consumed": True, "consumed_at": now_iso()}}
+    )
+    fresh = await db.users.find_one({"id": user["id"]}, {"_id": 0, "password_hash": 0})
+    token = make_token(user["id"])
+    return {"token": token, "user": User(**fresh)}
+
+
 # ───────────────────────────── tasks ─────────────────────────────
 @api.get("/tasks", response_model=List[Task])
 async def list_tasks(

@@ -79,6 +79,28 @@ with the R.K.M. brand logo. AI-first input on every page (type → confirm → d
 - **Tests**: backend 13/13 v2.0 pytest pass; frontend 14/15 Playwright pass
   (one MEDIUM testid alias fixed post-test — Tasks #new-row `new-task-task`).
 
+### v2.5 — Forgot password · New crisp logo · Capitalized deadline placeholder · Bigger logos (2026-02)
+- **Forgot password flow**: new `POST /api/auth/forgot` issues a 6-digit code
+  (30-min expiry, bcrypt-hashed in `password_resets` collection). Returns the
+  code in the response so it can be shown on the reset screen — and ALSO
+  DM's it to the user's Telegram if they've linked their bot. Unknown emails
+  return `{ok:true}` without leaking existence.
+- `POST /api/auth/reset` validates the code, updates the password, marks the
+  code consumed, and returns a JWT so the user lands logged-in immediately.
+- Login screen rebuilt as 4 modes (`login` · `signup` · `forgot` · `reset`)
+  with a tiny breadcrumb at the top of the card. "Forgot password?" link
+  surfaced under the Sign-in CTA. Reset code shown in a gold-bordered hint
+  panel; supports resend; numeric-only 6-digit input with wide tracking.
+- **Logo refresh**: replaced `/public/rkm-logo.png` from the user-supplied
+  vector PDF — re-rendered at 2400px source, near-black background stripped
+  to transparency, cropped + square-padded to 1131×1131 for crisp display at
+  every size. Cache-busted via `?v=2` on the Logo `<img>`.
+- **Logo sizes** bumped: splash 56→120, login 44→88, sidebar 34→52 (so the
+  emblem is proportionate to the "Mind Matters / PERSONAL OS" text stack
+  per user direction "top of M to end of P").
+- **Dashboard deadline placeholder**: "Deadline title (e.g. Tax filing)" →
+  **"Deadline Title (e.g. Tax Filing)"** (capital T and F per user).
+
 ### v2.4 — Tasks page hotfix · Cash Flow parity · Notes redesign · Quick Add 5-way · Bot smarter (2026-02)
 - **🔥 P0 hotfix**: Tasks page was crashing (500 from `/api/tasks`) because the
   Pydantic `Task.status` was a `Literal["Pending","Done","Follow-Up"]` and the

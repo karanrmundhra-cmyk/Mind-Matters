@@ -20,7 +20,7 @@ export default function Logo({ size = 28, className = "", glow = true }) {
         />
       )}
       <img
-        src="/rkm-logo.png"
+        src="/rkm-logo.png?v=2"
         alt="R.K.M."
         width={size}
         height={size}
