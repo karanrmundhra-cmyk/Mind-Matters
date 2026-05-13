@@ -12,9 +12,13 @@ import { toast } from "sonner";
  *   open, onClose
  *   kind
  *   onConfirm: async (rows[]) => void
- *   describe: (row) => string
+ *   columns?: [{key,label,type,options?}]  — when provided, preview shows
+ *             every column as a labeled cell (no truncation, all fields
+ *             visible before confirm)
+ *   describe?: (row) => string  — fallback short summary when columns isn't
+ *             provided
  */
-export default function BulkAddDialog({ open, onClose, kind, onConfirm, describe }) {
+export default function BulkAddDialog({ open, onClose, kind, onConfirm, describe, columns }) {
   const [text, setText] = useState("");
   const [rows, setRows] = useState([]);
   const [busy, setBusy] = useState(false);
@@ -153,16 +157,46 @@ export default function BulkAddDialog({ open, onClose, kind, onConfirm, describe
         ) : (
           <>
             <div className="text-xs text-[#B7A98A]/65 mb-3">
-              AI parsed {rows.length} record(s). Review below — confirm to add all.
+              AI parsed {rows.length} record(s). Review every field below — confirm to add all.
             </div>
-            <div className="space-y-2 max-h-[50vh] overflow-y-auto">
+            <div className="space-y-2 max-h-[55vh] overflow-y-auto pr-1">
               {rows.map((r, i) => (
                 <div
                   key={i}
-                  className="text-sm rounded-lg border border-[rgba(201,169,97,0.22)] bg-[rgba(201,169,97,0.04)] px-3 py-2 mm-text-gold-bright"
+                  className="rounded-lg border border-[rgba(201,169,97,0.22)] bg-[rgba(201,169,97,0.04)] p-3"
                   data-testid="bulk-preview-row"
                 >
-                  {describe ? describe(r) : JSON.stringify(r)}
+                  {columns && columns.length ? (
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                      {columns.map((c) => {
+                        const v = r[c.key];
+                        const display =
+                          v === null || v === undefined || v === ""
+                            ? "—"
+                            : Array.isArray(v)
+                              ? v.join(", ")
+                              : String(v);
+                        return (
+                          <div key={c.key} className="min-w-0">
+                            <div className="text-[9px] uppercase tracking-[0.25em] text-[#B7A98A]/55 mb-0.5">
+                              {c.label}
+                            </div>
+                            <div
+                              className={`text-xs break-words ${
+                                display === "—" ? "text-[#B7A98A]/40" : "mm-text-gold-bright"
+                              }`}
+                            >
+                              {display}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="text-sm mm-text-gold-bright" data-testid="bulk-preview-summary">
+                      {describe ? describe(r) : JSON.stringify(r)}
+                    </div>
+                  )}
                 </div>
               ))}
             </div>

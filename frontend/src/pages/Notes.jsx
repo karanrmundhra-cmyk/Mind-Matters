@@ -402,6 +402,7 @@ export default function Notes() {
         open={bulkOpen}
         onClose={() => setBulkOpen(false)}
         kind="note"
+        columns={NOTE_COLUMNS}
         describe={describe}
         onConfirm={async (rows) => {
           for (const r of rows) await insertOne(r);

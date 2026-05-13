@@ -470,6 +470,7 @@ export default function Tasks() {
         open={bulkOpen}
         onClose={() => setBulkOpen(false)}
         kind="task"
+        columns={TASK_COLUMNS}
         describe={(r) =>
           `${r.name ? r.name + " · " : ""}${r.task || "(task)"}${r.date ? " · " + r.date : ""} · ${r.status || "Pending"}`
         }

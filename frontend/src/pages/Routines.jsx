@@ -394,6 +394,7 @@ export default function Routines() {
         open={bulkOpen}
         onClose={() => setBulkOpen(false)}
         kind="routine"
+        columns={ROUTINE_COLUMNS}
         describe={(r) => `[${r.group || "General"}] ${r.activity} · ${r.frequency || "Daily"}`}
         onConfirm={async (rows) => {
           for (const r of rows) await insertOne(r);
