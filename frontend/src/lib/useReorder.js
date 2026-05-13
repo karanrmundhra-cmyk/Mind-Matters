@@ -16,37 +16,45 @@ import { api } from "@/lib/api";
 export function useReorder(resource, rows, setRows, opts = {}) {
   const [draggingId, setDraggingId] = useState(null);
 
-  const commit = useCallback(
-    async (ordered) => {
-      // Optimistically update sr_no on rows so the visible Sr column reflects new order.
-      setRows((current) => {
-        const rank = new Map(ordered.map((r, i) => [r.id, i + 1]));
-        return current.map((r) => (rank.has(r.id) ? { ...r, sr_no: rank.get(r.id) } : r));
+  // Apply a renumbered/optimistic update + POST and optional refetch.
+  // `applyOrder(old)` must return the new ordered list of rows (NOT renumbered).
+  const applyAndCommit = useCallback(
+    (applyOrder) => {
+      let posted = null;
+      setRows((old) => {
+        const copy = applyOrder(old);
+        if (!copy || copy === old) return old;
+        // Renumber sr_no in-place so visible Sr matches new positions immediately.
+        const renumbered = copy.map((r, i) => ({ ...r, sr_no: i + 1 }));
+        posted = renumbered.map((r) => r.id);
+        return renumbered;
       });
-      try {
-        await api.post(`/${resource}/reorder`, { ids: ordered.map((r) => r.id) });
-      } catch {
-        // swallow — state already updated optimistically; user can refresh
+      if (posted) {
+        (async () => {
+          try { await api.post(`/${resource}/reorder`, { ids: posted }); } catch { /* */ }
+          if (typeof opts.onCommit === "function") {
+            try { await opts.onCommit(); } catch { /* */ }
+          }
+        })();
       }
     },
-    [resource, setRows],
+    [resource, setRows, opts],
   );
 
   const move = useCallback(
     (id, dir) => {
-      setRows((old) => {
+      applyAndCommit((old) => {
         const idx = old.findIndex((r) => r.id === id);
-        if (idx < 0) return old;
+        if (idx < 0) return null;
         const nextIdx = idx + dir;
-        if (nextIdx < 0 || nextIdx >= old.length) return old;
+        if (nextIdx < 0 || nextIdx >= old.length) return null;
         const copy = old.slice();
         const [row] = copy.splice(idx, 1);
         copy.splice(nextIdx, 0, row);
-        commit(copy);
         return copy;
       });
     },
-    [setRows, commit],
+    [applyAndCommit],
   );
 
   const onDragStart = (id) => () => setDraggingId(id);
@@ -54,14 +62,13 @@ export function useReorder(resource, rows, setRows, opts = {}) {
   const onDrop = (targetId) => (e) => {
     e.preventDefault();
     if (!draggingId || draggingId === targetId) return;
-    setRows((old) => {
+    applyAndCommit((old) => {
       const from = old.findIndex((r) => r.id === draggingId);
       const to = old.findIndex((r) => r.id === targetId);
-      if (from < 0 || to < 0) return old;
+      if (from < 0 || to < 0) return null;
       const copy = old.slice();
       const [row] = copy.splice(from, 1);
       copy.splice(to, 0, row);
-      commit(copy);
       return copy;
     });
   };

@@ -61,7 +61,7 @@ export default function CashFlow() {
   }, []);
 
   const { move, onDragStart, onDragOver, onDrop, onDragEnd, draggingId } =
-    useReorder("transactions", rows, setRows);
+    useReorder("transactions", rows, setRows, { onCommit: load });
 
   const groups = useMemo(
     () => Array.from(new Set(rows.map((r) => r.group).filter(Boolean))).sort(),

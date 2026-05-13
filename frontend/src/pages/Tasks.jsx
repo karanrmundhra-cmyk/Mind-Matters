@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "@/lib/api";
 import { Card, SectionTitle, EmptyState } from "@/components/Primitives";
 import AiAddBar from "@/components/AiAddBar";
@@ -40,16 +40,29 @@ export default function Tasks() {
     status: "Pending",
   });
 
+  const isDone = (t) => t.status === "Completed" || t.status === "Done";
+
+  // Keep `tasks` array in the same order the user sees: Pending first, Completed last,
+  // each group sorted by sr_no ascending. This makes the move() handler line up with
+  // the visible row index (so up/down arrows operate on the right neighbour).
+  const sortByDoneAndSr = (arr) =>
+    [...arr].sort((a, b) => {
+      const ad = isDone(a) ? 1 : 0;
+      const bd = isDone(b) ? 1 : 0;
+      if (ad !== bd) return ad - bd;
+      return (a.sr_no || 0) - (b.sr_no || 0);
+    });
+
   const load = async () => {
     const { data } = await api.get("/tasks");
-    setTasks(data);
+    setTasks(sortByDoneAndSr(data));
   };
   useEffect(() => {
     load();
   }, []);
 
   const { move, onDragStart, onDragOver, onDrop, onDragEnd, draggingId } =
-    useReorder("tasks", tasks, setTasks);
+    useReorder("tasks", tasks, setTasks, { onCommit: load });
 
   const groups = useMemo(
     () => Array.from(new Set(tasks.map((t) => t.group).filter(Boolean))).sort(),
@@ -82,10 +95,10 @@ export default function Tasks() {
 
   const textMatch = (a, b) => (!b ? true : String(a || "").toLowerCase().includes(b.toLowerCase()));
 
-  const isDone = (t) => t.status === "Completed" || t.status === "Done";
-
   const visible = useMemo(() => {
-    const filtered = tasks.filter((t) => {
+    // `tasks` is already sorted Pending-first / Completed-last by load(), and each
+    // group by sr_no ascending, so plain filtering preserves that order.
+    return tasks.filter((t) => {
       if (activeGroup && t.group !== activeGroup) return false;
       if (filters.sr && String(t.sr_no) !== filters.sr) return false;
       if (!textMatch(t.date, filters.date)) return false;
@@ -95,12 +108,6 @@ export default function Tasks() {
       if (!textMatch(t.details, filters.details)) return false;
       if (filters.status && t.status !== filters.status) return false;
       return true;
-    });
-    // Completed/Done tasks go to the bottom; preserve relative order otherwise.
-    return [...filtered].sort((a, b) => {
-      const ad = isDone(a) ? 1 : 0;
-      const bd = isDone(b) ? 1 : 0;
-      return ad - bd;
     });
   }, [tasks, activeGroup, filters]);
 
@@ -192,6 +199,27 @@ export default function Tasks() {
 
   const remove = async (id) => {
     await api.delete(`/tasks/${id}`);
+    await load();
+  };
+
+  // Mirror tasks into a ref so async handlers always read the latest order
+  // (avoids stale closures after an optimistic reorder).
+  const tasksRef = useRef([]);
+  useEffect(() => {
+    tasksRef.current = tasks;
+  }, [tasks]);
+
+  // Ticking a task → flip status AND renumber so Sr reflects the new position:
+  //  - Marking Completed: push it to the very bottom (last sr_no).
+  //  - Un-completing: send it to the top of the Pending list (sr_no 1).
+  const toggleDone = async (id) => {
+    const cur = tasksRef.current.find((x) => x.id === id);
+    if (!cur) return;
+    const willComplete = !isDone(cur);
+    await api.patch(`/tasks/${id}`, { status: willComplete ? "Completed" : "Pending" });
+    const others = tasksRef.current.filter((x) => x.id !== id).map((x) => x.id);
+    const newIds = willComplete ? [...others, id] : [id, ...others];
+    try { await api.post("/tasks/reorder", { ids: newIds }); } catch { /* */ }
     await load();
   };
 
@@ -344,7 +372,7 @@ export default function Tasks() {
             >
               <div className="flex items-center gap-2">
                 <button
-                  onClick={() => patch(t.id, { status: isDone(t) ? "Pending" : "Completed" })}
+                  onClick={() => toggleDone(t.id)}
                   className={`w-5 h-5 rounded-full border flex items-center justify-center transition shrink-0 ${
                     isDone(t)
                       ? "bg-gradient-to-br from-[#E4C98C] to-[#C9A961] border-[#C9A961] text-black"
@@ -412,14 +440,28 @@ export default function Tasks() {
               />
               <select
                 value={statusOptions.includes(t.status) ? t.status : (t.status || "Pending")}
-                onChange={(e) => {
+                onChange={async (e) => {
                   const v = e.target.value;
                   if (v === "__custom__") {
                     const custom = window.prompt("New status name?", "");
-                    if (custom && custom.trim()) patch(t.id, { status: custom.trim() });
+                    if (custom && custom.trim()) await patch(t.id, { status: custom.trim() });
                     else e.target.value = t.status;
+                    return;
+                  }
+                  // If toggling between Completed and a non-completed value, run the
+                  // same reorder logic as the tick button so Sr numbers update too.
+                  const becomingDone = v === "Completed" || v === "Done";
+                  const wasDone = isDone(t);
+                  if (becomingDone !== wasDone) {
+                    // Drive the status change via toggleDone so the row is renumbered.
+                    // We still need to honour the exact value the user picked when going to Completed/Done.
+                    await api.patch(`/tasks/${t.id}`, { status: v });
+                    const others = tasksRef.current.filter((x) => x.id !== t.id).map((x) => x.id);
+                    const newIds = becomingDone ? [...others, t.id] : [t.id, ...others];
+                    try { await api.post("/tasks/reorder", { ids: newIds }); } catch { /* */ }
+                    await load();
                   } else {
-                    patch(t.id, { status: v });
+                    await patch(t.id, { status: v });
                   }
                 }}
                 onKeyDown={advanceOnEnter}

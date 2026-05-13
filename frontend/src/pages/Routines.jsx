@@ -48,7 +48,7 @@ export default function Routines() {
   }, []);
 
   const { move, onDragStart, onDragOver, onDrop, onDragEnd, draggingId } =
-    useReorder("routines", routines, setRoutines);
+    useReorder("routines", routines, setRoutines, { onCommit: load });
 
   const groups = useMemo(
     () => Array.from(new Set(routines.map((r) => r.group).filter(Boolean))).sort(),
