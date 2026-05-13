@@ -158,6 +158,9 @@ export default function BulkAddDialog({ open, onClose, kind, onConfirm, describe
           <>
             <div className="text-xs text-[#B7A98A]/65 mb-3">
               AI parsed {rows.length} record(s). Review every field below — confirm to add all.
+              <span className="block mt-1 text-[#B7A98A]/45 italic">
+                Entries can be edited from the {kind === "task" ? "Task" : kind === "routine" ? "Routine" : kind === "note" ? "Notes" : "main"} sheet after adding.
+              </span>
             </div>
             <div className="space-y-2 max-h-[55vh] overflow-y-auto pr-1">
               {rows.map((r, i) => (

@@ -5,13 +5,14 @@ import { toast } from "sonner";
 
 const RECURRENCE_PRESETS = [
   { value: "none", label: "Never" },
-  { value: "daily", label: "Every Day" },
-  { value: "weekly", label: "Every Week" },
-  { value: "monthly", label: "Every Month" },
-  { value: "quarterly", label: "Every 3 Months" },
-  { value: "half-yearly", label: "Every 6 Months" },
-  { value: "yearly", label: "Every Year" },
-  { value: "custom", label: "Custom…" },
+  { value: "daily", label: "Daily" },
+  { value: "weekly", label: "Weekly" },
+  { value: "biweekly", label: "Every 2 Weeks" },
+  { value: "monthly", label: "Monthly" },
+  { value: "bimonthly", label: "Every 2 Months" },
+  { value: "quarterly", label: "Quarterly" },
+  { value: "half-yearly", label: "Half-Yearly" },
+  { value: "yearly", label: "Yearly" },
 ];
 
 function nextHourIso() {
@@ -38,7 +39,6 @@ export default function ReminderDialog({ open, onClose, defaults = {}, onCreated
   const [fireAt, setFireAt] = useState(nextHourIso());
   const [whenSet, setWhenSet] = useState(false);
   const [recurrence, setRecurrence] = useState("none");
-  const [customRec, setCustomRec] = useState("");
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -51,7 +51,6 @@ export default function ReminderDialog({ open, onClose, defaults = {}, onCreated
       setFireAt(initial);
       setWhenSet(false);
       setRecurrence(defaults.recurrence || "none");
-      setCustomRec(defaults.custom_recurrence || "");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
@@ -70,8 +69,7 @@ export default function ReminderDialog({ open, onClose, defaults = {}, onCreated
         title: title.trim(),
         notes: notes.trim(),
         fire_at: utc,
-        recurrence: recurrence === "custom" ? "custom" : recurrence,
-        custom_recurrence: recurrence === "custom" ? customRec.trim() : null,
+        recurrence,
         source_page: defaults.source_page || null,
         source_context: defaults.source_context || null,
       };
@@ -180,16 +178,6 @@ export default function ReminderDialog({ open, onClose, defaults = {}, onCreated
                 </option>
               ))}
             </select>
-            {recurrence === "custom" && (
-              <input
-                type="text"
-                value={customRec}
-                onChange={(e) => setCustomRec(e.target.value)}
-                placeholder="e.g. every 15 days · every Saturday · bi-monthly · weekends"
-                className="mm-input text-sm mt-2"
-                data-testid="reminder-dialog-custom-recurrence"
-              />
-            )}
           </div>
         </div>
 

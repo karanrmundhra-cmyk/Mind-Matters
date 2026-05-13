@@ -660,8 +660,14 @@ def _next_fire_at(current_iso: str, recurrence: str, custom_recurrence: Optional
         while nxt.weekday() < 5:
             nxt += timedelta(days=1)
         return nxt.isoformat()
-    # "bi-monthly" / "twice a month"
-    if spec in ("bi-monthly", "bimonthly", "twice a month"):
+    # "biweekly" / "every 2 weeks"
+    if spec in ("biweekly", "bi-weekly", "every 2 weeks", "fortnightly"):
+        return (base + timedelta(weeks=2)).isoformat()
+    # "bimonthly" / "every 2 months" — every other month
+    if spec in ("bimonthly", "bi-monthly", "every 2 months"):
+        return (base + timedelta(days=61)).isoformat()
+    # "twice a month" — every ~15 days
+    if spec in ("twice a month", "semi-monthly", "semimonthly"):
         return (base + timedelta(days=15)).isoformat()
 
     # "every <weekday>(s)" / "every <weekday> and <weekday>"
