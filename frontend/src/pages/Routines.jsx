@@ -315,17 +315,19 @@ export default function Routines() {
                     {done && <Check size={12} strokeWidth={2.5} />}
                   </button>
                   <input
-                    type="number"
-                    min="1"
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
                     defaultValue={r.sr_no || ""}
                     onBlur={(e) => {
                       const n = parseInt(e.target.value, 10);
                       if (n && n !== r.sr_no) patch(r.id, { sr_no: n });
+                      else e.target.value = r.sr_no || "";
                     }}
                     onKeyDown={advanceOnEnter}
-                    className="mm-input-ghost text-xs !py-1.5 w-12"
+                    className="mm-input-ghost text-xs !py-1.5 w-12 text-center"
                     data-testid="routine-sr-input"
-                    title="Drag the row or edit this number to reorder"
+                    title="Edit to renumber, or use the up/down arrows on the right"
                   />
                 </div>
                 <input list="routine-groups" defaultValue={r.group || ""} onBlur={(e) => patch(r.id, { group: e.target.value })} onKeyDown={advanceOnEnter} placeholder="—" className="mm-input-ghost text-xs" />

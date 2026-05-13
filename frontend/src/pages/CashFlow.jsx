@@ -405,15 +405,17 @@ export default function CashFlow() {
                 data-row="data"
               >
                 <input
-                  type="number"
-                  min="1"
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
                   defaultValue={t.sr_no || idx + 1}
                   onBlur={(e) => {
                     const n = parseInt(e.target.value, 10);
                     if (n && n !== t.sr_no) patch(t.id, { sr_no: n });
+                    else e.target.value = t.sr_no || idx + 1;
                   }}
                   onKeyDown={advanceOnEnter}
-                  className="mm-input-ghost text-xs !py-1.5 w-12"
+                  className="mm-input-ghost text-xs !py-1.5 w-12 text-center"
                   data-testid="tx-sr-input"
                 />
                 <input type="date" value={t.date || ""} onChange={(e) => patch(t.id, { date: e.target.value })} onKeyDown={advanceOnEnter} className="mm-input-ghost text-xs" />

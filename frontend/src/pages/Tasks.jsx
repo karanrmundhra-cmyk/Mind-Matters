@@ -356,17 +356,19 @@ export default function Tasks() {
                   {isDone(t) && <Check size={11} strokeWidth={2.5} />}
                 </button>
                 <input
-                  type="number"
-                  min="1"
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
                   defaultValue={t.sr_no || ""}
                   onBlur={(e) => {
                     const n = parseInt(e.target.value, 10);
                     if (n && n !== t.sr_no) patch(t.id, { sr_no: n });
+                    else e.target.value = t.sr_no || "";
                   }}
                   onKeyDown={advanceOnEnter}
-                  className="mm-input-ghost text-xs !py-1.5 w-12"
+                  className="mm-input-ghost text-xs !py-1.5 w-12 text-center"
                   data-testid="task-sr-input"
-                  title="Drag the row or edit this number to reorder"
+                  title="Edit to renumber, or use the up/down arrows on the right"
                 />
               </div>
               <input
