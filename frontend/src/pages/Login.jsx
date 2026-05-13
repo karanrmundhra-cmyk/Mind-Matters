@@ -57,7 +57,7 @@ export default function Login() {
     >
       <div className="mm-glass w-full max-w-md p-6 sm:p-10 mm-fade-in">
         <div className="flex flex-col items-center text-center">
-          <Logo size={44} />
+          <Logo size={88} />
           <div className="mt-4 mm-font-serif text-2xl sm:text-3xl text-white">Mind Matters</div>
           <div className="text-[10px] sm:text-[11px] uppercase tracking-[0.3em] text-white/40 mt-2">
             Personal Operating System

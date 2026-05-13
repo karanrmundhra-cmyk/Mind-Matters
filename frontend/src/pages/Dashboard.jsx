@@ -231,7 +231,7 @@ export default function Dashboard() {
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <input
-            placeholder="Deadline title (e.g. Tax filing)"
+            placeholder="Deadline Title (e.g. Tax Filing)"
             value={draft.title}
             onChange={(e) => setDraft({ ...draft, title: e.target.value })}
             className="mm-input text-sm"

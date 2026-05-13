@@ -8,7 +8,7 @@ export default function SplashScreen() {
       data-testid="splash-screen"
     >
       <div className="flex flex-col items-center mm-fade-in">
-        <Logo size={56} />
+        <Logo size={120} />
         <div className="mt-6 mm-font-serif text-4xl tracking-wide text-white/95">
           Mind Matters
         </div>
