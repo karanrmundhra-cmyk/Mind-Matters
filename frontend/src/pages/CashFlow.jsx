@@ -424,7 +424,7 @@ export default function CashFlow() {
                 <input list="tx-modes" defaultValue={t.mode || t.remarks || ""} onBlur={(e) => patch(t.id, { mode: e.target.value, remarks: e.target.value })} onKeyDown={advanceOnEnter} className="mm-input-ghost text-xs" placeholder="—" />
                 <input list="tx-heads" defaultValue={t.head || t.expense_head || ""} onBlur={(e) => patch(t.id, { head: e.target.value, expense_head: e.target.value })} onKeyDown={advanceOnEnter} className="mm-input-ghost text-xs" />
                 <select
-                  defaultValue={categoryOptions.includes(cat) ? cat : "expense"}
+                  value={categoryOptions.includes(cat) ? cat : (cat || "expense")}
                   onChange={(e) => {
                     const v = e.target.value;
                     if (v === "__custom__") {
@@ -441,6 +441,9 @@ export default function CashFlow() {
                   className="mm-input-ghost text-xs"
                   data-testid="tx-category-select"
                 >
+                  {!categoryOptions.includes(cat) && cat && (
+                    <option key={cat} value={cat}>{cat}</option>
+                  )}
                   {categoryOptions.map((c) => <option key={c} value={c}>{c}</option>)}
                   <option value="__custom__">+ Custom…</option>
                 </select>

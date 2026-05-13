@@ -16,7 +16,8 @@ import json as _json
 import logging
 import os
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
+from typing import Optional
 
 import httpx
 
@@ -595,8 +596,101 @@ async def tg_poll_loop(db, ai_parse_fn, create_task_fn, create_expense_fn, creat
                 await asyncio.sleep(3)
 
 
+def _next_fire_at(current_iso: str, recurrence: str, custom_recurrence: Optional[str] = None) -> Optional[str]:
+    """Return the next ISO datetime (UTC) for a recurring reminder.
+    Returns None when the reminder is one-time / unknown recurrence.
+    Handles standard presets + a handful of common natural-language custom
+    patterns ('every N days/weeks/months', 'every <weekdays>', 'weekdays',
+    'weekends', 'biweekly', 'bi-monthly').
+    """
+    rec = (recurrence or "none").lower()
+    if not current_iso:
+        return None
+    try:
+        base = datetime.fromisoformat(current_iso.replace("Z", "+00:00"))
+    except Exception:
+        return None
+
+    # Standard presets
+    presets = {
+        "daily": timedelta(days=1),
+        "weekly": timedelta(weeks=1),
+        "biweekly": timedelta(weeks=2),
+    }
+    if rec in presets:
+        return (base + presets[rec]).isoformat()
+    if rec == "monthly":
+        # Use 30-day rough month so we don't have to deal with month-end edge cases here
+        return (base + timedelta(days=30)).isoformat()
+    if rec == "quarterly":
+        return (base + timedelta(days=91)).isoformat()
+    if rec in ("half-yearly", "halfyearly", "semi-annual"):
+        return (base + timedelta(days=183)).isoformat()
+    if rec == "yearly":
+        return (base + timedelta(days=365)).isoformat()
+    if rec in ("none", ""):
+        return None
+
+    # Custom — parse the human-readable string
+    if rec == "custom":
+        spec = (custom_recurrence or "").lower().strip()
+    else:
+        spec = rec
+    if not spec:
+        return None
+
+    # "every N day(s)/week(s)/month(s)/year(s)"
+    import re
+    m = re.search(r"every\s+(\d+)\s*(day|week|month|year)s?", spec)
+    if m:
+        n = int(m.group(1))
+        unit = m.group(2)
+        delta_days = {"day": n, "week": n * 7, "month": n * 30, "year": n * 365}[unit]
+        return (base + timedelta(days=delta_days)).isoformat()
+
+    # "weekdays" → Mon-Fri only
+    if spec in ("weekdays", "mon-fri", "monday-friday"):
+        nxt = base + timedelta(days=1)
+        while nxt.weekday() >= 5:
+            nxt += timedelta(days=1)
+        return nxt.isoformat()
+    # "weekends" → Sat-Sun only
+    if spec in ("weekends", "sat-sun"):
+        nxt = base + timedelta(days=1)
+        while nxt.weekday() < 5:
+            nxt += timedelta(days=1)
+        return nxt.isoformat()
+    # "bi-monthly" / "twice a month"
+    if spec in ("bi-monthly", "bimonthly", "twice a month"):
+        return (base + timedelta(days=15)).isoformat()
+
+    # "every <weekday>(s)" / "every <weekday> and <weekday>"
+    weekdays = {
+        "monday": 0, "mon": 0, "tuesday": 1, "tue": 1, "tues": 1,
+        "wednesday": 2, "wed": 2, "thursday": 3, "thu": 3, "thurs": 3,
+        "friday": 4, "fri": 4, "saturday": 5, "sat": 5, "sunday": 6, "sun": 6,
+    }
+    found = []
+    for word, idx in weekdays.items():
+        if re.search(rf"\b{word}\b", spec):
+            found.append(idx)
+    if found:
+        found = sorted(set(found))
+        # Advance day-by-day until weekday matches one of the targets
+        nxt = base + timedelta(days=1)
+        for _ in range(8):
+            if nxt.weekday() in found:
+                return nxt.isoformat()
+            nxt += timedelta(days=1)
+
+    return None  # unknown pattern → one-shot
+
+
 async def reminder_loop(db):
-    """Every 30s, pick due reminders and notify user's Telegram."""
+    """Every 30s, pick due reminders and notify user's Telegram.
+    Recurring reminders are rescheduled to their next fire-time and `sent` is
+    reset to False so they fire again at the right cadence.
+    """
     while True:
         try:
             now_iso = datetime.now(timezone.utc).isoformat()
@@ -612,10 +706,26 @@ async def reminder_loop(db):
                     text += f"\n{r['notes']}"
                 if cid:
                     await tg_send(cid, text)
-                await db.reminders.update_one(
-                    {"id": r["id"]},
-                    {"$set": {"sent": True, "sent_at": datetime.now(timezone.utc).isoformat()}},
+                # Reschedule if recurring; otherwise mark as sent (one-shot)
+                next_iso = _next_fire_at(
+                    r.get("fire_at"),
+                    r.get("recurrence", "none"),
+                    r.get("custom_recurrence"),
                 )
+                if next_iso:
+                    await db.reminders.update_one(
+                        {"id": r["id"]},
+                        {"$set": {
+                            "fire_at": next_iso,
+                            "sent": False,
+                            "last_sent_at": datetime.now(timezone.utc).isoformat(),
+                        }},
+                    )
+                else:
+                    await db.reminders.update_one(
+                        {"id": r["id"]},
+                        {"$set": {"sent": True, "sent_at": datetime.now(timezone.utc).isoformat()}},
+                    )
         except Exception as e:
             logger.warning(f"reminder_loop: {e}")
         await asyncio.sleep(30)

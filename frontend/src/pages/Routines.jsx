@@ -333,7 +333,7 @@ export default function Routines() {
                 <input list="routine-activities" defaultValue={r.activity} onBlur={(e) => patch(r.id, { activity: e.target.value })} onKeyDown={advanceOnEnter} className="mm-input-ghost text-xs" />
                 <input list="routine-details" defaultValue={r.details || ""} onBlur={(e) => patch(r.id, { details: e.target.value })} onKeyDown={advanceOnEnter} placeholder="—" className="mm-input-ghost text-xs" />
                 <select
-                  defaultValue={freqs.includes(r.frequency) ? r.frequency : "Daily"}
+                  value={freqs.includes(r.frequency) ? r.frequency : (r.frequency || "Daily")}
                   onChange={(e) => {
                     const v = e.target.value;
                     if (v === "__custom__") {
@@ -348,6 +348,9 @@ export default function Routines() {
                   className="mm-input-ghost text-xs"
                   data-testid="routine-frequency-select"
                 >
+                  {!freqs.includes(r.frequency) && r.frequency && (
+                    <option key={r.frequency} value={r.frequency}>{r.frequency}</option>
+                  )}
                   {freqs.map((f) => <option key={f} value={f}>{f}</option>)}
                   <option value="__custom__">+ Custom…</option>
                 </select>

@@ -1,7 +1,7 @@
 import React from "react";
 
 /** R.K.M. brand logo — uses the uploaded emblem. */
-export default function Logo({ size = 28, className = "", glow = true }) {
+export default function Logo({ size = 28, className = "", glow = false }) {
   return (
     <div
       className={`inline-flex items-center justify-center relative ${className}`}

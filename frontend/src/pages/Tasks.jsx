@@ -237,7 +237,7 @@ export default function Tasks() {
 
       <AiAddBar
         kind="task"
-        placeholder="e.g. remind rahul to send invoice tomorrow #Group: Work — adds time/date? I'll offer a reminder too"
+        placeholder="e.g. remind rahul to send invoice tomorrow #Work"
         columns={TASK_COLUMNS}
         quickTags={groups}
         quickTagPrefix="Group: "
@@ -409,7 +409,7 @@ export default function Tasks() {
                 className="mm-input-ghost text-xs !py-1.5"
               />
               <select
-                defaultValue={statusOptions.includes(t.status) ? t.status : "Pending"}
+                value={statusOptions.includes(t.status) ? t.status : (t.status || "Pending")}
                 onChange={(e) => {
                   const v = e.target.value;
                   if (v === "__custom__") {
@@ -424,6 +424,9 @@ export default function Tasks() {
                 className="mm-input-ghost text-xs !py-1.5"
                 data-testid="task-status-select"
               >
+                {!statusOptions.includes(t.status) && t.status && (
+                  <option key={t.status} value={t.status}>{t.status}</option>
+                )}
                 {statusOptions.map((s) => (
                   <option key={s} value={s}>{s}</option>
                 ))}

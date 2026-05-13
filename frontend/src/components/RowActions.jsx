@@ -1,5 +1,5 @@
 import React from "react";
-import { ArrowUp, ArrowDown, BellRing, Trash2, GripVertical } from "lucide-react";
+import { BellRing, Trash2, GripVertical } from "lucide-react";
 
 /**
  * RowActions — shared row-right-edge action cluster.
@@ -7,16 +7,17 @@ import { ArrowUp, ArrowDown, BellRing, Trash2, GripVertical } from "lucide-react
  * Props:
  *   rowId: string  — appended to each testid for unique targeting
  *   kind:  string  — "task" | "routine" | "tx" | etc. Used as testid prefix.
- *   onReminder?, onDelete, onUp?, onDown?
+ *   onReminder?, onDelete
  *   onDragStart?, onDragOver?, onDrop?, onDragEnd?
+ *
+ * Note: explicit up/down arrows were removed in v2.6 — use the drag handle or
+ * the editable Sr column on each page to reorder rows.
  */
 export default function RowActions({
   rowId,
   kind = "row",
   onReminder,
   onDelete,
-  onUp,
-  onDown,
   onDragStart,
   onDragOver,
   onDrop,
@@ -39,28 +40,6 @@ export default function RowActions({
         >
           <GripVertical size={13} />
         </span>
-      )}
-      {onUp && (
-        <button
-          type="button"
-          onClick={onUp}
-          className="text-[#B7A98A]/50 hover:text-[#E4C98C] transition p-1 leading-none"
-          title="Move up"
-          data-testid={tid("up")}
-        >
-          <ArrowUp size={12} />
-        </button>
-      )}
-      {onDown && (
-        <button
-          type="button"
-          onClick={onDown}
-          className="text-[#B7A98A]/50 hover:text-[#E4C98C] transition p-1 leading-none"
-          title="Move down"
-          data-testid={tid("down")}
-        >
-          <ArrowDown size={12} />
-        </button>
       )}
       {onReminder && (
         <button

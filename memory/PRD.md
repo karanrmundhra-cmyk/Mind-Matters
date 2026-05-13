@@ -79,6 +79,40 @@ with the R.K.M. brand logo. AI-first input on every page (type → confirm → d
 - **Tests**: backend 13/13 v2.0 pytest pass; frontend 14/15 Playwright pass
   (one MEDIUM testid alias fixed post-test — Tasks #new-row `new-task-task`).
 
+### v2.6 — Page-2 polish · custom status fix · recurrence engine · arrows removed (2026-02)
+- **Sidebar logo** size adjusted 52→44 so the emblem matches the height of
+  the "Mind Matters / PERSONAL OS" text block (proportionate per user).
+- **Logo glow removed everywhere**: `Logo` component now defaults
+  `glow={false}` — the whitish radial blur behind the emblem on splash,
+  login, and sidebar is gone. Matches the clean look of the source PDF.
+- **AiAddBar placeholder (Tasks)** simplified to
+  "e.g. remind rahul to send invoice tomorrow #Work" — verbose "adds
+  time/date? I'll offer a reminder too" comment dropped.
+- **`#Work` syntax** (without colon) now parses to `group:'Work'`. AI prompt
+  rewritten with explicit example + stronger directive: "details: KEEP EVERY
+  non-trivial NOUN/OBJECT the user typed; never silently drop nouns".
+  Verified: "buy medication #Family" → group=Family, details=medication.
+- **Custom status now sticks**: Tasks status / Routines frequency / Cash
+  Flow category selects switched from `defaultValue` (uncontrolled) to
+  `value` (controlled) + auto-inject the current value as an `<option>` if
+  it's not already in the preset list. After picking "+ Custom… → Hold",
+  the dropdown now reads "Hold" instead of reverting to "+ Custom…".
+- **Up/down arrow buttons removed** from `RowActions` across Tasks /
+  Routines / Cash Flow — Sr column is editable and rows are still
+  draggable, so the explicit arrows were redundant noise. Per user: "remove
+  this up and down arrow from here and let it show the sr number".
+- **Recurrence engine**: extended `reminder_loop` with a new
+  `_next_fire_at(current_iso, recurrence, custom_recurrence)` helper that
+  handles:
+   • Presets: daily, weekly, biweekly, monthly, quarterly, half-yearly, yearly
+   • Custom NL: "every N days/weeks/months/years", "every Tuesday and
+     Thursday" (multi-weekday), "every Monday", "weekdays" (Mon-Fri only),
+     "weekends" (Sat-Sun only), "bi-monthly"
+  When a reminder fires, the loop now computes the next ISO datetime and
+  resets `sent=false` so it triggers again at the right cadence.
+  Verified: every 15 days → +15, every Tuesday/Thursday → next Tue/Thu,
+  weekdays → skips weekend, etc.
+
 ### v2.5 — Forgot password · New crisp logo · Capitalized deadline placeholder · Bigger logos (2026-02)
 - **Forgot password flow**: new `POST /api/auth/forgot` issues a 6-digit code
   (30-min expiry, bcrypt-hashed in `password_resets` collection). Returns the

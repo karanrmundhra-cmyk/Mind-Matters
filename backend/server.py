@@ -2384,17 +2384,19 @@ def _parse_csv_to_rows(content: bytes) -> List[Dict[str, Any]]:
 SCHEMA_BY_KIND = {
     "task": (
         "{date:'YYYY-MM-DD' or null (extract dates like '05/06/2026', '5 June 2026', 'tomorrow' relative to today; null only if user truly gave no date), "
-        "group (free text — extract from '#group:<name>', 'Group: <name>', 'group: <name>', 'in <group>'; e.g. 'work', 'personal', 'Brinda'; preserve user's exact case), "
+        "group (free text — extract from '#<name>' (e.g. '#Work' → 'Work'), '#group:<name>', 'Group: <name>', 'group: <name>', 'in <group>'; preserve user's exact case), "
         "name (the responsible person — the one being asked TO do something; e.g. 'Rahul' from 'remind Rahul to call', 'Brinda' from 'ask Brinda for invoice'), "
         "task (a short ONE-WORD action verb in user's case e.g. 'Call', 'Send', 'Remind', 'Buy', 'Pay', 'Follow-Up'), "
-        "details (the rest of the sentence — what about / what to do; e.g. 'Send invoice for the bar unit'), "
+        "details (the rest of the sentence — what about / what to do — KEEP EVERY non-trivial NOUN/OBJECT the user typed; e.g. 'medication for father', 'invoice', 'the bar unit'; never silently drop nouns), "
         "status:'Pending' (default), "
         "reminder_at:'YYYY-MM-DDTHH:MM' or null (ONLY when the user gave both a date AND a clock time like '4:00 pm', '16:00', '9am' — interpret 12h with am/pm; ignore timezone abbreviations like 'IST' for now since the local clock already matches user's locale)}\n"
-        "EXAMPLE 1: input 'Remind rahul to send invoice #group: work on 05/06/2026 4:00 pm ist' → "
-        "{date:'2026-06-05', group:'work', name:'rahul', task:'Send', details:'invoice', status:'Pending', reminder_at:'2026-06-05T16:00'}\n"
+        "EXAMPLE 1: input 'Remind rahul to send invoice #Work on 05/06/2026 4:00 pm ist' → "
+        "{date:'2026-06-05', group:'Work', name:'rahul', task:'Send', details:'invoice', status:'Pending', reminder_at:'2026-06-05T16:00'}\n"
         "EXAMPLE 2: input 'call brinda about repair tomorrow' → "
         "{date:'(tomorrow's ISO date)', group:'', name:'brinda', task:'Call', details:'about repair', status:'Pending', reminder_at:null}\n"
-        "EXAMPLE 3: input 'pay electricity bill' → "
+        "EXAMPLE 3: input 'buy medication for father #Family' → "
+        "{date:today, group:'Family', name:'', task:'Buy', details:'medication for father', status:'Pending', reminder_at:null}\n"
+        "EXAMPLE 4: input 'pay electricity bill' → "
         "{date:null, group:'', name:'', task:'Pay', details:'electricity bill', status:'Pending', reminder_at:null}"
     ),
     "routine": (

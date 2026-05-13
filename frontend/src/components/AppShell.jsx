@@ -43,7 +43,7 @@ export default function AppShell() {
         data-testid="sidebar"
       >
         <div className="flex items-center gap-3 mb-10">
-          <Logo size={52} />
+          <Logo size={44} />
           <div>
             <div className="mm-font-serif text-lg leading-none mm-text-gold-bright">Mind Matters</div>
             <div className="text-[10px] uppercase tracking-[0.25em] text-[#B7A98A]/60 mt-1">
