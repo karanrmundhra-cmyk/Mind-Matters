@@ -211,6 +211,27 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
   opacity: 1;
 }
 
+/* Force black + gold color scheme on date/datetime/time inputs so the native
+ * picker chrome (popup calendar header, today indicator) renders in dark + gold
+ * instead of blue + white. */
+input[type="date"],
+input[type="datetime-local"],
+input[type="time"],
+input[type="month"] {
+  color-scheme: dark;
+  accent-color: #C9A961;
+  color: #E4C98C;
+}
+input[type="date"]::-webkit-datetime-edit-fields-wrapper,
+input[type="datetime-local"]::-webkit-datetime-edit-fields-wrapper,
+input[type="time"]::-webkit-datetime-edit-fields-wrapper {
+  color: #E4C98C;
+}
+input[type="date"]::-webkit-datetime-edit,
+input[type="datetime-local"]::-webkit-datetime-edit {
+  color: #E4C98C;
+}
+
 .mm-chip {
   display: inline-flex;
   align-items: center;

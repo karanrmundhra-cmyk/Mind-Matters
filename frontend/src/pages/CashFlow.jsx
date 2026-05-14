@@ -306,7 +306,7 @@ export default function CashFlow() {
 
       <AiAddBar
         kind="expense"
-        placeholder="e.g. lent Brinda 50000 at 9% · SBI FD 200000 at 7.1% · 450 coffee at Starbucks"
+        placeholder="e.g. insurance from Bajaj for Karan 5 lakhs #Family"
         columns={TX_COLUMNS}
         quickTags={groups}
         quickTagPrefix="Group: "

@@ -11,7 +11,7 @@ import { useReorder } from "@/lib/useReorder";
 import { Plus, Flame, Check, Upload } from "lucide-react";
 import { toast } from "sonner";
 
-const DEFAULT_FREQS = ["Daily", "Weekly", "Monthly", "Quarterly", "Half-Yearly", "Yearly"];
+const DEFAULT_FREQS = ["Daily", "Weekly", "Every 2 Weeks", "Monthly", "Every 2 Months", "Quarterly", "Half-Yearly", "Yearly"];
 
 const ROUTINE_COLUMNS = [
   { key: "group", label: "Group", type: "text", width: "140px" },
@@ -193,7 +193,7 @@ export default function Routines() {
 
       <AiAddBar
         kind="routine"
-        placeholder="e.g. morning walk 30 min, group Morning, daily"
+        placeholder="e.g. morning walk at park daily, self #Morning"
         columns={ROUTINE_COLUMNS}
         quickTags={groups}
         quickTagPrefix="Group: "

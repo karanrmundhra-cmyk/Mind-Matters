@@ -10,11 +10,13 @@ import { toast } from "sonner";
 import ReminderDialog from "@/components/ReminderDialog";
 import { capWords } from "@/lib/format";
 
-const TAG_OPTIONS = ["work", "personal", "idea", "reminder", "health", "finance"];
+const TAG_OPTIONS = []; // No presets — user creates their own via "+ Custom" chip
 
 const NOTE_COLUMNS = [
   { key: "title", label: "Title", type: "text", width: "1fr" },
   { key: "body", label: "Body", type: "text", width: "2fr" },
+  { key: "list_title", label: "Add to list", type: "text", width: "1fr" },
+  { key: "items_preview", label: "Items", type: "text", width: "1.5fr" },
 ];
 
 export default function Notes() {
@@ -77,8 +79,13 @@ export default function Notes() {
     // v2.1: AI may return kind='note' OR signal list-append intent via list_title/list_tag + items
     const listTitle = row.list_title || row.list_name || null;
     const listTag = row.list_tag || null;
-    const items = Array.isArray(row.items) ? row.items
-                : (typeof row.items === "string" ? [row.items] : null);
+    // Accept items as an array OR a comma/newline-separated string (when user edits the preview cell).
+    let items = null;
+    if (Array.isArray(row.items)) items = row.items;
+    else if (typeof row.items === "string" && row.items.trim()) items = [row.items.trim()];
+    else if (typeof row.items_preview === "string" && row.items_preview.trim()) {
+      items = row.items_preview.split(/[,\n]/).map((s) => s.trim()).filter(Boolean);
+    }
     if ((listTitle || listTag) && items && items.length) {
       await api.post("/notes/append-list", {
         title_hint: listTitle,
@@ -94,6 +101,13 @@ export default function Notes() {
       tags: Array.isArray(row.tags) ? row.tags : [],
     });
   };
+
+  // Transform AI-parsed rows into a preview-friendly shape (items[] → comma string).
+  const decorateForPreview = (rows) =>
+    rows.map((r) => ({
+      ...r,
+      items_preview: Array.isArray(r.items) ? r.items.join(", ") : (r.items_preview || ""),
+    }));
 
   const create = async () => {
     const { data } = await api.post("/notes", { title: "New note", body: "", tags: [] });
@@ -180,11 +194,12 @@ export default function Notes() {
 
       <AiAddBar
         kind="note"
-        placeholder="e.g. add milk to shopping list · or 'idea: sunday review'"
+        placeholder="e.g. add butter to shopping list #Personal"
         columns={NOTE_COLUMNS}
         describe={describe}
         quickTags={noteQuickTags}
         quickTagPrefix=""
+        decorateRows={decorateForPreview}
         onConfirm={async (rows) => {
           for (const r of rows) await insertOne(r);
           await load();
@@ -343,18 +358,20 @@ export default function Notes() {
                 </button>
               </div>
 
-              <div className="flex items-center gap-1.5 mb-4 flex-wrap">
-                <TagIcon size={12} className="text-[#B7A98A]/55" />
-                {allTags.map((t) => (
-                  <button
-                    key={t}
-                    onClick={() => toggleTag(t)}
-                    className={`mm-chip ${(selected.tags || []).includes(t) ? "mm-chip-gold" : ""}`}
-                  >
-                    {t}
-                  </button>
-                ))}
-              </div>
+              {(selected.tags || []).length > 0 && (
+                <div className="flex items-center gap-1.5 mb-4 flex-wrap" data-testid="note-tag-chips">
+                  {(selected.tags || []).map((t) => (
+                    <button
+                      key={t}
+                      onClick={() => toggleTag(t)}
+                      className="mm-chip mm-chip-gold"
+                      title="Click to remove this tag from the note"
+                    >
+                      {t} ×
+                    </button>
+                  ))}
+                </div>
+              )}
 
               <textarea
                 value={selected.body}

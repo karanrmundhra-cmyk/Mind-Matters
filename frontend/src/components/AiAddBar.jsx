@@ -15,7 +15,7 @@ import { toast } from "sonner";
  *   quickTags?: string[]  — tappable pills prepended to the input (groups / hashtags etc.)
  *   quickTagPrefix?: string  — inserted before each tapped tag (e.g. "#" or "Group: ")
  */
-export default function AiAddBar({ kind, placeholder, onConfirm, describe, columns, quickTags, quickTagPrefix = "" }) {
+export default function AiAddBar({ kind, placeholder, onConfirm, describe, columns, quickTags, quickTagPrefix = "", decorateRows }) {
   const [text, setText] = useState("");
   const [rows, setRows] = useState(null); // null = no preview, otherwise editable
   const [busy, setBusy] = useState(false);
@@ -26,11 +26,12 @@ export default function AiAddBar({ kind, placeholder, onConfirm, describe, colum
     try {
       const { data } = await api.post("/parse/bulk", { kind, text });
       const arr = data.rows || [];
-      if (arr.length === 0) {
+      const decorated = typeof decorateRows === "function" ? decorateRows(arr) : arr;
+      if (decorated.length === 0) {
         toast.error("Could not parse — try rephrasing.");
         setRows(null);
       } else {
-        setRows(arr);
+        setRows(decorated);
       }
     } catch {
       toast.error("AI service unavailable");

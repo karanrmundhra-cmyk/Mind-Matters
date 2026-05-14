@@ -2400,12 +2400,12 @@ SCHEMA_BY_KIND = {
         "{date:null, group:'', name:'', task:'Pay', details:'electricity bill', status:'Pending', reminder_at:null}"
     ),
     "routine": (
-        "{group (free text — the bucket the routine belongs to; for time-of-day words ('morning','evening','night','afternoon') USE that as group; otherwise pick a sensible category like 'Health','Work','Family'; preserve user's case), "
+        "{group (free text — first check for an explicit '#<name>' or '#group:<name>' hashtag and use that (e.g. '#Morning' → 'Morning'); otherwise for time-of-day words ('morning','evening','night','afternoon') USE that as group; otherwise pick a sensible category like 'Health','Work','Family'; preserve user's case), "
         "name (the person who performs it — 'Self','Wife','Father' etc. from words like 'self','me','i','wife','father','mother','children'), "
         "activity (a short verb-led title e.g. 'Walk', 'Meditate', 'Stretch'), "
         "details (location/qualifier e.g. 'at park', '30 min', 'with breathing'), "
-        "frequency:'Daily'|'Weekly'|'Monthly'|'Quarterly'|'Half-Yearly'|'Yearly' (default 'Daily')}\n"
-        "EXAMPLE 1: input 'morning walk at park daily self' → "
+        "frequency:'Daily'|'Weekly'|'Every 2 Weeks'|'Monthly'|'Every 2 Months'|'Quarterly'|'Half-Yearly'|'Yearly' (default 'Daily')}\n"
+        "EXAMPLE 1: input 'morning walk at park daily self #Morning' → "
         "{group:'Morning', name:'Self', activity:'Walk', details:'at park', frequency:'Daily'}\n"
         "EXAMPLE 2: input 'evening meditation 20 min for wife weekly' → "
         "{group:'Evening', name:'Wife', activity:'Meditation', details:'20 min', frequency:'Weekly'}\n"
@@ -2423,7 +2423,7 @@ SCHEMA_BY_KIND = {
         "mode ('Card'|'Cash'|'UPI'|'Bank'|'Cheque'; default 'Bank' if not specified), "
         "category ('income'|'expense'|'asset'|'liability' — use 'liability' for insurance/loans-given, "
         "'asset' for investments/loans-taken/FDs, 'income' for salary/refund/interest received, 'expense' otherwise), "
-        "group (free text bucket if user mentions one; else '')}\n"
+        "group (free text — extract from '#<name>' (e.g. '#Family' → 'Family') or '#group:<name>' or mention of group/category bucket; preserve user's case; else '')}\n"
         "EXAMPLE 1: 'insurance from bajaj karan 5 lakhs' → "
         "{date:today, amount:500000, vendor:'Bajaj', name:'Karan', details:'insurance for karan', head:'Insurance', mode:'Bank', category:'liability', group:''}\n"
         "EXAMPLE 2: '450 coffee at starbucks card' → "
@@ -2449,7 +2449,7 @@ SCHEMA_BY_KIND = {
         "insured_for (Title-Case e.g. 'Self','Wife','Mother','Father','Medical' — only when kind='insurance'; else null), "
         "notes}"
     ),
-    "note": "{title, body, tags:[lowercase], list_title?:string, list_tag?:string, items?:[string]}. "
+    "note": "{title, body, tags:[lowercase] (extract from '#<tag>' hashtags like '#Personal' → 'personal'), list_title?:string, list_tag?:string, items?:[string]}. "
             "When the user wants to append bullets to an existing list (e.g. 'add milk, eggs to shopping list', "
             "'add X to <list>', or single-item buy/get/pick-up phrases like 'buy soap', 'get bread', "
             "'pick up dry cleaning', 'order coffee filters'), ALWAYS prefer list-append: set "
@@ -2497,20 +2497,35 @@ async def _ai_parse_bulk(text: str, kind: str) -> List[Dict[str, Any]]:
         "If input has multiple lines, treat each as one record. "
         "Return ONLY a JSON array, no prose."
     )
-    chat = LlmChat(api_key=EMERGENT_LLM_KEY, session_id=f"bp-{new_id()}",
-                   system_message=system).with_model("gemini", "gemini-3-flash-preview")
-    resp = await chat.send_message(UserMessage(text=text[:8000]))
-    t = resp.strip()
-    if t.startswith("```"):
-        t = t.strip("`")
-        if t.startswith("json"):
-            t = t[4:]
-    try:
-        arr = json.loads(t)
-        if isinstance(arr, list):
-            return [_normalize_row(kind, r) for r in arr]
-    except Exception:
-        return []
+    # Chunk by line count so large pastes (50-100+ rows) don't exceed the LLM's
+    # output-token budget and silently truncate (was capping at ~25 rows).
+    lines = [ln for ln in text.split("\n") if ln.strip()]
+    if len(lines) <= 30:
+        chunks = [text]
+    else:
+        chunks = []
+        for i in range(0, len(lines), 30):
+            chunks.append("\n".join(lines[i : i + 30]))
+    out: List[Dict[str, Any]] = []
+    for idx, chunk in enumerate(chunks):
+        chat = LlmChat(api_key=EMERGENT_LLM_KEY, session_id=f"bp-{new_id()}-{idx}",
+                       system_message=system).with_model("gemini", "gemini-3-flash-preview")
+        try:
+            resp = await chat.send_message(UserMessage(text=chunk[:8000]))
+        except Exception:
+            continue
+        t = resp.strip()
+        if t.startswith("```"):
+            t = t.strip("`")
+            if t.startswith("json"):
+                t = t[4:]
+        try:
+            arr = json.loads(t)
+            if isinstance(arr, list):
+                out.extend(_normalize_row(kind, r) for r in arr)
+        except Exception:
+            continue
+    return out
 
 
 @api.post("/parse/bulk")
@@ -2535,31 +2550,38 @@ async def parse_bulk_file(
         raw = _parse_csv_to_rows(content)
     else:
         raise HTTPException(400, "Upload .xlsx, .xls or .csv")
-    # ask AI to normalize column names per schema
+    if not EMERGENT_LLM_KEY:
+        return {"rows": [], "raw_count": len(raw)}
     schema = SCHEMA_BY_KIND.get(kind, "{}")
-    sample = json.dumps(raw[:30], default=str)
     system = (
         "Normalize raw spreadsheet rows to a JSON array per the schema. "
         f"Schema for kind={kind}: {schema}\nReturn ONLY JSON array."
     )
-    if not EMERGENT_LLM_KEY:
-        return {"rows": []}
-    chat = LlmChat(api_key=EMERGENT_LLM_KEY, session_id=f"bf-{new_id()}",
-                   system_message=system).with_model("gemini", "gemini-3-flash-preview")
-    resp = await chat.send_message(UserMessage(text=sample))
-    t = resp.strip()
-    if t.startswith("```"):
-        t = t.strip("`")
-        if t.startswith("json"):
-            t = t[4:]
-    try:
-        rows = json.loads(t)
-        if not isinstance(rows, list):
-            rows = []
-        rows = [_normalize_row(kind, r) for r in rows]
-    except Exception:
-        rows = []
-    return {"rows": rows, "raw_count": len(raw)}
+    # Process in chunks of 40 rows so the LLM output token budget never clips
+    # large pastes/uploads (the previous 30-row sample silently dropped rows).
+    CHUNK = 40
+    out_rows: List[Dict[str, Any]] = []
+    for i in range(0, len(raw), CHUNK):
+        chunk = raw[i : i + CHUNK]
+        sample = json.dumps(chunk, default=str)
+        chat = LlmChat(api_key=EMERGENT_LLM_KEY, session_id=f"bf-{new_id()}-{i}",
+                       system_message=system).with_model("gemini", "gemini-3-flash-preview")
+        try:
+            resp = await chat.send_message(UserMessage(text=sample))
+        except Exception:
+            continue
+        t = resp.strip()
+        if t.startswith("```"):
+            t = t.strip("`")
+            if t.startswith("json"):
+                t = t[4:]
+        try:
+            rows = json.loads(t)
+            if isinstance(rows, list):
+                out_rows.extend(_normalize_row(kind, r) for r in rows)
+        except Exception:
+            pass
+    return {"rows": out_rows, "raw_count": len(raw)}
 
 
 # ───────────────────── Invoice AI fill ─────────────────────

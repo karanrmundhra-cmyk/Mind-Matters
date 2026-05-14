@@ -265,7 +265,7 @@ export default function Tasks() {
 
       <AiAddBar
         kind="task"
-        placeholder="e.g. remind rahul to send invoice tomorrow #Work"
+        placeholder="e.g. follow up brinda on bar unit #Personal"
         columns={TASK_COLUMNS}
         quickTags={groups}
         quickTagPrefix="Group: "

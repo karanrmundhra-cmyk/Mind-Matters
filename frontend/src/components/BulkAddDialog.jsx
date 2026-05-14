@@ -69,6 +69,20 @@ export default function BulkAddDialog({ open, onClose, kind, onConfirm, describe
     }
   };
 
+  const [dragActive, setDragActive] = useState(false);
+  const onDrop = (e) => {
+    e.preventDefault();
+    setDragActive(false);
+    const file = e.dataTransfer?.files?.[0];
+    if (!file) return;
+    const lower = (file.name || "").toLowerCase();
+    if (!lower.endsWith(".xlsx") && !lower.endsWith(".xls") && !lower.endsWith(".csv")) {
+      toast.error("Drop a .xlsx, .xls or .csv file");
+      return;
+    }
+    parseFile(file);
+  };
+
   const confirm = async () => {
     if (!rows.length) return;
     setBusy(true);
@@ -110,23 +124,44 @@ export default function BulkAddDialog({ open, onClose, kind, onConfirm, describe
         {rows.length === 0 ? (
           <>
             <div className="text-xs text-[#B7A98A]/65 mb-3">
-              Paste rows below (any format — Excel paste, CSV, plain English, one per line)
-              or upload a spreadsheet.
+              Paste rows below (any format — Excel paste, CSV, plain English, one per line),
+              upload a spreadsheet, or <span className="mm-text-gold">drag & drop</span> a file
+              anywhere on this box.
             </div>
-            <textarea
-              rows={8}
-              value={text}
-              onChange={(e) => setText(e.target.value)}
-              placeholder={
-                kind === "task"
-                  ? "Rahul · Send invoice · 2026-05-10\nPriya · Follow up on lease · Pending"
-                  : kind === "expense"
-                    ? "01-05-2026  450  Coffee at Starbucks  card\n02-05-2026  12000  Office rent  bank"
-                    : "One record per line — AI will parse"
-              }
-              className="mm-input text-sm font-mono"
-              data-testid="bulk-add-textarea"
-            />
+            <div
+              onDragEnter={(e) => { e.preventDefault(); setDragActive(true); }}
+              onDragOver={(e) => { e.preventDefault(); setDragActive(true); }}
+              onDragLeave={() => setDragActive(false)}
+              onDrop={onDrop}
+              className={`relative rounded-lg transition border-2 ${
+                dragActive ? "border-dashed border-[#E4C98C] bg-[rgba(201,169,97,0.06)]" : "border-transparent"
+              }`}
+              data-testid="bulk-add-dropzone"
+            >
+              {dragActive && (
+                <div className="absolute inset-0 z-10 pointer-events-none flex items-center justify-center text-sm mm-text-gold-bright">
+                  Drop .xlsx / .csv to upload
+                </div>
+              )}
+              <textarea
+                rows={8}
+                value={text}
+                onChange={(e) => setText(e.target.value)}
+                placeholder={
+                  kind === "task"
+                    ? "follow up brinda on bar unit #Personal"
+                    : kind === "routine"
+                      ? "morning walk at park daily, self #Morning"
+                      : kind === "expense"
+                        ? "insurance from bajaj karan 5 lakhs #Family"
+                        : kind === "note"
+                          ? "add butter to shopping list #Personal"
+                          : "One record per line — AI will parse"
+                }
+                className="mm-input text-sm font-mono"
+                data-testid="bulk-add-textarea"
+              />
+            </div>
             <input
               ref={fileRef}
               type="file"
