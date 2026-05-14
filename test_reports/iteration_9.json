@@ -1,0 +1,33 @@
+{
+  "summary": "v2.11 cluster verified — Horizontal bottom-center FloatingDock with 4 children in correct order, IndexedDB 'mm_offline' Dexie store wired, offline→queued→online→drain status flow proven (green/red/green + badge count), Subtask UI on Tasks page renders task-subtask-row directly below parent with pl-10 indent and ListPlus icon only on parent rows. Backend v210 regression suite still 4/4 green.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_v210.py",
+    "/app/test_reports/pytest/v211_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "syncQueue.js — solid implementation: navigator.onLine guard + 20s heartbeat + opportunistic drain after live writes + retries=3 cap to prevent permanent queue blockage. Single shared Dexie DB ('mm_offline' v1, table 'queue'). Status computation is clean and matches the dot color/title text.",
+    "syncQueue.js axios response interceptor — uses cfg._offlineSkip marker to prevent infinite enqueue loops on safeWrite calls and drain replays. Returns synthetic 202 'Queued (offline)' so caller code stays UI-optimistic. Good design.",
+    "FloatingDock.jsx — horizontal pill is clean. Pending badge clamps at '99+'. Tooltips reflect status semantics (Synced/Syncing/Offline). bottom-20 md:bottom-6 prevents mobile bottom-nav overlap as expected.",
+    "Tasks.jsx — interleaving memo correctly: (1) puts non-orphan parents first, (2) appends their kids in order with _isSubtask flag, (3) shows ORPHAN children inline as well so deleted parent doesn't hide them. Subtask of subtask is blocked via `onSubtask={t._isSubtask ? undefined : ...}` — correct one-level UX, matches backend's one-level cascade.",
+    "createSubtask uses window.prompt — quick for v1 but consider a small inline composer or modal for v2 (consistency with other inputs).",
+    "Cascade delete is still one-level only (delete_many({parent_id: task_id})). If a future version supports nested subtasks, recursion will be needed. Already noted in iter_8."
+  ],
+  "updated_files": [
+    "/app/test_reports/iteration_9.json",
+    "/app/test_reports/pytest/v211_results.xml"
+  ],
+  "success_rate": {"backend": "100% (4/4 v210 regression)", "frontend": "100% (dock layout/order/sync/subtask UI all OK; regression artifacts absent)"},
+  "test_credentials": "karan@mindmatters.local / changeme123",
+  "seed_data_creation": "Test created PARENT_V211_TEST + CHILD_V211_TEST and cleaned up (cascade delete via DELETE /api/tasks/{parent}). HDFC liability from iter_7 untouched.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "v2.11 fully green. Tests proved: (1) data-testid='floating-dock' is single, has flex-row + left-1/2 + -translate-x-1/2 + bottom-20 md:bottom-6 classes — exactly horizontal bottom-center pill. (2) Children order [dock-quick-add, dock-search, dock-ai, dock-sync] confirmed. (3) data-sync-status='green' on healthy load, no dock-sync-pending badge. (4) IndexedDB 'mm_offline' database exists at boot. (5) Injecting a row into Dexie 'queue' + dispatching 'offline' transitions status to 'red' with dock-sync-pending badge>=1. (6) Going back online + dispatching 'online' drains the queue within ~7s back to 'green' (badge removed). (7) Tasks page: clicking task-subtask-{parent_id} (ListPlus icon) opens window.prompt, accepting renders a task-subtask-row directly below parent with pl-10 indent. Child row does NOT have task-subtask-{child_id} button (one-level only). (8) No sidebar quick-add / sidebar-search / ai-chat-toggle in DOM (cleaned up). (9) Exactly one floating-dock per page on Dashboard / Tasks / CashFlow. Backend v2.10 regression (4/4 in test_v210.py): TestLoanSummary, TestAttachments x2, TestSubtasksCascade — all passing. NOTE for next testing agent: when scraping Tasks rows, task names render as <input value='...'> not textContent — use [input.value] for assertions. Also, the offline simulation can cause page.evaluate to get 'Execution context destroyed' if the dev server has some retry that triggers — workaround is to set_offline THEN dispatch offline, then inject Dexie row inside ONE evaluate(), then check status (don't chain too many evaluates).",
+  "rca of the issue": "N/A — no failures."
+}

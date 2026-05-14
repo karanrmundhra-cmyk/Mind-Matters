@@ -20,3 +20,7 @@ api.interceptors.response.use(
     return Promise.reject(err);
   }
 );
+
+// Side-effect: attaches offline-queue interceptor + boots drain loop.
+// Imported here so every app load gets it without each page wiring it up.
+import("./syncQueue");

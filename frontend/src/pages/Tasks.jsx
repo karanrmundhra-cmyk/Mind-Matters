@@ -98,9 +98,9 @@ export default function Tasks() {
   const textMatch = (a, b) => (!b ? true : String(a || "").toLowerCase().includes(b.toLowerCase()));
 
   const visible = useMemo(() => {
-    // `tasks` is already sorted Pending-first / Completed-last by load(), and each
-    // group by sr_no ascending, so plain filtering preserves that order.
-    return tasks.filter((t) => {
+    // First apply filters to ALL tasks (so child rows surface only when they
+    // independently match the active group / status / etc. — same UX as parents).
+    const matches = (t) => {
       if (activeGroup && t.group !== activeGroup) return false;
       if (filters.sr && String(t.sr_no) !== filters.sr) return false;
       if (!textMatch(t.date, filters.date)) return false;
@@ -110,7 +110,36 @@ export default function Tasks() {
       if (!textMatch(t.details, filters.details)) return false;
       if (filters.status && t.status !== filters.status) return false;
       return true;
+    };
+    // Group children by parent_id so we can interleave them right after their parent.
+    const childrenByParent = new Map();
+    tasks.forEach((t) => {
+      if (t.parent_id) {
+        if (!childrenByParent.has(t.parent_id)) childrenByParent.set(t.parent_id, []);
+        childrenByParent.get(t.parent_id).push(t);
+      }
     });
+    const out = [];
+    tasks.forEach((t) => {
+      // Skip subtasks at the top level — they're rendered after their parent below.
+      if (t.parent_id) return;
+      if (!matches(t)) return;
+      out.push(t);
+      const kids = (childrenByParent.get(t.id) || []).filter(matches);
+      kids.forEach((k) => out.push({ ...k, _isSubtask: true }));
+    });
+    // Also include orphan subtasks (parent missing/filtered out) so the user
+    // never loses sight of a row entirely.
+    tasks.forEach((t) => {
+      if (!t.parent_id) return;
+      const parentVisible = out.some((r) => r.id === t.parent_id);
+      const parentExists = tasks.some((p) => p.id === t.parent_id);
+      if (!parentVisible && parentExists) return; // skip — parent was just filtered out
+      if (!parentExists && matches(t)) {
+        out.push({ ...t, _isSubtask: true });
+      }
+    });
+    return out;
   }, [tasks, activeGroup, filters]);
 
   const pendingCount = tasks.filter((t) => t.status === "Pending").length;
@@ -276,6 +305,26 @@ export default function Tasks() {
     }
   };
 
+  const createSubtask = async (parentTask) => {
+    const title = window.prompt(`New subtask under "${parentTask.task || "(task)"}":`, "");
+    if (!title || !title.trim()) return;
+    try {
+      await api.post("/tasks", {
+        date: parentTask.date || todayISO(),
+        group: parentTask.group || activeGroup || "",
+        name: parentTask.name || "",
+        task: title.trim(),
+        details: "",
+        status: "Pending",
+        parent_id: parentTask.id,
+      });
+      await load();
+      toast.success("Subtask added");
+    } catch {
+      toast.error("Could not add subtask");
+    }
+  };
+
   return (
     <div className="space-y-5 mm-fade-in" data-testid="tasks-page">
       <SectionTitle
@@ -428,8 +477,8 @@ export default function Tasks() {
               key={t.id}
               className={`grid grid-cols-2 ${GRID} gap-3 px-4 py-2.5 border-b border-[rgba(201,169,97,0.08)] hover:bg-[rgba(201,169,97,0.04)] transition items-center ${
                 draggingId === t.id ? "opacity-40" : ""
-              }`}
-              data-testid="task-row"
+              } ${t._isSubtask ? "pl-10 bg-[rgba(201,169,97,0.015)]" : ""}`}
+              data-testid={t._isSubtask ? "task-subtask-row" : "task-row"}
               data-row="data"
             >
               <div className="flex items-center gap-2">
@@ -551,6 +600,7 @@ export default function Tasks() {
                 onReminder={() => openReminderFor(t)}
                 onAttach={() => setAttachFor(t)}
                 attachmentCount={(t.attachments || []).length}
+                onSubtask={t._isSubtask ? undefined : () => createSubtask(t)}
                 onDelete={() => remove(t.id)}
               />
             </div>

@@ -1,66 +1,39 @@
 import React, { useEffect, useState } from "react";
 import { Plus, Search, Sparkles } from "lucide-react";
-import { api } from "@/lib/api";
+import { subscribeSync, drainQueue } from "@/lib/syncQueue";
 
 /**
- * FloatingDock — bottom-right floating cluster, always visible.
- * Buttons: Quick Add (+) · Search (Cmd+K) · AI Sparkle · Sync status dot
+ * FloatingDock — horizontal cluster pinned to the bottom-center, always visible.
+ * Buttons: Quick Add (+) · Search (Cmd+K) · AI Sparkle · Sync status dot.
  *
- * Sync dot:
- *   green  — last heartbeat succeeded < 60s ago
- *   yellow — last heartbeat 60s–5min ago OR navigator says offline but cache fresh
- *   red    — offline > 5min OR last heartbeat failed
+ * The sync dot reflects the real IndexedDB write-queue state:
+ *   green   — online, queue empty (everything synced)
+ *   yellow  — online with pending writes (draining) OR offline with no queue yet
+ *   red     — offline AND writes queued (will upload on reconnect)
+ *
+ * A small gold badge shows the pending-write count when > 0.
  */
 export default function FloatingDock({ onQuickAdd, onAi }) {
-  const [sync, setSync] = useState({ status: "green", lastOk: Date.now() });
+  const [sync, setSync] = useState({ status: "green", pending: 0 });
 
-  // Heartbeat every 30s — pings /api/ to check connectivity.
-  useEffect(() => {
-    let cancelled = false;
-    const tick = async () => {
-      try {
-        await api.get("/", { timeout: 5000 });
-        if (!cancelled) setSync({ status: "green", lastOk: Date.now() });
-      } catch {
-        if (!cancelled) {
-          setSync((prev) => {
-            const ageSec = (Date.now() - prev.lastOk) / 1000;
-            return {
-              status: ageSec < 300 ? "yellow" : "red",
-              lastOk: prev.lastOk,
-            };
-          });
-        }
-      }
-    };
-    tick();
-    const id = setInterval(tick, 30000);
-    const onOnline = () => tick();
-    const onOffline = () => setSync((p) => ({ ...p, status: "yellow" }));
-    window.addEventListener("online", onOnline);
-    window.addEventListener("offline", onOffline);
-    return () => {
-      cancelled = true;
-      clearInterval(id);
-      window.removeEventListener("online", onOnline);
-      window.removeEventListener("offline", onOffline);
-    };
-  }, []);
+  useEffect(() => subscribeSync(setSync), []);
 
   const dotColor = {
     green: "bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.6)]",
-    yellow: "bg-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.6)]",
-    red: "bg-red-400 shadow-[0_0_8px_rgba(248,113,113,0.6)]",
+    yellow: "bg-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.6)] animate-pulse",
+    red: "bg-red-400 shadow-[0_0_8px_rgba(248,113,113,0.6)] animate-pulse",
   }[sync.status];
 
   const dotTitle = {
     green: "Synced · online",
-    yellow: "Reconnecting…",
-    red: "Offline · changes will sync later",
+    yellow:
+      sync.pending > 0
+        ? `Syncing ${sync.pending} change${sync.pending !== 1 ? "s" : ""}…`
+        : "Reconnecting…",
+    red: `Offline · ${sync.pending} change${sync.pending !== 1 ? "s" : ""} waiting`,
   }[sync.status];
 
   const triggerSearch = () => {
-    // CommandPalette listens to Cmd/Ctrl+K globally — dispatch it.
     window.dispatchEvent(
       new KeyboardEvent("keydown", { key: "k", metaKey: true, ctrlKey: true }),
     );
@@ -83,7 +56,11 @@ export default function FloatingDock({ onQuickAdd, onAi }) {
 
   return (
     <div
-      className="fixed z-40 bottom-24 md:bottom-8 right-5 flex flex-col items-center gap-2.5"
+      className="fixed z-40 bottom-20 md:bottom-6 left-1/2 -translate-x-1/2 flex flex-row items-center gap-2.5 px-3 py-2 rounded-full mm-glass border border-[rgba(201,169,97,0.18)]"
+      style={{
+        boxShadow:
+          "0 12px 40px rgba(0,0,0,0.45), inset 0 1px 0 rgba(228,201,140,0.12)",
+      }}
       data-testid="floating-dock"
     >
       <Btn onClick={onQuickAdd} title="Quick add" testid="dock-quick-add">
@@ -95,8 +72,9 @@ export default function FloatingDock({ onQuickAdd, onAi }) {
       <Btn onClick={onAi} title="Ask Mind Matters" testid="dock-ai">
         <Sparkles size={17} strokeWidth={1.6} className="mm-text-gold-bright" />
       </Btn>
-      <div
-        className="w-11 h-11 rounded-full flex items-center justify-center mm-glass"
+      <button
+        onClick={() => drainQueue()}
+        className="w-11 h-11 rounded-full flex items-center justify-center mm-glass relative transition-transform hover:scale-105 active:scale-95"
         title={dotTitle}
         data-testid="dock-sync"
         data-sync-status={sync.status}
@@ -106,7 +84,15 @@ export default function FloatingDock({ onQuickAdd, onAi }) {
         }}
       >
         <span className={`w-2.5 h-2.5 rounded-full ${dotColor}`} />
-      </div>
+        {sync.pending > 0 && (
+          <span
+            className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 text-[10px] font-semibold rounded-full bg-[#C9A961] text-black flex items-center justify-center leading-none"
+            data-testid="dock-sync-pending"
+          >
+            {sync.pending > 99 ? "99+" : sync.pending}
+          </span>
+        )}
+      </button>
     </div>
   );
 }

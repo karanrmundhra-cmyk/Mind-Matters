@@ -1,5 +1,5 @@
 import React from "react";
-import { ArrowUp, ArrowDown, BellRing, Trash2, GripVertical, Paperclip } from "lucide-react";
+import { ArrowUp, ArrowDown, BellRing, Trash2, GripVertical, Paperclip, ListPlus } from "lucide-react";
 
 /**
  * RowActions — shared row-right-edge action cluster.
@@ -10,6 +10,7 @@ import { ArrowUp, ArrowDown, BellRing, Trash2, GripVertical, Paperclip } from "l
  *   onReminder?, onDelete, onUp?, onDown?
  *   onDragStart?, onDragOver?, onDrop?, onDragEnd?
  *   onAttach?, attachmentCount? — paperclip icon (optional)
+ *   onSubtask? — "+ subtask" icon (optional; tasks page only)
  */
 export default function RowActions({
   rowId,
@@ -25,6 +26,7 @@ export default function RowActions({
   draggable = false,
   onAttach,
   attachmentCount = 0,
+  onSubtask,
 }) {
   const tid = (name) => (rowId ? `${kind}-${name}-${rowId}` : `${kind}-${name}`);
   return (
@@ -82,6 +84,17 @@ export default function RowActions({
               {attachmentCount}
             </span>
           )}
+        </button>
+      )}
+      {onSubtask && (
+        <button
+          type="button"
+          onClick={onSubtask}
+          className="text-[#B7A98A]/55 hover:text-[#E4C98C] transition p-1"
+          title="Add subtask"
+          data-testid={tid("subtask")}
+        >
+          <ListPlus size={13} />
         </button>
       )}
       {onReminder && (
