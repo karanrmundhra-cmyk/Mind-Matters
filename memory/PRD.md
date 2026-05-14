@@ -17,6 +17,40 @@ with the R.K.M. brand logo. AI-first input on every page (type → confirm → d
 - **Frontend**: React + Tailwind + Shadcn UI. Cormorant Garamond (serif), Outfit
   (display), Inter (body). Pure black + rich gold (#C9A961 / #E4C98C).
 
+### v2.11 — Offline-first sync queue · Horizontal Floating Dock · Subtask UI nesting (2026-02)
+- **Offline-first sync queue (IndexedDB / Dexie)**: new `/app/frontend/src/lib/syncQueue.js`
+  attaches an axios response interceptor that catches network-error
+  mutations (POST/PATCH/PUT/DELETE) and enqueues them in a Dexie store
+  named `mm_offline.queue`. On `online` event + every 20s, `drainQueue()`
+  re-issues each queued request in FIFO order. After 3 retries with
+  4xx/5xx the entry is dropped so a single bad row never blocks the queue.
+  `subscribeSync(fn)` powers the dock dot:
+    • green   — online + queue empty (everything synced)
+    • yellow  — online + queue draining  OR  offline + queue empty
+    • red     — offline + queued writes waiting to upload
+  When the user goes back online the dot animates yellow → green as
+  the queue drains, and a small gold count badge surfaces the pending
+  number on the sync button.
+- **Horizontal bottom-center Floating Dock**: dock layout flipped from
+  vertical (right-edge column) to **horizontal pill at bottom-center**
+  (`flex-row` + `left-1/2 -translate-x-1/2`). Wrapped in a gold-bordered
+  glass pill with deep shadow so it reads as a single coherent control
+  cluster. Clears the mobile bottom-nav at `bottom-20`, sits at
+  `bottom-6` on desktop.
+- **Subtask UI nesting on Tasks**: `visible` memo now interleaves child
+  tasks (`parent_id` set) directly under their parent with a
+  `_isSubtask` flag. Child rows get a `pl-10` left indent + a subtle
+  background tint so the hierarchy reads at a glance. New
+  `+ subtask` icon (ListPlus) in `RowActions` is only shown on parent
+  rows; clicking prompts for a title and POSTs `/api/tasks` with
+  `parent_id` set. Cascade delete (already in v2.10 backend) wipes
+  children when their parent is deleted. Filters apply to both parents
+  and children — an orphaned subtask stays visible if its parent was
+  filtered out.
+- **Tests**: 4/4 v2.10 regression pytest pass + 100% critical frontend
+  flows (dock layout/order/online→offline→online sync drain with badge
+  count, subtask renders, no regression artifacts).
+
 ### v2.10 — Loan Summary widget · Floating Dock · Task attachments · Subtask data-model (2026-02)
 - **Dashboard Loan Summary widget**: new clickable card surfaces aggregated
   finance discipline next to deadlines. Backend `GET /api/cashflow/loan-summary`
