@@ -361,9 +361,31 @@ export default function Tasks() {
         {visible.length === 0 ? (
           <EmptyState title="No tasks match" hint="Try a different group or clear filters." />
         ) : (
-          visible.map((t, idx) => (
-            <div
-              key={t.id}
+          (() => {
+            // Inject section-header rows between rows whose `section` differs from the previous.
+            // If no row has any section value, behave as flat list (no headers shown).
+            const anySection = visible.some((t) => (t.section || "").trim());
+            let prevSection = null;
+            const nodes = [];
+            visible.forEach((t, idx) => {
+              if (anySection) {
+                const cur = (t.section || "").trim();
+                if (cur !== prevSection) {
+                  nodes.push(
+                    <div
+                      key={`sec-${idx}-${cur || "none"}`}
+                      className="px-4 py-2 bg-[rgba(201,169,97,0.06)] border-b border-[rgba(201,169,97,0.12)]"
+                      data-testid={`task-section-${cur || "none"}`}
+                    >
+                      <span className="text-[10px] uppercase tracking-[0.3em] mm-text-gold">
+                        {cur ? cur : "No section"}
+                      </span>
+                    </div>,
+                  );
+                  prevSection = cur;
+                }
+              }
+              nodes.push(
               className={`grid grid-cols-2 ${GRID} gap-3 px-4 py-2.5 border-b border-[rgba(201,169,97,0.08)] hover:bg-[rgba(201,169,97,0.04)] transition items-center ${
                 draggingId === t.id ? "opacity-40" : ""
               }`}

@@ -141,6 +141,7 @@ class TaskIn(BaseModel):
     details: str = ""
     status: str = "Pending"  # free text — common values: Pending, Completed, Done (legacy), Follow-Up, or any custom user value
     group: str = ""  # custom group, user-defined (replaces block1..4)
+    section: str = ""  # optional second-level grouping (Todoist-style sub-header)
 
 
 class Task(TaskIn):
@@ -161,6 +162,7 @@ class RoutineIn(BaseModel):
     frequency: str = "Daily"  # free-form now (Daily/Weekly/Custom…)
     priority: Literal["Low", "Medium", "High"] = "Medium"
     status: Literal["Active", "Paused"] = "Active"
+    section: str = ""  # optional second-level grouping (Todoist-style sub-header)
 
 
 class Routine(RoutineIn):
@@ -219,6 +221,7 @@ class TransactionIn(BaseModel):
     head: str = "Uncategorized"
     category: str = "expense"  # was Literal — now free text so users can add custom
     group: str = ""
+    section: str = ""  # second-level grouping
     company: str = ""
     expense_head: str = "Uncategorized"
     direction: Literal["in", "out"] = "out"
@@ -554,7 +557,7 @@ async def bulk_create_tasks(body: List[TaskIn], user=Depends(get_current_user)):
 @api.patch("/tasks/{task_id}", response_model=Task)
 async def update_task(task_id: str, body: Dict[str, Any], user=Depends(get_current_user)):
     body = {k: v for k, v in body.items()
-            if k in {"date", "name", "task", "details", "status", "group", "order_index", "sr_no"}}
+            if k in {"date", "name", "task", "details", "status", "group", "section", "order_index", "sr_no"}}
     # Status compatibility: accept "Completed" alongside legacy "Done"
     if body.get("status") == "Completed":
         body["status"] = "Completed"  # keep as-is
@@ -641,7 +644,7 @@ async def bulk_routines(body: List[RoutineIn], user=Depends(get_current_user)):
 @api.patch("/routines/{rid}", response_model=Routine)
 async def update_routine(rid: str, body: Dict[str, Any], user=Depends(get_current_user)):
     body = {k: v for k, v in body.items()
-            if k in {"group", "name", "activity", "details", "frequency", "priority", "status", "order_index", "sr_no"}}
+            if k in {"group", "name", "activity", "details", "frequency", "priority", "status", "section", "order_index", "sr_no"}}
     body["updated_at"] = now_iso()
     if "sr_no" in body:
         try:
@@ -927,7 +930,7 @@ async def create_transaction(body: TransactionIn, user=Depends(get_current_user)
 async def update_transaction(tid: str, body: Dict[str, Any], user=Depends(get_current_user)):
     allowed = {"date", "amount", "mode", "company", "expense_head", "direction",
                "account", "notes", "name", "vendor", "details", "remarks", "head",
-               "category", "group", "order_index", "sr_no"}
+               "category", "group", "section", "order_index", "sr_no"}
     body = {k: v for k, v in body.items() if k in allowed}
     body["updated_at"] = now_iso()
     if "sr_no" in body:
