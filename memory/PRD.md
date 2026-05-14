@@ -17,6 +17,45 @@ with the R.K.M. brand logo. AI-first input on every page (type → confirm → d
 - **Frontend**: React + Tailwind + Shadcn UI. Cormorant Garamond (serif), Outfit
   (display), Inter (body). Pure black + rich gold (#C9A961 / #E4C98C).
 
+### v2.12 — Calendar page · Reports page (Reports/Timeline/AI Briefing/Pattern Radar) · Notes Vault + Decisions tabs (2026-02)
+- **Calendar page** (`/calendar`): two tabs — Calendar (full 7×6 month grid)
+  and Agenda (chronological flat list for the visible month). Aggregates
+  events client-side from `/api/tasks`, `/api/reminders` and
+  `/api/deadlines`, then groups them per ISO date. Each cell shows up to 3
+  coloured event chips (gold = task, emerald = reminder, red = deadline)
+  with a "+N more" overflow. Today is highlighted in gold; prev/next/today
+  shift the visible month.
+- **Reports page** (`/reports`): four tabs.
+  - **Reports** — recharts horizontal bar chart of monthly cash flow split
+    by income / expense / asset / liability for the last 6 months. Driven
+    by new `GET /api/reports/cashflow-monthly?months=N`.
+  - **Timeline** — chronological feed of recent activity across tasks,
+    transactions and notes (last 30 days, capped at 200). Driven by new
+    `GET /api/reports/timeline?days=N`.
+  - **AI Briefing** — clicks `POST /api/reports/briefing` which gathers a
+    snapshot (tasks done, tasks open, expense this week, detected patterns)
+    and asks Gemini 3 Flash for a 3-4 sentence pragmatic summary. Has a
+    deterministic string fallback when the LLM is unavailable. Renders the
+    quote plus 3 stat tiles.
+  - **Pattern Radar** — rule-based anomaly detector via
+    `GET /api/reports/patterns`. Flags: spending up/down ≥20% vs last
+    month, overdue tasks count, loan repayment due in ≤14 days, routine
+    completion <50% or ≥90% this week.
+- **Notes tabs**: new tab bar — All / Vault / Decisions. **Vault** is gated
+  by a 4-6 digit PIN stored in `localStorage.mm_vault_pin` and verified per
+  session in `sessionStorage.mm_vault_unlocked`. Notes tagged
+  `vault` are hidden from the All tab and surfaced only in Vault.
+  **Decisions** filters by tag `decision` — natural way to track key
+  decisions over time without a separate collection.
+- **Sidebar nav** expanded to 9 entries (Calendar + Reports added between
+  Cash Flow and Notes/Reminders). Mobile bottom-nav still surfaces the
+  top 6 per `NAV.slice(0,6)` so Calendar/Reports/Settings remain desktop-
+  sidebar-only on phones.
+- **Tests**: 7/7 new backend pytest pass, 100% frontend testid + flow
+  checks (calendar grid renders 42 cells, agenda toggles, all 4 Reports
+  tabs render including SVG chart, AI briefing returns summary, Notes
+  vault PIN gate works end-to-end).
+
 ### v2.11 — Offline-first sync queue · Horizontal Floating Dock · Subtask UI nesting (2026-02)
 - **Offline-first sync queue (IndexedDB / Dexie)**: new `/app/frontend/src/lib/syncQueue.js`
   attaches an axios response interceptor that catches network-error
