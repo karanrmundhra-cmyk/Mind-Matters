@@ -12,12 +12,12 @@ import {
   BellRing,
   Settings as SettingsIcon,
   LogOut,
-  Sparkles,
 } from "lucide-react";
 import Logo from "@/components/Logo";
 import AiChat from "@/components/AiChat";
 import QuickAdd from "@/components/QuickAdd";
 import CommandPalette from "@/components/CommandPalette";
+import FloatingDock from "@/components/FloatingDock";
 import { useAuth } from "@/lib/auth";
 
 const NAV = [
@@ -75,28 +75,6 @@ export default function AppShell() {
         </nav>
 
         <div className="mt-auto flex flex-col gap-3 pt-4">
-          <button
-            data-testid="open-cmd-palette-sidebar"
-            onClick={() => {
-              // Dispatch keyboard event so CommandPalette toggles via its own listener
-              window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true }));
-            }}
-            className="mm-btn-ghost text-sm flex items-center justify-between gap-2"
-          >
-            <span className="flex items-center gap-2">
-              <Sparkles size={14} strokeWidth={1.5} />
-              Search
-            </span>
-            <span className="text-[10px] text-[#B7A98A]/40 tracking-widest">⌘K</span>
-          </button>
-          <button
-            data-testid="open-quick-add-sidebar"
-            onClick={() => setQuickAddOpen(true)}
-            className="mm-btn-ghost text-sm flex items-center justify-center gap-2"
-          >
-            <Sparkles size={14} strokeWidth={1.5} />
-            Quick add
-          </button>
           <div className="mm-divider" />
           <div className="flex items-center justify-between">
             <div className="text-xs">
@@ -124,16 +102,11 @@ export default function AppShell() {
           <Outlet />
         </div>
 
-        {/* Floating AI chat trigger */}
-        <button
-          data-testid="ai-chat-toggle"
-          onClick={() => setChatOpen((v) => !v)}
-          className="fixed z-40 bottom-24 md:bottom-8 right-6 mm-glass mm-glass-hover w-14 h-14 rounded-full flex items-center justify-center"
-          style={{ boxShadow: "0 8px 32px rgba(201,169,97,0.25), inset 0 1px 0 rgba(228,201,140,0.25)" }}
-          title="Ask Mind Matters"
-        >
-          <Sparkles size={18} strokeWidth={1.5} className="mm-text-gold-bright" />
-        </button>
+        {/* Floating bottom-right dock — Quick Add · Search · AI · Sync */}
+        <FloatingDock
+          onQuickAdd={() => setQuickAddOpen(true)}
+          onAi={() => setChatOpen((v) => !v)}
+        />
 
         <AiChat open={chatOpen} onClose={() => setChatOpen(false)} />
         <QuickAdd open={quickAddOpen} onClose={() => setQuickAddOpen(false)} />

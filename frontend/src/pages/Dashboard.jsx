@@ -4,7 +4,7 @@ import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { Card } from "@/components/Primitives";
 import {
-  Wind, Plus, Trash2, CalendarClock, CheckSquare, Repeat, Wallet, StickyNote, BellRing,
+  Wind, Plus, Trash2, CalendarClock, CheckSquare, Repeat, Wallet, StickyNote, BellRing, Banknote,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -31,18 +31,21 @@ export default function Dashboard() {
   const [affirmation, setAffirmation] = useState(null);
   const [deadlines, setDeadlines] = useState([]);
   const [draft, setDraft] = useState({ title: "", due_date: "" });
+  const [loanSummary, setLoanSummary] = useState(null);
 
   const load = async () => {
-    const [w, q, a, d] = await Promise.all([
+    const [w, q, a, d, ls] = await Promise.all([
       api.get("/weather"),
       api.get("/quote/today"),
       api.get("/affirmations/today"),
       api.get("/deadlines"),
+      api.get("/cashflow/loan-summary").catch(() => ({ data: null })),
     ]);
     setWeather(w.data);
     setQuote(q.data);
     setAffirmation(a.data);
     setDeadlines(d.data || []);
+    setLoanSummary(ls.data);
   };
   useEffect(() => {
     load();
@@ -220,6 +223,57 @@ export default function Dashboard() {
           </div>
         </Card>
       </div>
+
+      {/* Loan summary widget — only renders when user has active loans */}
+      {loanSummary && (loanSummary.active_loans > 0 || loanSummary.total_monthly_emi > 0) && (
+        <NavLink
+          to="/cash-flow"
+          className="block"
+          data-testid="loan-summary-card"
+        >
+          <Card className="p-5 sm:p-6 hover:border-[#C9A961]/45 transition group">
+            <div className="flex items-start justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-lg border border-[rgba(201,169,97,0.25)] bg-[rgba(201,169,97,0.06)] flex items-center justify-center shrink-0">
+                  <Banknote size={18} strokeWidth={1.4} className="mm-text-gold-bright" />
+                </div>
+                <div>
+                  <div className="text-[10px] uppercase tracking-[0.3em] text-[#B7A98A]/65">
+                    Loan summary
+                  </div>
+                  <div className="mm-font-display text-xl sm:text-2xl mm-text-gold-bright mt-1">
+                    ₹
+                    {(loanSummary.total_monthly_emi || 0).toLocaleString("en-IN")}
+                    <span className="text-xs text-[#B7A98A]/55 ml-2 normal-case tracking-normal">
+                      / month
+                    </span>
+                  </div>
+                  <div className="text-xs text-[#B7A98A]/60 mt-1">
+                    {loanSummary.active_loans} active loan
+                    {loanSummary.active_loans !== 1 ? "s" : ""}
+                    {loanSummary.next_repayment && (
+                      <>
+                        {" · next "}
+                        <span className="mm-text-gold">
+                          {loanSummary.next_repayment.vendor || "repayment"}
+                        </span>{" "}
+                        {loanSummary.next_repayment.days_until <= 0
+                          ? "today"
+                          : `in ${loanSummary.next_repayment.days_until} day${
+                              loanSummary.next_repayment.days_until !== 1 ? "s" : ""
+                            }`}
+                      </>
+                    )}
+                  </div>
+                </div>
+              </div>
+              <span className="text-[10px] uppercase tracking-[0.2em] text-[#B7A98A]/45 group-hover:mm-text-gold transition">
+                View →
+              </span>
+            </div>
+          </Card>
+        </NavLink>
+      )}
 
       {/* Deadlines countdown */}
       <Card className="p-5 sm:p-6" data-testid="deadlines-card">

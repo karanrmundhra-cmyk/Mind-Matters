@@ -19,6 +19,7 @@ from datetime import datetime, timezone, timedelta, date
 import os
 import io
 import asyncio
+import base64
 import uuid
 import secrets
 import logging
@@ -142,6 +143,10 @@ class TaskIn(BaseModel):
     status: str = "Pending"  # free text — common values: Pending, Completed, Done (legacy), Follow-Up, or any custom user value
     group: str = ""  # custom group, user-defined (replaces block1..4)
     section: str = ""  # optional second-level grouping (Todoist-style sub-header)
+    parent_id: Optional[str] = None  # if set, this is a subtask nested under another task
+    # Lightweight inline attachments — each entry: {name, mime, size, data_url}.
+    # Capped at ~4MB total per task in the upload endpoint.
+    attachments: List[Dict[str, Any]] = []
 
 
 class Task(TaskIn):
@@ -562,7 +567,8 @@ async def bulk_create_tasks(body: List[TaskIn], user=Depends(get_current_user)):
 @api.patch("/tasks/{task_id}", response_model=Task)
 async def update_task(task_id: str, body: Dict[str, Any], user=Depends(get_current_user)):
     body = {k: v for k, v in body.items()
-            if k in {"date", "name", "task", "details", "status", "group", "section", "order_index", "sr_no"}}
+            if k in {"date", "name", "task", "details", "status", "group", "section",
+                     "order_index", "sr_no", "parent_id", "attachments"}}
     # Status compatibility: accept "Completed" alongside legacy "Done"
     if body.get("status") == "Completed":
         body["status"] = "Completed"  # keep as-is
@@ -590,10 +596,60 @@ async def update_task(task_id: str, body: Dict[str, Any], user=Depends(get_curre
 
 @api.delete("/tasks/{task_id}")
 async def delete_task(task_id: str, user=Depends(get_current_user)):
+    # Cascade: also delete subtasks pointing to this task as parent
+    await db.tasks.delete_many({"user_id": user["id"], "parent_id": task_id})
     r = await db.tasks.delete_one({"id": task_id, "user_id": user["id"]})
     if r.deleted_count == 0:
         raise HTTPException(404, "Task not found")
     await _compact_sr("tasks", user["id"])
+    return {"ok": True}
+
+
+@api.post("/tasks/{task_id}/attachments")
+async def upload_task_attachment(
+    task_id: str,
+    file: UploadFile = File(...),
+    user=Depends(get_current_user),
+):
+    """Attach a small file (<4MB) inline to a task as base64 data_url."""
+    t = await db.tasks.find_one({"id": task_id, "user_id": user["id"]}, {"_id": 0})
+    if not t:
+        raise HTTPException(404, "Task not found")
+    content = await file.read()
+    if len(content) > 4 * 1024 * 1024:
+        raise HTTPException(413, "Attachment too large (max 4MB)")
+    mime = file.content_type or "application/octet-stream"
+    data_url = f"data:{mime};base64,{base64.b64encode(content).decode()}"
+    entry = {
+        "id": new_id()[:10],
+        "name": file.filename or "file",
+        "mime": mime,
+        "size": len(content),
+        "data_url": data_url,
+    }
+    current = t.get("attachments") or []
+    current.append(entry)
+    # Cap total inline attachments at ~8MB to keep document size reasonable
+    total = sum(a.get("size", 0) for a in current)
+    if total > 8 * 1024 * 1024:
+        raise HTTPException(413, "Total attachments would exceed 8MB")
+    await db.tasks.update_one(
+        {"id": task_id, "user_id": user["id"]},
+        {"$set": {"attachments": current, "updated_at": now_iso()}},
+    )
+    return entry
+
+
+@api.delete("/tasks/{task_id}/attachments/{att_id}")
+async def delete_task_attachment(task_id: str, att_id: str, user=Depends(get_current_user)):
+    t = await db.tasks.find_one({"id": task_id, "user_id": user["id"]}, {"_id": 0})
+    if not t:
+        raise HTTPException(404, "Task not found")
+    remaining = [a for a in (t.get("attachments") or []) if a.get("id") != att_id]
+    await db.tasks.update_one(
+        {"id": task_id, "user_id": user["id"]},
+        {"$set": {"attachments": remaining, "updated_at": now_iso()}},
+    )
     return {"ok": True}
 
 
@@ -2237,6 +2293,75 @@ async def export_all_xlsx(user=Depends(get_current_user)):
 
 
 # ───────────────────── Per-module exports (CSV + PDF) ─────────────────────
+@api.get("/cashflow/loan-summary")
+async def cashflow_loan_summary(user=Depends(get_current_user)):
+    """Aggregate liability + asset(loan) rows for the dashboard widget.
+    Returns: total_monthly_emi, active_loans, next_repayment (or None).
+    A loan is considered "active" if it has interest_rate OR emi OR
+    repayment_date set, and (when repayment_date is set) hasn't passed yet.
+    """
+    cur = db.transactions.find(
+        {"user_id": user["id"], "category": {"$in": ["liability", "asset"]}},
+        {"_id": 0},
+    )
+    docs = await cur.to_list(2000)
+    today = date.today()
+    total_emi = 0.0
+    active = []
+    next_rep = None
+    for d in docs:
+        rate = d.get("interest_rate")
+        emi = d.get("emi")
+        rep = d.get("repayment_date")
+        if not (rate or emi or rep):
+            continue
+        # Active if no repayment date OR repayment in the future
+        rep_d = None
+        if rep:
+            try:
+                rep_d = date.fromisoformat(rep)
+            except Exception:
+                rep_d = None
+        if rep_d and rep_d < today:
+            continue
+        active.append(d)
+        # Compute monthly EMI if not stored
+        if emi:
+            try:
+                total_emi += float(emi)
+            except Exception:
+                pass
+        elif rep_d and d.get("date") and rate is not None:
+            try:
+                start_d = date.fromisoformat(d["date"])
+                months = (rep_d.year - start_d.year) * 12 + (rep_d.month - start_d.month)
+                P = float(d.get("amount") or 0)
+                r = float(rate) / 100 / 12 if rate else 0
+                if months > 0 and P > 0:
+                    if r:
+                        pow_ = (1 + r) ** months
+                        total_emi += (P * r * pow_) / (pow_ - 1)
+                    else:
+                        total_emi += P / months
+            except Exception:
+                pass
+        # Track nearest upcoming repayment
+        if rep_d:
+            if next_rep is None or rep_d < date.fromisoformat(next_rep["repayment_date"]):
+                next_rep = {
+                    "repayment_date": rep,
+                    "days_until": (rep_d - today).days,
+                    "vendor": d.get("vendor") or d.get("name") or "",
+                    "amount": d.get("amount") or 0,
+                    "category": d.get("category"),
+                }
+    return {
+        "total_monthly_emi": round(total_emi),
+        "active_loans": len(active),
+        "next_repayment": next_rep,
+    }
+
+
 def _csv_response(filename: str, headers: List[str], rows: List[List[Any]]):
     import csv as _csv
     buf = io.StringIO()
