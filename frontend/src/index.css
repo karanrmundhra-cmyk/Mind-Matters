@@ -20,6 +20,41 @@
   --mm-gold-glow: rgba(201, 169, 97, 0.35);
 }
 
+:root.light,
+html.light {
+  --mm-bg: #FFFFFF;
+  --mm-bg-2: #F5F5F0;
+  --mm-surface: rgba(0, 0, 0, 0.025);
+  --mm-surface-2: rgba(0, 0, 0, 0.05);
+  --mm-border: rgba(184, 149, 46, 0.22);
+  --mm-border-2: rgba(184, 149, 46, 0.4);
+  --mm-text: #1A1A1A;
+  --mm-muted: #6B6350;
+  --mm-muted-2: #9A9080;
+  --mm-gold: #B8952E;
+  --mm-gold-bright: #A07D20;
+  --mm-gold-soft: #D4B96A;
+  --mm-gold-glow: rgba(184, 149, 46, 0.18);
+}
+
+/* Focus mode: hide non-essential nav so user sees only Dashboard + Tasks. */
+html.focus-mode [data-testid="nav-routines"],
+html.focus-mode [data-testid="nav-cashflow"],
+html.focus-mode [data-testid="nav-notes"],
+html.focus-mode [data-testid="nav-reminders"] {
+  display: none !important;
+}
+html.focus-mode .mm-focus-hide {
+  display: none !important;
+}
+
+html.light input[type="date"],
+html.light input[type="datetime-local"],
+html.light input[type="time"] {
+  color-scheme: light;
+  color: #A07D20;
+}
+
 html,
 body,
 #root {

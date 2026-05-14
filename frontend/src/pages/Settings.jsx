@@ -3,6 +3,7 @@ import { api } from "@/lib/api";
 import { Card, SectionTitle } from "@/components/Primitives";
 import {
   Send, Link as LinkIcon, Unlink, Copy, Sparkles, Download, Calendar, KeyRound, LogOut, RefreshCw,
+  Sun, Moon, Eye,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/auth";
@@ -14,6 +15,20 @@ function formatErr(detail) {
   return String(detail?.msg || detail);
 }
 
+// Helpers to apply theme + focus mode classes on <html> and persist to localStorage.
+function applyTheme(mode) {
+  const root = document.documentElement;
+  if (mode === "light") root.classList.add("light");
+  else root.classList.remove("light");
+  localStorage.setItem("mm_theme", mode);
+}
+function applyFocus(on) {
+  const root = document.documentElement;
+  if (on) root.classList.add("focus-mode");
+  else root.classList.remove("focus-mode");
+  localStorage.setItem("mm_focus_mode", on ? "1" : "0");
+}
+
 export default function Settings() {
   const { user, logout } = useAuth();
   const [status, setStatus] = useState(null);
@@ -21,6 +36,16 @@ export default function Settings() {
   const [calToken, setCalToken] = useState(null);
   const [pw, setPw] = useState({ current: "", next: "" });
   const [pwBusy, setPwBusy] = useState(false);
+  const [theme, setTheme] = useState(() => localStorage.getItem("mm_theme") || "dark");
+  const [focusMode, setFocusMode] = useState(() => localStorage.getItem("mm_focus_mode") === "1");
+
+  // Sync from localStorage on first paint (so the toggle reflects state set elsewhere).
+  useEffect(() => {
+    applyTheme(theme);
+  }, [theme]);
+  useEffect(() => {
+    applyFocus(focusMode);
+  }, [focusMode]);
 
   const refresh = async () => {
     const [s, c] = await Promise.all([
@@ -121,6 +146,54 @@ export default function Settings() {
       <SectionTitle subtitle="Preferences" title="Settings" />
 
       {/* Account */}
+      <Card className="p-5" data-testid="settings-appearance">
+        <div className="flex items-center gap-2 text-[10px] uppercase tracking-[0.3em] text-[var(--mm-muted)]/65 mb-4">
+          <Sun size={12} /> Appearance
+        </div>
+        <div className="grid sm:grid-cols-2 gap-3">
+          <div>
+            <div className="text-[10px] uppercase tracking-[0.25em] text-[var(--mm-muted)]/55 mb-2">Theme</div>
+            <div className="inline-flex rounded-full border border-[rgba(201,169,97,0.25)] p-1" data-testid="theme-toggle">
+              <button
+                onClick={() => setTheme("dark")}
+                className={`text-xs px-4 py-1.5 rounded-full flex items-center gap-1.5 transition ${
+                  theme === "dark" ? "bg-gradient-to-r from-[#E4C98C] to-[#C9A961] text-black" : "text-[var(--mm-muted)]"
+                }`}
+                data-testid="theme-dark"
+              >
+                <Moon size={11} /> Dark
+              </button>
+              <button
+                onClick={() => setTheme("light")}
+                className={`text-xs px-4 py-1.5 rounded-full flex items-center gap-1.5 transition ${
+                  theme === "light" ? "bg-gradient-to-r from-[#E4C98C] to-[#C9A961] text-black" : "text-[var(--mm-muted)]"
+                }`}
+                data-testid="theme-light"
+              >
+                <Sun size={11} /> Light
+              </button>
+            </div>
+          </div>
+          <div>
+            <div className="text-[10px] uppercase tracking-[0.25em] text-[var(--mm-muted)]/55 mb-2">Focus mode</div>
+            <button
+              onClick={() => setFocusMode(!focusMode)}
+              className={`text-xs px-4 py-1.5 rounded-full border flex items-center gap-1.5 transition ${
+                focusMode
+                  ? "bg-gradient-to-r from-[#E4C98C] to-[#C9A961] text-black border-transparent"
+                  : "border-[rgba(201,169,97,0.25)] text-[var(--mm-muted)] hover:border-[#C9A961]"
+              }`}
+              data-testid="focus-toggle"
+            >
+              <Eye size={11} /> {focusMode ? "Focus mode is ON" : "Turn on focus mode"}
+            </button>
+            <div className="text-[10px] text-[var(--mm-muted)]/55 mt-2">
+              Strips the app to today's tasks, active routines, and top reminders only.
+            </div>
+          </div>
+        </div>
+      </Card>
+
       <Card className="p-5" data-testid="settings-account">
         <div className="text-[10px] uppercase tracking-[0.3em] text-[#B7A98A]/65 mb-3">
           Account

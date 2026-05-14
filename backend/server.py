@@ -1811,6 +1811,87 @@ async def share_document_telegram(body: ShareDocReq, user=Depends(get_current_us
     return {"ok": bool(res and res.get("ok")), "telegram": res}
 
 
+# ───────────────────── Universal search ─────────────────────
+@api.get("/search")
+async def universal_search(q: str = "", user=Depends(get_current_user)):
+    """Search across tasks, notes, transactions, reminders, decisions, vault."""
+    q = (q or "").strip()
+    if not q or len(q) < 1:
+        return {"groups": []}
+    import re as _re
+    regex = {"$regex": _re.escape(q), "$options": "i"}
+    groups = []
+
+    # Tasks
+    docs = await db.tasks.find(
+        {"user_id": user["id"],
+         "$or": [{"task": regex}, {"details": regex}, {"name": regex}, {"group": regex}]},
+        {"_id": 0, "id": 1, "task": 1, "details": 1, "name": 1, "status": 1, "date": 1, "group": 1},
+    ).limit(8).to_list(8)
+    if docs:
+        groups.append({
+            "module": "tasks", "label": "Tasks", "route": "/tasks",
+            "items": [{
+                "id": d["id"],
+                "title": d.get("task") or d.get("details") or "Task",
+                "snippet": " · ".join(filter(None, [d.get("name"), d.get("details"), d.get("status"), d.get("date")]))[:160],
+            } for d in docs],
+        })
+
+    # Notes
+    docs = await db.notes.find(
+        {"user_id": user["id"],
+         "$or": [{"title": regex}, {"body": regex}]},
+        {"_id": 0, "id": 1, "title": 1, "body": 1, "tags": 1},
+    ).limit(8).to_list(8)
+    if docs:
+        groups.append({
+            "module": "notes", "label": "Notes", "route": "/notes",
+            "items": [{
+                "id": d["id"],
+                "title": d.get("title") or "(untitled)",
+                "snippet": (d.get("body") or "")[:160],
+            } for d in docs],
+        })
+
+    # Transactions
+    docs = await db.transactions.find(
+        {"user_id": user["id"],
+         "$or": [{"vendor": regex}, {"name": regex}, {"details": regex}, {"notes": regex}, {"head": regex}]},
+        {"_id": 0, "id": 1, "vendor": 1, "name": 1, "details": 1, "amount": 1, "head": 1, "date": 1},
+    ).limit(8).to_list(8)
+    if docs:
+        groups.append({
+            "module": "transactions", "label": "Cash Flow", "route": "/cash-flow",
+            "items": [{
+                "id": d["id"],
+                "title": d.get("vendor") or d.get("name") or "Entry",
+                "snippet": " · ".join(filter(None, [
+                    f"₹{d.get('amount')}" if d.get("amount") else "",
+                    d.get("head"), d.get("details"), d.get("date"),
+                ]))[:160],
+            } for d in docs],
+        })
+
+    # Reminders
+    docs = await db.reminders.find(
+        {"user_id": user["id"],
+         "$or": [{"title": regex}, {"notes": regex}]},
+        {"_id": 0, "id": 1, "title": 1, "notes": 1, "fire_at": 1},
+    ).limit(8).to_list(8)
+    if docs:
+        groups.append({
+            "module": "reminders", "label": "Reminders", "route": "/reminders",
+            "items": [{
+                "id": d["id"],
+                "title": d.get("title") or "Reminder",
+                "snippet": " · ".join(filter(None, [d.get("notes"), d.get("fire_at", "")[:16]]))[:160],
+            } for d in docs],
+        })
+
+    return {"groups": groups}
+
+
 # ───────────────────── Telegram setup PDF ─────────────────────
 @api.get("/docs/telegram-setup.pdf")
 async def telegram_setup_pdf():

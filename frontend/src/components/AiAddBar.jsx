@@ -1,7 +1,51 @@
-import React, { useState } from "react";
-import { Sparkles, Check, X, Loader2, Trash2 } from "lucide-react";
+import React, { useRef, useState } from "react";
+import { Sparkles, Check, X, Loader2, Trash2, Mic, MicOff } from "lucide-react";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
+
+/**
+ * Voice → text dictation hook. Wraps the Web Speech API. Falls back gracefully
+ * when the browser doesn't support it (Safari iOS, Firefox).
+ */
+function useDictation(onResult) {
+  const recogRef = useRef(null);
+  const [listening, setListening] = useState(false);
+
+  const supported = typeof window !== "undefined" &&
+    (window.SpeechRecognition || window.webkitSpeechRecognition);
+
+  const start = () => {
+    if (!supported) {
+      toast.error("Voice input not supported on this browser — try Chrome/Edge");
+      return;
+    }
+    const Cls = window.SpeechRecognition || window.webkitSpeechRecognition;
+    const rec = new Cls();
+    rec.lang = (navigator.language || "en-US");
+    rec.interimResults = true;
+    rec.continuous = false;
+    let finalTranscript = "";
+    rec.onresult = (e) => {
+      let interim = "";
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const t = e.results[i][0].transcript;
+        if (e.results[i].isFinal) finalTranscript += t;
+        else interim += t;
+      }
+      onResult((finalTranscript + interim).trim(), e.results[e.results.length - 1].isFinal);
+    };
+    rec.onerror = () => setListening(false);
+    rec.onend = () => setListening(false);
+    rec.start();
+    recogRef.current = rec;
+    setListening(true);
+  };
+  const stop = () => {
+    try { recogRef.current?.stop(); } catch { /* */ }
+    setListening(false);
+  };
+  return { start, stop, listening, supported };
+}
 
 /**
  * Universal NL input bar with editable confirmation preview + quick-tag chips.
@@ -19,6 +63,7 @@ export default function AiAddBar({ kind, placeholder, onConfirm, describe, colum
   const [text, setText] = useState("");
   const [rows, setRows] = useState(null); // null = no preview, otherwise editable
   const [busy, setBusy] = useState(false);
+  const dictation = useDictation((transcript) => setText(transcript));
 
   const parse = async () => {
     if (!text.trim()) return;
@@ -107,6 +152,17 @@ export default function AiAddBar({ kind, placeholder, onConfirm, describe, colum
           disabled={busy}
           data-testid="ai-add-input"
         />
+        {dictation.supported && (
+          <button
+            type="button"
+            onClick={() => (dictation.listening ? dictation.stop() : dictation.start())}
+            className={`mm-btn-ghost px-3 ${dictation.listening ? "border-[#E4C98C] mm-text-gold-bright" : ""}`}
+            title={dictation.listening ? "Stop dictation" : "Dictate (voice input)"}
+            data-testid="ai-add-mic"
+          >
+            {dictation.listening ? <MicOff size={14} /> : <Mic size={14} />}
+          </button>
+        )}
         {!rows ? (
           <button
             onClick={parse}

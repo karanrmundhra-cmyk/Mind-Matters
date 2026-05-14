@@ -17,6 +17,7 @@ import {
 import Logo from "@/components/Logo";
 import AiChat from "@/components/AiChat";
 import QuickAdd from "@/components/QuickAdd";
+import CommandPalette from "@/components/CommandPalette";
 import { useAuth } from "@/lib/auth";
 
 const NAV = [
@@ -75,6 +76,20 @@ export default function AppShell() {
 
         <div className="mt-auto flex flex-col gap-3 pt-4">
           <button
+            data-testid="open-cmd-palette-sidebar"
+            onClick={() => {
+              // Dispatch keyboard event so CommandPalette toggles via its own listener
+              window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true }));
+            }}
+            className="mm-btn-ghost text-sm flex items-center justify-between gap-2"
+          >
+            <span className="flex items-center gap-2">
+              <Sparkles size={14} strokeWidth={1.5} />
+              Search
+            </span>
+            <span className="text-[10px] text-[#B7A98A]/40 tracking-widest">⌘K</span>
+          </button>
+          <button
             data-testid="open-quick-add-sidebar"
             onClick={() => setQuickAddOpen(true)}
             className="mm-btn-ghost text-sm flex items-center justify-center gap-2"
@@ -122,6 +137,7 @@ export default function AppShell() {
 
         <AiChat open={chatOpen} onClose={() => setChatOpen(false)} />
         <QuickAdd open={quickAddOpen} onClose={() => setQuickAddOpen(false)} />
+        <CommandPalette />
       </main>
 
       {/* Mobile bottom nav */}
