@@ -24,6 +24,10 @@ export default function Notes() {
   const [notes, setNotes] = useState([]);
   const [q, setQ] = useState("");
   const [filterTag, setFilterTag] = useState("");
+  const [tab, setTab] = useState("all"); // all | vault | decisions
+  const [vaultUnlocked, setVaultUnlocked] = useState(
+    sessionStorage.getItem("mm_vault_unlocked") === "1",
+  );
   const [selected, setSelected] = useState(null);
   const [images, setImages] = useState([]);
   const [bulkOpen, setBulkOpen] = useState(false);
@@ -169,6 +173,50 @@ export default function Notes() {
   const pinned = notes.filter((n) => n.pinned);
   const others = notes.filter((n) => !n.pinned);
 
+  // Tab-based filtering: All hides vault notes; Vault shows only vault-tagged notes
+  // (and only when unlocked); Decisions shows only decision-tagged notes.
+  const tabFiltered = (list) => {
+    if (tab === "vault") return list.filter((n) => (n.tags || []).includes("vault"));
+    if (tab === "decisions") return list.filter((n) => (n.tags || []).includes("decision"));
+    return list.filter((n) => !(n.tags || []).includes("vault"));
+  };
+  const tabPinned = tabFiltered(pinned);
+  const tabOthers = tabFiltered(others);
+
+  const unlockVault = () => {
+    const pinSet = localStorage.getItem("mm_vault_pin");
+    if (!pinSet) {
+      const newPin = window.prompt(
+        "Set a 4-6 digit Vault PIN (kept locally — used to gate this tab only).",
+        "",
+      );
+      if (!newPin || !/^\d{4,6}$/.test(newPin)) {
+        toast.error("PIN must be 4-6 digits");
+        return false;
+      }
+      localStorage.setItem("mm_vault_pin", newPin);
+      sessionStorage.setItem("mm_vault_unlocked", "1");
+      setVaultUnlocked(true);
+      toast.success("Vault PIN set");
+      return true;
+    }
+    const tryPin = window.prompt("Enter Vault PIN", "");
+    if (tryPin === pinSet) {
+      sessionStorage.setItem("mm_vault_unlocked", "1");
+      setVaultUnlocked(true);
+      return true;
+    }
+    toast.error("Wrong PIN");
+    return false;
+  };
+
+  const switchTab = (next) => {
+    if (next === "vault" && !vaultUnlocked) {
+      if (!unlockVault()) return;
+    }
+    setTab(next);
+  };
+
   return (
     <div className="space-y-6 mm-fade-in" data-testid="notes-page">
       <SectionTitle
@@ -193,6 +241,45 @@ export default function Notes() {
       <p className="text-xs sm:text-sm text-[#B7A98A]/65 -mt-3 max-w-2xl" data-testid="notes-description">
         Your second brain — quick thoughts, research, ideas. Tag them so they find you later.
       </p>
+
+      {/* Notes / Vault / Decisions tabs */}
+      <div className="flex items-center gap-1 border-b border-[rgba(201,169,97,0.12)]">
+        {[
+          { id: "all", label: "All notes" },
+          { id: "vault", label: "Vault" },
+          { id: "decisions", label: "Decisions" },
+        ].map((t) => (
+          <button
+            key={t.id}
+            onClick={() => switchTab(t.id)}
+            className={`px-4 py-2 text-xs uppercase tracking-[0.2em] transition border-b-2 -mb-px ${
+              tab === t.id
+                ? "mm-text-gold-bright border-[#C9A961]"
+                : "text-[#B7A98A]/55 border-transparent hover:text-[#E4C98C]"
+            }`}
+            data-testid={`notes-tab-${t.id}`}
+          >
+            {t.label}
+            {t.id === "vault" && !vaultUnlocked && (
+              <span className="ml-1.5 text-[10px] opacity-60">🔒</span>
+            )}
+          </button>
+        ))}
+      </div>
+
+      {tab === "vault" && (
+        <p className="text-[11px] text-[#B7A98A]/55 -mt-2">
+          Vault items are tagged <code className="text-[#E4C98C]">vault</code> and hidden from the
+          All notes tab. Tag any note with <code className="text-[#E4C98C]">vault</code> to move it
+          here.
+        </p>
+      )}
+      {tab === "decisions" && (
+        <p className="text-[11px] text-[#B7A98A]/55 -mt-2">
+          Tag any note with <code className="text-[#E4C98C]">decision</code> to surface it as a
+          decision card here.
+        </p>
+      )}
 
       <AiAddBar
         kind="note"
@@ -273,9 +360,20 @@ export default function Notes() {
 
           {notes.length === 0 ? (
             <EmptyState title="No notes" hint="Capture thoughts. Pin important ones to the dashboard." />
+          ) : tabPinned.length + tabOthers.length === 0 ? (
+            <EmptyState
+              title={tab === "vault" ? "Vault is empty" : tab === "decisions" ? "No decisions yet" : "No notes match"}
+              hint={
+                tab === "vault"
+                  ? "Tag a note with 'vault' to store it privately here."
+                  : tab === "decisions"
+                    ? "Tag a note with 'decision' to track it here."
+                    : "Try a different search or tag."
+              }
+            />
           ) : (
             <Card className="p-0 overflow-hidden max-h-[68vh] overflow-y-auto">
-              {[...pinned, ...others].map((n) => (
+              {[...tabPinned, ...tabOthers].map((n) => (
                 <button
                   key={n.id}
                   onClick={() => setSelected(n)}

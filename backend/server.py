@@ -2292,6 +2292,207 @@ async def export_all_xlsx(user=Depends(get_current_user)):
     )
 
 
+# ───────────────────── Reports + Calendar + Patterns ─────────────────────
+@api.get("/reports/timeline")
+async def reports_timeline(days: int = 30, user=Depends(get_current_user)):
+    """Return a chronological feed of recent activity across modules."""
+    since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+    items = []
+    async for t in db.tasks.find(
+        {"user_id": user["id"], "created_at": {"$gte": since}}, {"_id": 0},
+    ).sort("created_at", -1).limit(120):
+        items.append({
+            "ts": t.get("created_at"),
+            "kind": "task",
+            "title": t.get("task") or "(task)",
+            "subtitle": " · ".join(
+                [b for b in [t.get("group"), t.get("name"), t.get("status")] if b]
+            ),
+        })
+    async for t in db.transactions.find(
+        {"user_id": user["id"], "created_at": {"$gte": since}}, {"_id": 0},
+    ).sort("created_at", -1).limit(120):
+        try:
+            amt = f"₹{float(t.get('amount') or 0):,.0f}"
+        except Exception:
+            amt = str(t.get("amount") or "")
+        items.append({
+            "ts": t.get("created_at"),
+            "kind": "transaction",
+            "title": f"{amt} · {t.get('vendor') or t.get('details') or 'expense'}",
+            "subtitle": " · ".join(
+                [b for b in [t.get("category"), t.get("head")] if b]
+            ),
+        })
+    async for n in db.notes.find(
+        {"user_id": user["id"], "created_at": {"$gte": since}}, {"_id": 0},
+    ).sort("created_at", -1).limit(80):
+        items.append({
+            "ts": n.get("created_at"),
+            "kind": "note",
+            "title": n.get("title") or "(note)",
+            "subtitle": ", ".join(n.get("tags") or []),
+        })
+    items.sort(key=lambda x: x.get("ts") or "", reverse=True)
+    return items[:200]
+
+
+@api.get("/reports/cashflow-monthly")
+async def reports_cashflow_monthly(months: int = 6, user=Depends(get_current_user)):
+    """Aggregate transactions into monthly totals by category."""
+    today = date.today()
+    start = (today.replace(day=1) - timedelta(days=31 * (months - 1))).replace(day=1)
+    buckets: Dict[str, Dict[str, float]] = {}
+    async for t in db.transactions.find({"user_id": user["id"]}, {"_id": 0}):
+        d = t.get("date") or (t.get("created_at") or "")[:10]
+        if not d or len(d) < 7:
+            continue
+        yyyy_mm = d[:7]
+        if yyyy_mm < start.isoformat()[:7]:
+            continue
+        cat = t.get("category") or ("income" if t.get("direction") == "in" else "expense")
+        b = buckets.setdefault(yyyy_mm, {"income": 0, "expense": 0, "asset": 0, "liability": 0})
+        try:
+            b[cat] = b.get(cat, 0) + float(t.get("amount") or 0)
+        except Exception:
+            pass
+    return [{"month": m, **v} for m, v in sorted(buckets.items())]
+
+
+@api.get("/reports/patterns")
+async def reports_patterns(user=Depends(get_current_user)):
+    """Rule-based pattern radar — spending spikes, overdue tasks, upcoming loans, routine streaks."""
+    patterns = []
+    today = date.today()
+    this_start = today.replace(day=1)
+    last_end = this_start - timedelta(days=1)
+    last_start = last_end.replace(day=1)
+    this_exp = 0.0
+    last_exp = 0.0
+    async for t in db.transactions.find(
+        {"user_id": user["id"], "category": "expense"}, {"_id": 0},
+    ):
+        d = t.get("date")
+        if not d:
+            continue
+        try:
+            dd = date.fromisoformat(d)
+            amt = float(t.get("amount") or 0)
+            if dd >= this_start:
+                this_exp += amt
+            elif last_start <= dd <= last_end:
+                last_exp += amt
+        except Exception:
+            pass
+    if last_exp > 0:
+        delta_pct = ((this_exp - last_exp) / last_exp) * 100
+        if delta_pct >= 20:
+            patterns.append({
+                "severity": "alert",
+                "title": f"Spending up {delta_pct:.0f}% vs last month",
+                "detail": f"This month ₹{this_exp:,.0f} vs last month ₹{last_exp:,.0f}",
+            })
+        elif delta_pct <= -20:
+            patterns.append({
+                "severity": "info",
+                "title": f"Spending down {abs(delta_pct):.0f}% vs last month",
+                "detail": f"This month ₹{this_exp:,.0f} vs last month ₹{last_exp:,.0f} — keep it up.",
+            })
+    overdue = 0
+    async for t in db.tasks.find(
+        {"user_id": user["id"], "status": {"$ne": "Completed"}}, {"_id": 0},
+    ):
+        d = t.get("date")
+        if not d:
+            continue
+        try:
+            if date.fromisoformat(d) < today:
+                overdue += 1
+        except Exception:
+            pass
+    if overdue:
+        patterns.append({
+            "severity": "warn",
+            "title": f"{overdue} overdue task{'s' if overdue != 1 else ''}",
+            "detail": "Tasks past their date with status still open.",
+        })
+    upcoming_loans = []
+    async for t in db.transactions.find(
+        {"user_id": user["id"], "category": {"$in": ["liability", "asset"]}}, {"_id": 0},
+    ):
+        rep = t.get("repayment_date")
+        if not rep:
+            continue
+        try:
+            rd = date.fromisoformat(rep)
+            days = (rd - today).days
+            if 0 <= days <= 14:
+                upcoming_loans.append((days, t))
+        except Exception:
+            pass
+    if upcoming_loans:
+        upcoming_loans.sort()
+        days, t = upcoming_loans[0]
+        patterns.append({
+            "severity": "warn" if days <= 3 else "info",
+            "title": f"Loan repayment in {days} day{'s' if days != 1 else ''}",
+            "detail": f"{t.get('vendor') or t.get('name') or 'Loan'} · ₹{float(t.get('amount') or 0):,.0f}",
+        })
+    return patterns
+
+
+@api.post("/reports/briefing")
+async def reports_briefing(user=Depends(get_current_user)):
+    """AI-generated weekly briefing."""
+    today = date.today()
+    week_ago = today - timedelta(days=7)
+    tasks_done = await db.tasks.count_documents(
+        {"user_id": user["id"], "status": "Completed",
+         "updated_at": {"$gte": week_ago.isoformat()}},
+    )
+    tasks_pending = await db.tasks.count_documents(
+        {"user_id": user["id"], "status": {"$ne": "Completed"}},
+    )
+    week_exp = 0.0
+    async for t in db.transactions.find(
+        {"user_id": user["id"], "category": "expense"}, {"_id": 0},
+    ):
+        try:
+            d = t.get("date")
+            if d and date.fromisoformat(d) >= week_ago:
+                week_exp += float(t.get("amount") or 0)
+        except Exception:
+            pass
+    patterns = await reports_patterns(user=user)
+    snapshot = {
+        "tasks_completed_this_week": tasks_done,
+        "tasks_open": tasks_pending,
+        "expense_this_week": round(week_exp),
+        "patterns": [p["title"] for p in patterns],
+    }
+    fallback = (
+        f"This week you ticked off {tasks_done} task{'s' if tasks_done != 1 else ''} "
+        f"with {tasks_pending} still open. You spent about ₹{week_exp:,.0f}. "
+        + (("Heads up: " + "; ".join(p["title"] for p in patterns) + ".") if patterns else "")
+    ).strip()
+    if not EMERGENT_LLM_KEY:
+        return {"summary": fallback, "snapshot": snapshot}
+    system = (
+        "You are a calm, pragmatic life coach. Write a 3-4 sentence briefing for the user "
+        "based on their last week. Warm but direct. Mention one win and one concrete next step. "
+        "No emojis, no markdown, no preamble."
+    )
+    chat = LlmChat(api_key=EMERGENT_LLM_KEY, session_id=f"brief-{new_id()}",
+                   system_message=system).with_model("gemini", "gemini-3-flash-preview")
+    try:
+        resp = await chat.send_message(UserMessage(
+            text=f"Snapshot: {json.dumps(snapshot, default=str)}",
+        ))
+        return {"summary": (resp or "").strip() or fallback, "snapshot": snapshot}
+    except Exception:
+        return {"summary": fallback, "snapshot": snapshot}
+
+
 # ───────────────────── Per-module exports (CSV + PDF) ─────────────────────
 @api.get("/cashflow/loan-summary")
 async def cashflow_loan_summary(user=Depends(get_current_user)):

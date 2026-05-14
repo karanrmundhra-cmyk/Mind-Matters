@@ -1,0 +1,37 @@
+{
+  "summary": "v2.12 cluster (Calendar, Reports, Notes tabs) FULLY GREEN. Backend: 7/7 pytest passing — /api/reports/timeline, /cashflow-monthly, /patterns, /briefing all return correct shapes; loan-summary/tasks/notes regression still working. Frontend: /calendar route renders 42-cell grid with today highlighted, prev/next/today buttons shift month correctly, Agenda tab toggles. /reports route renders 4 tabs (reports, timeline, briefing, patterns); default reports tab renders recharts BarChart SVG; timeline shows 11 rows; pattern radar shows overdue-task pattern; briefing generates AI summary mentioning tasks + 3 stat tiles. Notes tabs (All/Vault/Decisions) work: vault locked → 🔒 badge shown; after PIN unlock via localStorage+sessionStorage pre-set, vault tab shows only vault-tagged notes and All tab hides them; Decisions tab shows only decision-tagged notes. Event chips on calendar: created task+reminder+deadline for today → cell shows 3 chips + '+2 more' badge (matches spec exactly).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Reports → Reports tab", "issues": ["Recharts logs a brief console warning 'width(-1) height(-1)' on first paint while ResponsiveContainer measures the tab panel — non-blocking, chart renders correctly (5 SVG nodes). Could be silenced by giving the container an explicit minWidth/aspect ratio."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_v212.py",
+    "/app/test_reports/pytest/v212_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Calendar.jsx — grid builder correctly produces 42 cells (6 rows × 7 cols) including leading/trailing siblings. eventsByDate map is rebuilt with useMemo on [tasks,reminders,deadlines]. Event chips capped at 3 with '+N more' fallback — matches spec.",
+    "Reports.jsx — single parallel Promise.all loads monthly/timeline/patterns on mount and on Refresh; briefing is on-demand only (good, AI cost discipline). fmtINR is INR-locale aware. Stat sub-component is well-isolated.",
+    "Notes.jsx tab-gate — unlockVault() handles first-time-set vs verify branches cleanly, and switchTab gates only the vault transition. tabFiltered excludes vault notes from 'all' tab (good privacy default).",
+    "PIN storage — localStorage 'mm_vault_pin' is plaintext per intentional client-only design (spec calls this out). Acceptable for personal-OS scope; document this in README if not already.",
+    "Backend /api/reports/briefing — fallback string is always produced even before LLM call, so timeout/error path always returns a non-empty summary in <1s. with_model('gemini','gemini-3-flash-preview') is the right id for January 2026.",
+    "Backend /api/reports/patterns reuses cursor pattern with try/except around date.fromisoformat — robust. Could optionally surface positive 'win' patterns (e.g., expense down already covered).",
+    "/api/reports/cashflow-monthly category inference: rows without explicit category fall into income/expense from direction. Mongo records that have direction='in' but category='asset' will be bucketed under 'asset' — correct. Edge: tx without date AND without created_at would be silently dropped (acceptable, but worth a debug log)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_v212.py",
+    "/app/test_reports/iteration_10.json",
+    "/app/test_reports/pytest/v212_results.xml"
+  ],
+  "success_rate": {"backend": "100% (7/7 v212 pytest)", "frontend": "100% (all v212 testids + flows verified)"},
+  "test_credentials": "karan@mindmatters.local / changeme123",
+  "seed_data_creation": "Test seeded TEST_V212_CalToday (task), TEST_V212_RemToday (reminder), TEST_V212_DeadToday (deadline), TEST_V212_VaultNote (note tagged 'vault'), TEST_V212_DecisionNote (note tagged 'decision'). All cleaned up at end of run. HDFC liability from iter_7 + PARENT/CHILD_V211_TEST from iter_9 still untouched in DB.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "v2.12 fully green. Confirmed: (1) Sidebar NAV has 9 entries with data-testid nav-{dashboard,tasks,routines,cashflow,calendar,notes,reminders,reports,settings}; mobile bottom-nav still slices to first 6 by design (Calendar/Reports/Settings desktop-only on mobile — INTENTIONAL per spec). (2) /calendar renders 42 cal-cell-YYYY-MM-DD cells; cal-prev/cal-next/cal-today functional; cal-tab-calendar/cal-tab-agenda switch correctly. (3) Today cell colors event chips: task=gold, reminder=emerald, deadline=red; max 3 visible then '+N more' badge. (4) /reports has 4 tabs (reports-tab-reports/timeline/briefing/patterns); reports-charts contains a recharts SVG (5 SVG nodes counted). (5) reports-timeline-row, reports-pattern-row render correctly. (6) reports-briefing-generate triggers POST /api/reports/briefing which returns within ~10s with a 3-4 sentence Gemini-3-flash summary AND a snapshot {tasks_completed_this_week, tasks_open, expense_this_week, patterns}; briefing-stat-tasks-done/-open/-expense tiles all render. (7) Notes tabs notes-tab-all/vault/decisions visible; vault locked shows 🔒 in tab label; pre-setting localStorage.mm_vault_pin='1234' + sessionStorage.mm_vault_unlocked='1' bypasses prompt. (8) Vault filtering: notes with tag 'vault' visible ONLY in vault tab, hidden from all tab. Decision tab shows only notes with tag 'decision'. (9) Backend /api/reports/briefing has string-fallback when LLM fails/missing key — guaranteed non-empty summary. (10) Recharts ResponsiveContainer logs a benign one-off width(-1) console warning on tab switch — non-blocking. Login + all prior flows (Tasks/Routines/CashFlow/Reminders/Notes/Subtasks/FloatingDock/Loan Summary) untouched and confirmed working via regression tests.",
+  "rca of the issue": "N/A — no failures detected."
+}

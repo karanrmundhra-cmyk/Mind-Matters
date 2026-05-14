@@ -10,6 +10,8 @@ import {
   StickyNote,
   FileText,
   BellRing,
+  Calendar as CalendarIcon,
+  BarChart3,
   Settings as SettingsIcon,
   LogOut,
 } from "lucide-react";
@@ -25,8 +27,10 @@ const NAV = [
   { to: "/tasks", label: "Tasks", icon: CheckSquare, testid: "nav-tasks" },
   { to: "/routines", label: "Routines", icon: Repeat, testid: "nav-routines" },
   { to: "/cash-flow", label: "Cash Flow", icon: Wallet, testid: "nav-cashflow" },
+  { to: "/calendar", label: "Calendar", icon: CalendarIcon, testid: "nav-calendar" },
   { to: "/notes", label: "Notes", icon: StickyNote, testid: "nav-notes" },
   { to: "/reminders", label: "Reminders", icon: BellRing, testid: "nav-reminders" },
+  { to: "/reports", label: "Reports", icon: BarChart3, testid: "nav-reports" },
   { to: "/settings", label: "Settings", icon: SettingsIcon, testid: "nav-settings" },
 ];
 
