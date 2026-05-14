@@ -42,6 +42,8 @@ export default function Reports() {
   const [monthly, setMonthly] = useState([]);
   const [timeline, setTimeline] = useState([]);
   const [patterns, setPatterns] = useState([]);
+  const [aiPatterns, setAiPatterns] = useState([]);
+  const [aiPatternsBusy, setAiPatternsBusy] = useState(false);
   const [briefing, setBriefing] = useState(null);
   const [briefingBusy, setBriefingBusy] = useState(false);
 
@@ -67,6 +69,21 @@ export default function Reports() {
       toast.error("Could not generate briefing");
     } finally {
       setBriefingBusy(false);
+    }
+  };
+
+  const generateAiPatterns = async () => {
+    setAiPatternsBusy(true);
+    try {
+      const { data } = await api.get("/reports/ai-patterns");
+      setAiPatterns(data || []);
+      if (!data || data.length === 0) {
+        toast("No additional AI patterns surfaced yet");
+      }
+    } catch {
+      toast.error("Could not scan for AI patterns");
+    } finally {
+      setAiPatternsBusy(false);
     }
   };
 
@@ -273,7 +290,50 @@ export default function Reports() {
       )}
 
       {tab === "patterns" && (
-        <Card className="p-0 overflow-hidden" data-testid="reports-patterns">
+        <div className="space-y-4">
+          <Card className="p-4 sm:p-6" data-testid="reports-ai-patterns-card">
+            <div className="flex items-start justify-between gap-3 mb-4">
+              <div>
+                <div className="text-[10px] uppercase tracking-[0.3em] mm-text-gold">
+                  AI Pattern Detector
+                </div>
+                <div className="text-xs text-[#B7A98A]/65 mt-1">
+                  Non-obvious patterns from your last 60 days, scanned by Gemini.
+                </div>
+              </div>
+              <button
+                onClick={generateAiPatterns}
+                disabled={aiPatternsBusy}
+                className="mm-btn-primary text-xs flex items-center gap-1.5 disabled:opacity-40"
+                data-testid="reports-ai-patterns-scan"
+              >
+                <Sparkles size={12} />
+                {aiPatternsBusy ? "Scanning…" : aiPatterns.length ? "Re-scan" : "Scan with AI"}
+              </button>
+            </div>
+            {aiPatterns.length === 0 ? (
+              <div className="text-[11px] text-[#B7A98A]/45 py-2">
+                Tap "Scan with AI" — the model looks across vendors, weekdays, categories
+                and routine cadence to call out anything a rule-checker would miss.
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {aiPatterns.map((p, i) => (
+                  <div
+                    key={i}
+                    className="rounded-lg border border-[#C9A961]/30 bg-[rgba(201,169,97,0.04)] p-3"
+                    data-testid="reports-ai-pattern-row"
+                  >
+                    <div className="text-sm mm-text-gold-bright">{p.title}</div>
+                    {p.detail && (
+                      <div className="text-[11px] text-[#B7A98A]/70 mt-1">{p.detail}</div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </Card>
+          <Card className="p-0 overflow-hidden" data-testid="reports-patterns">
           {patterns.length === 0 ? (
             <EmptyState
               title="No patterns detected"
@@ -319,6 +379,7 @@ export default function Reports() {
             })
           )}
         </Card>
+        </div>
       )}
     </div>
   );

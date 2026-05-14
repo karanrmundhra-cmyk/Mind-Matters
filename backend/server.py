@@ -2441,6 +2441,99 @@ async def reports_patterns(user=Depends(get_current_user)):
     return patterns
 
 
+@api.get("/reports/ai-patterns")
+async def reports_ai_patterns(user=Depends(get_current_user)):
+    """Ask Gemini to surface non-obvious patterns in the user's last 60 days.
+
+    Returns a list of {title, detail} strings. Falls back to an empty list when
+    the LLM key is missing or the call fails — the rule-based /patterns
+    endpoint always succeeds, so the UI degrades gracefully.
+    """
+    if not EMERGENT_LLM_KEY:
+        return []
+    today = date.today()
+    cutoff = today - timedelta(days=60)
+    # Build a compact, anonymised snapshot for the LLM
+    expenses = []
+    async for t in db.transactions.find(
+        {"user_id": user["id"], "category": "expense"}, {"_id": 0},
+    ).sort("date", -1).limit(120):
+        d = t.get("date")
+        if not d:
+            continue
+        try:
+            if date.fromisoformat(d) < cutoff:
+                continue
+        except Exception:
+            continue
+        expenses.append({
+            "date": d,
+            "amount": float(t.get("amount") or 0),
+            "head": t.get("head") or t.get("expense_head") or "Uncategorized",
+            "vendor": t.get("vendor") or t.get("name") or "",
+        })
+    tasks_summary = []
+    async for t in db.tasks.find(
+        {"user_id": user["id"]}, {"_id": 0},
+    ).sort("updated_at", -1).limit(60):
+        tasks_summary.append({
+            "date": t.get("date"),
+            "status": t.get("status"),
+            "group": t.get("group"),
+        })
+    routine_logs = []
+    async for r in db.routine_logs.find(
+        {"user_id": user["id"], "date": {"$gte": cutoff.isoformat()}}, {"_id": 0},
+    ).limit(200):
+        routine_logs.append({
+            "date": r.get("date"),
+            "done": r.get("done"),
+            "weekday": (date.fromisoformat(r["date"]).strftime("%A")
+                        if r.get("date") else None),
+        })
+    snapshot = {
+        "today": today.isoformat(),
+        "expenses_last_60d": expenses[:60],
+        "tasks_recent": tasks_summary[:40],
+        "routine_logs_last_60d": routine_logs,
+    }
+    system = (
+        "You are a pragmatic personal-analytics coach. Look at the user's "
+        "last 60 days and surface 3-5 NON-OBVIOUS patterns a rule-based system "
+        "would miss — e.g. weekday-specific habits, vendor concentration, "
+        "category creep, recurring weekly spend, missed routine cadence. "
+        "Each insight must be ACTIONABLE and SPECIFIC (mention day-of-week, "
+        "vendor, or category whenever possible). Return STRICT JSON: a list "
+        "of objects {title, detail}. No prose, no markdown, no preamble."
+    )
+    chat = LlmChat(api_key=EMERGENT_LLM_KEY, session_id=f"aip-{new_id()}",
+                   system_message=system).with_model("gemini", "gemini-3-flash-preview")
+    try:
+        resp = await chat.send_message(UserMessage(
+            text=json.dumps(snapshot, default=str)[:12000],
+        ))
+        t = (resp or "").strip()
+        if t.startswith("```"):
+            t = t.strip("`")
+            if t.startswith("json"):
+                t = t[4:]
+        arr = json.loads(t)
+        if not isinstance(arr, list):
+            return []
+        # Sanitize each item
+        out = []
+        for it in arr[:6]:
+            if not isinstance(it, dict):
+                continue
+            title = str(it.get("title") or "").strip()
+            detail = str(it.get("detail") or "").strip()
+            if title:
+                out.append({"title": title[:140], "detail": detail[:240]})
+        return out
+    except Exception:
+        return []
+
+
 @api.post("/reports/briefing")
 async def reports_briefing(user=Depends(get_current_user)):
     """AI-generated weekly briefing."""

@@ -1,0 +1,18 @@
+{
+  "short_name": "Mind Matters",
+  "name": "Mind Matters — Personal OS",
+  "description": "Premium AI-powered personal operating system. Tasks, routines, cash flow, notes, reminders — black & gold.",
+  "icons": [
+    {
+      "src": "rkm-logo.png",
+      "sizes": "192x192 512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "theme_color": "#0A0A0A",
+  "background_color": "#0A0A0A"
+}
