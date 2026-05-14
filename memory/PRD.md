@@ -17,6 +17,42 @@ with the R.K.M. brand logo. AI-first input on every page (type → confirm → d
 - **Frontend**: React + Tailwind + Shadcn UI. Cormorant Garamond (serif), Outfit
   (display), Inter (body). Pure black + rich gold (#C9A961 / #E4C98C).
 
+### v2.9 — Sections sub-headers · Per-module CSV+PDF exports · Cash Flow EMI · Telegram CRUD (2026-02)
+- **🔥 P0 hotfix**: Tasks.jsx had broken JSX from a mid-edit refactor (orphaned
+  `nodes.push(` with a missing opening `<div>` and `))` instead of
+  `);` at the end). Restored the IIFE pattern so the row renders cleanly with
+  optional Todoist-style section headers above each `section` change.
+- **Sections sub-headers** (Todoist-style) on Tasks · Routines · Cash Flow. When
+  any row in the visible list has a non-empty `section` field, the list is
+  visually grouped under uppercase gold sub-headers
+  (`task-section-<name>`, `routine-section-<name>`, `tx-section-<name>`).
+  Rows without a section render flat (no behaviour change for existing data).
+- **Per-module CSV + PDF exports**: every list page (Tasks, Routines, Cash Flow,
+  Notes, Reminders) gets a small `Export ▾` button next to Bulk Add. Backend
+  endpoints `GET /api/export/{module}.csv` and `.pdf` stream the user's
+  data with module-specific headers and (for PDF) a styled black-and-gold
+  landscape table via reportlab. `_EXPORT_DEFS` map keeps the shape DRY.
+- **Cash Flow EMI/interest tracking**: `TransactionIn` extended with
+  `interest_rate` (annual %), `interest_type` (percent | fixed),
+  `repayment_date` (YYYY-MM-DD), and `emi` (₹). UI: every liability/asset row
+  renders an inline `tx-loan-row` strip below it with editable Rate %, Repay
+  date, EMI ₹ inputs plus an auto-calculated EMI preview using the standard
+  amortization formula (P · i · (1+i)^n) / ((1+i)^n − 1).
+- **Telegram CRUD with both confirmation paths**:
+  - `_execute_pending` helper unifies the save/delete/update flow so it can
+    be triggered by either inline-button callback OR a plain text "yes/no"
+    reply (also accepts y, ok, confirm, go, sure / n, cancel, discard, skip).
+  - New commands: `delete task #N`, `delete routine #N`, `delete expense #N`,
+    `complete task #N` (also accepts "done 5", "mark task 5 done"). Each
+    surfaces a preview with inline ✓/✗ buttons AND the text yes/no path.
+  - `_format_preview` extended to render `delete_*` and `update_task` cards.
+- **Tests**: backend 20/20 pytest pass (`/app/backend/tests/test_v22.py`).
+  All 9 frontend critical testids verified (sections render, export menus
+  open, EMI row visible on liability rows, CSV download works).
+
+### v2.8 — Light/Dark/Focus · Universal Cmd+K · Voice mic · Forgot Password polish (2026-02)
+_(Carried over from prior fork.)_
+
 ### v1.3 — AI confirmation everywhere + Insurance + Telegram 2-way (2026-02)
 - **Universal AI confirmation row**: AiAddBar now renders an EDITABLE preview row
   matching every page's exact table headers. User edits before saving — no more
