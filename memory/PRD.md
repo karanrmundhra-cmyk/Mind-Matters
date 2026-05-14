@@ -17,6 +17,38 @@ with the R.K.M. brand logo. AI-first input on every page (type → confirm → d
 - **Frontend**: React + Tailwind + Shadcn UI. Cormorant Garamond (serif), Outfit
   (display), Inter (body). Pure black + rich gold (#C9A961 / #E4C98C).
 
+### v2.10 — Loan Summary widget · Floating Dock · Task attachments · Subtask data-model (2026-02)
+- **Dashboard Loan Summary widget**: new clickable card surfaces aggregated
+  finance discipline next to deadlines. Backend `GET /api/cashflow/loan-summary`
+  walks every liability/asset row with `interest_rate`/`emi`/`repayment_date`
+  set and (a) skips repayments already in the past, (b) sums stored EMIs or
+  computes them on the fly via the amortization formula, (c) tracks the
+  nearest upcoming repayment. Card only renders when the user has at least
+  one active loan. Tap → navigates to Cash Flow.
+- **Bottom-right Floating Dock**: new `FloatingDock` component renders on
+  every page with 4 buttons — Quick Add (+) · Search (⌘K) · AI sparkle ·
+  Sync status dot. The sync dot heartbeats `GET /api/` every 30s
+  (green = ok, yellow = degraded < 5 min, red = offline > 5 min, with
+  `online`/`offline` browser events folded in). Removed the old sidebar
+  Quick Add + Search buttons and the standalone gold AI bubble — those
+  three actions now live in the dock instead, keeping the sidebar
+  navigation-only.
+- **Task attachments**: paperclip icon on each task row opens a dialog to
+  upload/list/delete files (max 4MB/file, 8MB total per task), stored
+  inline on the task doc as base64 `data_url`. Endpoints
+  `POST /api/tasks/{id}/attachments` (multipart) +
+  `DELETE /api/tasks/{id}/attachments/{att_id}`. RowActions now accepts
+  optional `onAttach` + `attachmentCount` props with a small gold count
+  badge so the paperclip surfaces the right context at a glance.
+- **Task subtasks data-model**: `TaskIn` now accepts `parent_id`; cascade
+  delete on `DELETE /api/tasks/{id}` removes any tasks pointing at it as
+  parent. UI nesting deferred to a follow-up (current row layout still
+  flat — section sub-headers continue to work as before).
+- **Tests**: 4/4 new backend pytests + 20/20 v22 regression + all critical
+  frontend flows pass (dock visible on every page, loan card visible when
+  loans exist, attachment dialog open/upload/list/delete round-trip,
+  sidebar Quick Add/Search removed, old AI bubble removed).
+
 ### v2.9 — Sections sub-headers · Per-module CSV+PDF exports · Cash Flow EMI · Telegram CRUD (2026-02)
 - **🔥 P0 hotfix**: Tasks.jsx had broken JSX from a mid-edit refactor (orphaned
   `nodes.push(` with a missing opening `<div>` and `))` instead of
