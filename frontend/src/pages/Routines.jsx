@@ -7,6 +7,7 @@ import GroupTabs from "@/components/GroupTabs";
 import RowActions from "@/components/RowActions";
 import ReminderDialog from "@/components/ReminderDialog";
 import FilterHeader from "@/components/FilterHeader";
+import ExportButton from "@/components/ExportButton";
 import { useReorder } from "@/lib/useReorder";
 import { Plus, Flame, Check, Upload } from "lucide-react";
 import { toast } from "sonner";
@@ -184,6 +185,7 @@ export default function Routines() {
             >
               <Upload size={12} /> Bulk add
             </button>
+            <ExportButton module="routines" />
           </div>
         }
       />
@@ -289,11 +291,32 @@ export default function Routines() {
         {visible.length === 0 ? (
           <EmptyState title={activeGroup ? `No routines in "${activeGroup}"` : "No routines yet"} hint="Add via AI, the row above, or Bulk add." />
         ) : (
-          visible.map((r, idx) => {
-            const info = summary?.per_routine?.[r.id];
-            const done = info?.done_today;
-            const streak = info?.streak || 0;
-            return (
+          (() => {
+            const anySection = visible.some((r) => (r.section || "").trim());
+            let prevSection = null;
+            const nodes = [];
+            visible.forEach((r, idx) => {
+              if (anySection) {
+                const cur = (r.section || "").trim();
+                if (cur !== prevSection) {
+                  nodes.push(
+                    <div
+                      key={`sec-${idx}-${cur || "none"}`}
+                      className="px-4 py-2 bg-[rgba(201,169,97,0.06)] border-b border-[rgba(201,169,97,0.12)]"
+                      data-testid={`routine-section-${cur || "none"}`}
+                    >
+                      <span className="text-[10px] uppercase tracking-[0.3em] mm-text-gold">
+                        {cur ? cur : "No section"}
+                      </span>
+                    </div>,
+                  );
+                  prevSection = cur;
+                }
+              }
+              const info = summary?.per_routine?.[r.id];
+              const done = info?.done_today;
+              const streak = info?.streak || 0;
+              nodes.push(
               <div
                 key={r.id}
                 className={`grid grid-cols-2 ${GRID} gap-3 px-4 py-2.5 border-b border-[rgba(201,169,97,0.08)] hover:bg-[rgba(201,169,97,0.04)] items-center ${
@@ -377,8 +400,10 @@ export default function Routines() {
                   />
                 </div>
               </div>
-            );
-          })
+              );
+            });
+            return nodes;
+          })()
         )}
       </Card>
 

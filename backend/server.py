@@ -227,6 +227,11 @@ class TransactionIn(BaseModel):
     direction: Literal["in", "out"] = "out"
     account: str = "Personal"
     notes: str = ""
+    # Loan-style fields (used when category=liability or asset for loans given)
+    interest_rate: Optional[float] = None  # annual % rate
+    interest_type: Literal["percent", "fixed"] = "percent"
+    repayment_date: Optional[str] = None  # YYYY-MM-DD
+    emi: Optional[float] = None  # monthly EMI / installment ₹
     source: Literal["manual", "upload", "telegram"] = "manual"
 
 
@@ -930,7 +935,8 @@ async def create_transaction(body: TransactionIn, user=Depends(get_current_user)
 async def update_transaction(tid: str, body: Dict[str, Any], user=Depends(get_current_user)):
     allowed = {"date", "amount", "mode", "company", "expense_head", "direction",
                "account", "notes", "name", "vendor", "details", "remarks", "head",
-               "category", "group", "section", "order_index", "sr_no"}
+               "category", "group", "section", "order_index", "sr_no",
+               "interest_rate", "interest_type", "repayment_date", "emi"}
     body = {k: v for k, v in body.items() if k in allowed}
     body["updated_at"] = now_iso()
     if "sr_no" in body:
@@ -2228,6 +2234,114 @@ async def export_all_xlsx(user=Depends(get_current_user)):
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": 'attachment; filename="mind-matters-export.xlsx"'},
     )
+
+
+# ───────────────────── Per-module exports (CSV + PDF) ─────────────────────
+def _csv_response(filename: str, headers: List[str], rows: List[List[Any]]):
+    import csv as _csv
+    buf = io.StringIO()
+    w = _csv.writer(buf)
+    w.writerow(headers)
+    for r in rows:
+        w.writerow(["" if v is None else str(v) for v in r])
+    from fastapi.responses import Response
+    return Response(
+        content=buf.getvalue(),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+def _pdf_response(filename: str, title: str, headers: List[str], rows: List[List[Any]]):
+    from reportlab.lib.pagesizes import A4, landscape
+    from reportlab.lib import colors
+    from reportlab.lib.units import mm
+    from reportlab.lib.styles import getSampleStyleSheet
+    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=landscape(A4),
+                            leftMargin=12 * mm, rightMargin=12 * mm,
+                            topMargin=12 * mm, bottomMargin=12 * mm)
+    styles = getSampleStyleSheet()
+    story = [Paragraph(f"<b>{title}</b>", styles["Title"]), Spacer(1, 6)]
+    data = [headers] + [[("" if v is None else str(v))[:80] for v in r] for r in rows]
+    t = Table(data, repeatRows=1)
+    t.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#0A0A0A")),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.HexColor("#C9A961")),
+        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("FONTSIZE", (0, 0), (-1, -1), 7.5),
+        ("GRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#C9A961")),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.whitesmoke, colors.white]),
+    ]))
+    story.append(t)
+    doc.build(story)
+    buf.seek(0)
+    from fastapi.responses import Response
+    return Response(
+        content=buf.getvalue(),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+_EXPORT_DEFS: Dict[str, Dict[str, Any]] = {
+    "tasks": {
+        "collection": "tasks",
+        "title": "Tasks",
+        "headers": ["Sr", "Date", "Group", "Section", "To", "Task", "Details", "Status"],
+        "fields": ["sr_no", "date", "group", "section", "name", "task", "details", "status"],
+    },
+    "routines": {
+        "collection": "routines",
+        "title": "Routines",
+        "headers": ["Sr", "Group", "Section", "Name", "Task", "Details", "Frequency"],
+        "fields": ["sr_no", "group", "section", "name", "activity", "details", "frequency"],
+    },
+    "cashflow": {
+        "collection": "transactions",
+        "title": "Cash Flow",
+        "headers": ["Sr", "Date", "Group", "Section", "Vendor", "Details", "Amount",
+                    "Mode", "Head", "Category", "Interest %", "Repayment", "EMI"],
+        "fields": ["sr_no", "date", "group", "section", "vendor", "details", "amount",
+                   "mode", "head", "category", "interest_rate", "repayment_date", "emi"],
+    },
+    "notes": {
+        "collection": "notes",
+        "title": "Notes",
+        "headers": ["Title", "Body", "Tags", "Pinned", "Created"],
+        "fields": ["title", "body", "tags", "pinned", "created_at"],
+    },
+    "reminders": {
+        "collection": "reminders",
+        "title": "Reminders",
+        "headers": ["Title", "Notes", "Fire at", "Recurrence", "Source", "Sent"],
+        "fields": ["title", "notes", "fire_at", "recurrence", "source_page", "sent"],
+    },
+}
+
+
+@api.get("/export/{module}.csv")
+async def export_module_csv(module: str, user=Depends(get_current_user)):
+    spec = _EXPORT_DEFS.get(module.lower())
+    if not spec:
+        raise HTTPException(404, "Unknown module")
+    docs = await db[spec["collection"]].find({"user_id": user["id"]}, {"_id": 0}).to_list(10000)
+    docs.sort(key=lambda d: (d.get("sr_no") or 0, d.get("created_at") or ""))
+    rows = [[d.get(f, "") for f in spec["fields"]] for d in docs]
+    return _csv_response(f"mind-matters-{module}.csv", spec["headers"], rows)
+
+
+@api.get("/export/{module}.pdf")
+async def export_module_pdf(module: str, user=Depends(get_current_user)):
+    spec = _EXPORT_DEFS.get(module.lower())
+    if not spec:
+        raise HTTPException(404, "Unknown module")
+    docs = await db[spec["collection"]].find({"user_id": user["id"]}, {"_id": 0}).to_list(10000)
+    docs.sort(key=lambda d: (d.get("sr_no") or 0, d.get("created_at") or ""))
+    rows = [[d.get(f, "") for f in spec["fields"]] for d in docs]
+    return _pdf_response(f"mind-matters-{module}.pdf", spec["title"], spec["headers"], rows)
 
 
 # ───────────────────── Change password ─────────────────────

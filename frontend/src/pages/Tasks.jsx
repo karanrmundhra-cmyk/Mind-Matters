@@ -7,6 +7,7 @@ import GroupTabs from "@/components/GroupTabs";
 import RowActions from "@/components/RowActions";
 import ReminderDialog from "@/components/ReminderDialog";
 import FilterHeader from "@/components/FilterHeader";
+import ExportButton from "@/components/ExportButton";
 import { useReorder } from "@/lib/useReorder";
 import { Plus, Upload, Check } from "lucide-react";
 import { toast } from "sonner";
@@ -256,6 +257,7 @@ export default function Tasks() {
             >
               <Upload size={12} /> Bulk add
             </button>
+            <ExportButton module="tasks" />
           </div>
         }
       />
@@ -386,6 +388,8 @@ export default function Tasks() {
                 }
               }
               nodes.push(
+            <div
+              key={t.id}
               className={`grid grid-cols-2 ${GRID} gap-3 px-4 py-2.5 border-b border-[rgba(201,169,97,0.08)] hover:bg-[rgba(201,169,97,0.04)] transition items-center ${
                 draggingId === t.id ? "opacity-40" : ""
               }`}
@@ -512,7 +516,10 @@ export default function Tasks() {
                 onDelete={() => remove(t.id)}
               />
             </div>
-          ))
+              );
+            });
+            return nodes;
+          })()
         )}
       </Card>
 

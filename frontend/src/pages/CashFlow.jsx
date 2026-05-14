@@ -6,6 +6,7 @@ import GroupTabs from "@/components/GroupTabs";
 import RowActions from "@/components/RowActions";
 import ReminderDialog from "@/components/ReminderDialog";
 import FilterHeader from "@/components/FilterHeader";
+import ExportButton from "@/components/ExportButton";
 import { useReorder } from "@/lib/useReorder";
 import { Plus, Upload, Check, X } from "lucide-react";
 import { toast } from "sonner";
@@ -292,6 +293,7 @@ export default function CashFlow() {
             >
               <Upload size={12} /> {stmtBusy ? "Reading…" : "Upload"}
             </button>
+            <ExportButton module="cashflow" />
           </div>
         }
       />
@@ -395,9 +397,30 @@ export default function CashFlow() {
         {visible.length === 0 ? (
           <EmptyState title="No entries" hint="Use AI bar, manual row, or upload a statement." />
         ) : (
-          visible.map((t, idx) => {
-            const cat = t.category || (t.direction === "in" ? "income" : "expense");
-            return (
+          (() => {
+            const anySection = visible.some((r) => (r.section || "").trim());
+            let prevSection = null;
+            const nodes = [];
+            visible.forEach((t, idx) => {
+              if (anySection) {
+                const cur = (t.section || "").trim();
+                if (cur !== prevSection) {
+                  nodes.push(
+                    <div
+                      key={`sec-${idx}-${cur || "none"}`}
+                      className="px-4 py-2 bg-[rgba(201,169,97,0.06)] border-b border-[rgba(201,169,97,0.12)]"
+                      data-testid={`tx-section-${cur || "none"}`}
+                    >
+                      <span className="text-[10px] uppercase tracking-[0.3em] mm-text-gold">
+                        {cur ? cur : "No section"}
+                      </span>
+                    </div>,
+                  );
+                  prevSection = cur;
+                }
+              }
+              const cat = t.category || (t.direction === "in" ? "income" : "expense");
+              nodes.push(
               <div
                 key={t.id}
                 className={`grid grid-cols-2 ${GRID} gap-3 px-4 py-2.5 border-b border-[rgba(201,169,97,0.08)] hover:bg-[rgba(201,169,97,0.04)] items-center ${draggingId === t.id ? "opacity-40" : ""}`}
@@ -463,8 +486,94 @@ export default function CashFlow() {
                   onDelete={() => remove(t.id)}
                 />
               </div>
-            );
-          })
+              );
+              // Inline loan-details strip for liability/asset rows: interest_rate · repayment_date · EMI
+              const showLoan = (cat === "liability" || cat === "asset")
+                || t.interest_rate != null || t.repayment_date || t.emi != null;
+              if (showLoan) {
+                const startISO = t.date;
+                const endISO = t.repayment_date;
+                const monthsBetween = (() => {
+                  if (!startISO || !endISO) return null;
+                  const s = new Date(startISO); const e = new Date(endISO);
+                  if (isNaN(s) || isNaN(e) || e <= s) return null;
+                  return (e.getFullYear() - s.getFullYear()) * 12 + (e.getMonth() - s.getMonth());
+                })();
+                const calcEmi = (() => {
+                  const P = Number(t.amount) || 0;
+                  const r = Number(t.interest_rate) || 0;
+                  const n = monthsBetween;
+                  if (!P || !n || n <= 0) return null;
+                  if (!r) return P / n;
+                  const i = r / 100 / 12;
+                  const pow = Math.pow(1 + i, n);
+                  return (P * i * pow) / (pow - 1);
+                })();
+                nodes.push(
+                  <div
+                    key={`loan-${t.id}`}
+                    className="px-4 py-1.5 border-b border-[rgba(201,169,97,0.08)] bg-[rgba(201,169,97,0.02)]"
+                    data-testid="tx-loan-row"
+                  >
+                    <div className="flex flex-wrap items-center gap-3 text-[11px] text-[#B7A98A]/70">
+                      <span className="uppercase tracking-[0.25em] mm-text-gold/70">Loan</span>
+                      <label className="flex items-center gap-1.5">
+                        <span>Rate %</span>
+                        <input
+                          type="number"
+                          step="0.01"
+                          defaultValue={t.interest_rate ?? ""}
+                          onBlur={(e) => {
+                            const v = e.target.value === "" ? null : Number(e.target.value);
+                            if (v !== (t.interest_rate ?? null)) patch(t.id, { interest_rate: v });
+                          }}
+                          placeholder="—"
+                          className="mm-input-ghost text-[11px] !py-1 w-16"
+                          data-testid="tx-interest-rate"
+                        />
+                      </label>
+                      <label className="flex items-center gap-1.5">
+                        <span>Repay</span>
+                        <input
+                          type="date"
+                          defaultValue={t.repayment_date || ""}
+                          onBlur={(e) => {
+                            if ((e.target.value || null) !== (t.repayment_date || null)) {
+                              patch(t.id, { repayment_date: e.target.value || null });
+                            }
+                          }}
+                          className="mm-input-ghost text-[11px] !py-1"
+                          data-testid="tx-repayment-date"
+                        />
+                      </label>
+                      <label className="flex items-center gap-1.5">
+                        <span>EMI ₹</span>
+                        <input
+                          type="number"
+                          step="1"
+                          defaultValue={t.emi ?? (calcEmi ? Math.round(calcEmi) : "")}
+                          onBlur={(e) => {
+                            const v = e.target.value === "" ? null : Number(e.target.value);
+                            if (v !== (t.emi ?? null)) patch(t.id, { emi: v });
+                          }}
+                          placeholder={calcEmi ? String(Math.round(calcEmi)) : "—"}
+                          className="mm-input-ghost text-[11px] !py-1 w-24"
+                          data-testid="tx-emi"
+                          title={calcEmi ? `Auto ₹${Math.round(calcEmi).toLocaleString("en-IN")} over ${monthsBetween} months` : ""}
+                        />
+                      </label>
+                      {calcEmi && (
+                        <span className="text-[#B7A98A]/55">
+                          auto · ₹{Math.round(calcEmi).toLocaleString("en-IN")} × {monthsBetween}mo
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                );
+              }
+            });
+            return nodes;
+          })()
         )}
       </Card>
 

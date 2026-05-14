@@ -3,6 +3,7 @@ import { api, BACKEND_URL } from "@/lib/api";
 import { Card, SectionTitle, EmptyState } from "@/components/Primitives";
 import AiAddBar from "@/components/AiAddBar";
 import BulkAddDialog from "@/components/BulkAddDialog";
+import ExportButton from "@/components/ExportButton";
 import { BellRing, Plus, Trash2, Download, Check, Clock, Upload, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 
@@ -260,6 +261,7 @@ export default function Reminders() {
             >
               <Upload size={12} /> Bulk add
             </button>
+            <ExportButton module="reminders" />
           </div>
         }
       />

@@ -201,6 +201,16 @@ def _format_preview(kind, p):
         t = p.get("title") or "(untitled)"
         b = (p.get("body") or "")[:120]
         return f"📝 *Note*\n{t}{chr(10) + b if b else ''}"
+    if kind.startswith("delete_"):
+        res = kind.split("_", 1)[1]
+        sr = p.get("sr_no")
+        label = (p.get("task") or p.get("activity") or p.get("vendor")
+                 or p.get("details") or "(unknown)")
+        return f"🗑 *Delete {res}* #{sr}\n{label}"
+    if kind == "update_task":
+        sr = p.get("sr_no")
+        label = p.get("task") or "(task)"
+        return f"✓ *Complete task* #{sr}\n{label}"
     return f"_{kind}_\n{_json.dumps(p, default=str)[:300]}"
 
 
@@ -360,6 +370,59 @@ async def _generate_statement_pdf(db, user, kind: str, name=None, month=None):
 
 
 # ───────────────────────── handlers ─────────────────────────
+async def _execute_pending(db, pending: dict, create_task_fn, create_expense_fn, create_note_fn):
+    """Execute a saved pending action. Returns a user-facing confirmation string.
+
+    Supports kinds: task / expense / note / delete_task / delete_routine /
+    delete_expense / update_task (mark as Completed).
+    """
+    parsed = pending.get("parsed") or {}
+    kind = pending.get("kind") or "note"
+    user_id = pending.get("user_id")
+    if kind == "task":
+        await create_task_fn(user_id, parsed)
+        return f"✓ Task added: {parsed.get('task','')}"
+    if kind == "expense":
+        await create_expense_fn(user_id, parsed)
+        amt = parsed.get("amount", "?")
+        try:
+            amt = f"₹{float(amt):,.0f}"
+        except Exception:
+            pass
+        return f"✓ Expense logged: {amt} · {parsed.get('expense_head','')}"
+    if kind == "note":
+        await create_note_fn(user_id, parsed)
+        return "✓ Note saved"
+    if kind in ("delete_task", "delete_routine", "delete_expense"):
+        coll = {"delete_task": "tasks", "delete_routine": "routines",
+                "delete_expense": "transactions"}[kind]
+        rid = parsed.get("id")
+        if rid:
+            await db[coll].delete_one({"id": rid, "user_id": user_id})
+            sr = parsed.get("sr_no")
+            return f"🗑 Deleted {coll[:-1]} #{sr}"
+        return "✗ Nothing to delete"
+    if kind == "update_task":
+        rid = parsed.get("id")
+        if rid:
+            await db.tasks.update_one(
+                {"id": rid, "user_id": user_id},
+                {"$set": {"status": parsed.get("status") or "Completed",
+                          "updated_at": datetime.now(timezone.utc).isoformat()}},
+            )
+            sr = parsed.get("sr_no")
+            return f"✓ Task #{sr} marked completed"
+        return "✗ Task not found"
+    return "✓ Noted"
+
+
+async def _latest_pending_for_chat(db, chat_id):
+    """Return most-recent un-consumed pending for the given chat_id, or None."""
+    cur = db.tg_pending.find({"chat_id": chat_id}, {"_id": 0}).sort("created_at", -1).limit(1)
+    arr = await cur.to_list(1)
+    return arr[0] if arr else None
+
+
 async def _handle_callback(db, create_task_fn, create_expense_fn, create_note_fn, upd: dict):
     cq = upd.get("callback_query") or {}
     data = cq.get("data") or ""
@@ -386,28 +449,12 @@ async def _handle_callback(db, create_task_fn, create_expense_fn, create_note_fn
         return
 
     # YES
-    parsed = pending.get("parsed") or {}
-    kind = pending.get("kind") or "note"
-    user_id = pending.get("user_id")
     try:
-        if kind == "task":
-            await create_task_fn(user_id, parsed)
-            txt = f"✓ Task added: {parsed.get('task','')}"
-        elif kind == "expense":
-            await create_expense_fn(user_id, parsed)
-            amt = parsed.get("amount", "?")
-            try:
-                amt = f"₹{float(amt):,.0f}"
-            except Exception:
-                pass
-            txt = f"✓ Expense logged: {amt} · {parsed.get('expense_head','')}"
-        elif kind == "note":
-            await create_note_fn(user_id, parsed)
-            txt = "✓ Note saved"
-        else:
-            txt = "✓ Noted"
+        txt = await _execute_pending(
+            db, pending, create_task_fn, create_expense_fn, create_note_fn,
+        )
         await db.tg_pending.delete_one({"id": pid})
-        await tg_answer_callback(cb_id, "Added")
+        await tg_answer_callback(cb_id, "Done")
         await tg_edit_message_text(chat_id, msg_id, txt)
     except Exception as e:
         logger.warning(f"callback save: {e}")
@@ -523,7 +570,92 @@ async def _handle_update(db, ai_parse_fn, create_task_fn, create_expense_fn, cre
     if not text:
         return
 
-    # Statement query intent first
+    # Text-based yes/no for the most recent pending (works alongside inline buttons).
+    low = text.strip().lower()
+    if low in {"yes", "y", "ok", "confirm", "go", "sure", "save"}:
+        pending = await _latest_pending_for_chat(db, chat_id)
+        if pending:
+            try:
+                msg_out = await _execute_pending(
+                    db, pending, create_task_fn, create_expense_fn, create_note_fn,
+                )
+                await db.tg_pending.delete_one({"id": pending["id"]})
+                await tg_send(chat_id, msg_out)
+            except Exception as e:
+                logger.warning(f"text-yes execute: {e}")
+                await tg_send(chat_id, "✗ Failed to save — try again.")
+            return
+        # else fall through to AI parse (interpret bare "yes" as a note)
+    if low in {"no", "n", "cancel", "discard", "skip", "nope"}:
+        pending = await _latest_pending_for_chat(db, chat_id)
+        if pending:
+            await db.tg_pending.delete_one({"id": pending["id"]})
+            await tg_send(chat_id, "✗ Discarded")
+            return
+
+    # CRUD commands: delete / complete by sr_no
+    m_del = re.match(
+        r"^\s*(?:delete|remove|drop)\s+(task|routine|expense|transaction)\s*#?(\d+)\s*$",
+        low,
+    )
+    if m_del:
+        res = m_del.group(1)
+        if res == "transaction":
+            res = "expense"
+        sr = int(m_del.group(2))
+        coll = {"task": "tasks", "routine": "routines", "expense": "transactions"}[res]
+        row = await db[coll].find_one(
+            {"user_id": user["id"], "sr_no": sr}, {"_id": 0},
+        )
+        if not row:
+            await tg_send(chat_id, f"No {res} found with Sr #{sr}.")
+            return
+        pid = await _save_pending(
+            db, chat_id, user["id"], f"delete_{res}",
+            {"id": row["id"], "sr_no": sr,
+             "task": row.get("task"), "activity": row.get("activity"),
+             "vendor": row.get("vendor") or row.get("name"),
+             "details": row.get("details")},
+        )
+        await tg_send(
+            chat_id,
+            "Confirm to delete?\n\n" + _format_preview(f"delete_{res}", {
+                "sr_no": sr, "task": row.get("task"),
+                "activity": row.get("activity"),
+                "vendor": row.get("vendor") or row.get("name"),
+                "details": row.get("details"),
+            }) + "\n\n_Or just reply yes / no_",
+            reply_markup=_confirm_kbd(pid), parse_mode="Markdown",
+        )
+        return
+
+    m_done = re.match(
+        r"^\s*(?:complete|finish|done|mark)\s+(?:task\s+)?#?(\d+)\s*(?:done|complete|finished)?\s*$",
+        low,
+    )
+    if m_done:
+        sr = int(m_done.group(1))
+        row = await db.tasks.find_one(
+            {"user_id": user["id"], "sr_no": sr}, {"_id": 0},
+        )
+        if not row:
+            await tg_send(chat_id, f"No task found with Sr #{sr}.")
+            return
+        pid = await _save_pending(
+            db, chat_id, user["id"], "update_task",
+            {"id": row["id"], "sr_no": sr, "task": row.get("task"),
+             "status": "Completed"},
+        )
+        await tg_send(
+            chat_id,
+            "Confirm completion?\n\n" + _format_preview(
+                "update_task", {"sr_no": sr, "task": row.get("task")}
+            ) + "\n\n_Or just reply yes / no_",
+            reply_markup=_confirm_kbd(pid), parse_mode="Markdown",
+        )
+        return
+
+    # Statement query intent
     sq = _detect_statement_query(text)
     if sq:
         kind, name = sq

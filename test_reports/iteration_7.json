@@ -1,0 +1,30 @@
+{
+  "summary": "v22 cluster fully verified — Tasks page restore, Sections sub-headers, per-module CSV+PDF exports, EMI/interest on cash flow, Telegram regex. 20/20 backend pytest pass + all critical frontend testids present and download flow works.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_v22.py",
+    "/app/test_reports/pytest/v22_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Tasks.jsx restored cleanly — IIFE pattern for section headers works and matches Routines.jsx and CashFlow.jsx exactly. Good consistency.",
+    "Per-module export endpoints share a single _EXPORT_DEFS dict and two thin handlers — clean DRY pattern. Suggest extracting _csv_response / _pdf_response into a small utils module if server.py is split later.",
+    "tg.py text yes/no + delete/complete regex are correct; the 'complete' regex `(?:task\\s+)?#?(\\d+)` is permissive (accepts 'done 3', 'mark task 5 done') — confirmed via static regex unit tests.",
+    "TransactionIn rightly stores interest_rate/repayment_date/emi at the row level and the inline tx-loan-row strip renders them — note: when emi is empty the auto-calculated '₹X × Nmo' still shows, which is correct UX.",
+    "Minor: ExportButton uses sonner toast.error('Export failed') but axios blob errors won't have JSON body — consider logging response.status for debuggability.",
+    "server.py is still ~2900 lines monolith (technical debt carried from iter_3+) — non-blocking but worth splitting into routers (auth/tasks/cashflow/exports/telegram)."
+  ],
+  "updated_files": ["/app/backend/tests/test_v22.py", "/app/test_reports/pytest/v22_results.xml"],
+  "success_rate": {"backend": "100% (20/20 pytest)", "frontend": "100% (all 9 testid/flow checks pass)"},
+  "test_credentials": "karan@mindmatters.local / changeme123",
+  "seed_data_creation": "Set section='Today' on first task and section='Morning' on first routine (left in place — visible on UI). Created+deleted 2 TEST_EMI_* transactions for round-trip verification. Created+deleted 1 TEST_SEC_TX transaction for section PATCH.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "v22 cluster fully green. Backend: 20 pytests in /app/backend/tests/test_v22.py cover sections PATCH, CSV+PDF exports (parametric x5), EMI round-trip, telegram regex (delete/complete/yes-no), parse/bulk regression, login. Frontend confirmed: tasks-page+task-row+task-section-Today+task-section-none render; routine-section-Morning renders; tx-loan-row renders for liability rows with editable Rate%/Repay/EMI inputs; export-{tasks,routines,cashflow,notes,reminders}-btn all open menus with -csv and -pdf entries; clicking export-cashflow-csv triggers actual download (mind-matters-cashflow.csv). One task previously created 'Today' section is still set on karan's tasks — safe to leave.",
+  "rca of the issue": "N/A — no failures. Initial single-shot Playwright run reported task-row count=0 due to a render race; a 3s settling wait then reliably found 6 rows. No code change needed; tests in this report use explicit waits."
+}

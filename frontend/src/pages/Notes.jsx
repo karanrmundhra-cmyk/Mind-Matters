@@ -3,6 +3,7 @@ import { api } from "@/lib/api";
 import { Card, SectionTitle, EmptyState } from "@/components/Primitives";
 import AiAddBar from "@/components/AiAddBar";
 import BulkAddDialog from "@/components/BulkAddDialog";
+import ExportButton from "@/components/ExportButton";
 import {
   Plus, Search, Pin, PinOff, Trash2, Tag as TagIcon, Image as ImageIcon, Upload, BellRing,
 } from "lucide-react";
@@ -185,6 +186,7 @@ export default function Notes() {
             >
               <Upload size={12} /> Bulk add
             </button>
+            <ExportButton module="notes" />
           </div>
         }
       />
