@@ -567,7 +567,7 @@ export default function CashFlow() {
                   onSubtask={(t._depth || 0) >= 2 ? undefined : () => splitBill(t)}
                   onFlag={() => patch(t.id, { flagged: !t.flagged })}
                   flagged={!!t.flagged}
-                  onComment={projectId ? () => setCommentFor(t) : undefined}
+                  onComment={(projectId || t.project_id) ? () => setCommentFor(t) : undefined}
                   commentCount={commentCounts[t.id] || 0}
                   onDelete={() => remove(t.id)}
                 />

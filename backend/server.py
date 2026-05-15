@@ -32,7 +32,7 @@ from emergentintegrations.llm.chat import LlmChat, UserMessage
 import bcrypt
 
 from docs_gen import render_by_template_id, BUILTIN_TEMPLATES, render_simple_statement
-from tg import tg_send, tg_send_document, tg_poll_loop, reminder_loop
+from tg import tg_send, tg_send_document, tg_poll_loop, reminder_loop, digest_loop
 
 MONGO_URL = os.environ["MONGO_URL"]
 DB_NAME = os.environ["DB_NAME"]
@@ -3836,6 +3836,94 @@ async def tg_send_test(body: TgTestReq, user=Depends(get_current_user)):
     return {"ok": bool(res and res.get("ok")), "response": res}
 
 
+# ───────────────────── Daily digest settings (v2.21) ─────────────────────
+class DigestPrefs(BaseModel):
+    enabled: bool = True
+    hour: int = 9  # UTC hour (0-23)
+
+
+@api.get("/digest/settings")
+async def digest_settings(user=Depends(get_current_user)):
+    return {
+        "enabled": user.get("digest_enabled", True),
+        "hour": int(user.get("digest_hour", 9)),
+        "last_sent_at": user.get("last_digest_sent_at"),
+        "telegram_linked": bool(user.get("telegram_chat_id")),
+    }
+
+
+@api.patch("/digest/settings")
+async def update_digest_settings(body: DigestPrefs, user=Depends(get_current_user)):
+    h = max(0, min(23, int(body.hour)))
+    await db.users.update_one(
+        {"id": user["id"]},
+        {"$set": {"digest_enabled": bool(body.enabled), "digest_hour": h}},
+    )
+    return {"ok": True, "enabled": bool(body.enabled), "hour": h}
+
+
+@api.post("/digest/send-now")
+async def digest_send_now(user=Depends(get_current_user)):
+    """Force-trigger a digest for this user, ignoring the schedule + 'sent
+    today' flag. Useful for previewing what the daily digest will look like."""
+    if not user.get("telegram_chat_id"):
+        raise HTTPException(400, "Telegram not linked")
+    # Clear last_digest_date so the next loop tick picks us up — but easier:
+    # build and send synchronously here.
+    from datetime import timedelta as _td
+    import re as _re
+    now = datetime.now(timezone.utc)
+    since_iso = (now - _td(hours=24)).isoformat()
+    pids = await _user_accessible_project_ids(user["id"], user.get("email", ""))
+    proj_docs = await db.projects.find(
+        {"id": {"$in": pids}}, {"_id": 0, "id": 1, "name": 1},
+    ).to_list(200)
+    proj_by_id = {p["id"]: p for p in proj_docs}
+    comments = await db.comments.find(
+        {"project_id": {"$in": pids}, "created_at": {"$gte": since_iso}}, {"_id": 0},
+    ).sort("created_at", -1).to_list(200)
+    new_tasks = await db.tasks.count_documents(
+        {"project_id": {"$in": pids}, "created_at": {"$gte": since_iso},
+         "user_id": {"$ne": user["id"]}},
+    )
+    new_tx = await db.transactions.count_documents(
+        {"project_id": {"$in": pids}, "created_at": {"$gte": since_iso},
+         "user_id": {"$ne": user["id"]}},
+    )
+    handle = (user.get("first_name") or user.get("email", "").split("@")[0] or "").lower()
+    prefix = user.get("email", "").split("@")[0].lower()
+    mention_re = _re.compile(r"@([\w][\w.\-]{0,40})")
+    mentions = [c for c in comments if any(
+        h.lower() in {handle, prefix} for h in mention_re.findall(c.get("body", ""))
+    )]
+    lines = ["☀️ <b>Your digest (preview)</b>", ""]
+    if mentions:
+        lines.append(f"💬 <b>{len(mentions)} mention(s) of you</b>")
+        for c in mentions[:5]:
+            proj_name = proj_by_id.get(c["project_id"], {}).get("name", "Project")
+            snippet = c.get("body", "").strip().replace("\n", " ")[:120]
+            lines.append(f"  · {c.get('user_name','Someone')} in <i>{proj_name}</i>: {snippet}")
+    other_comments = [c for c in comments if c not in mentions]
+    if other_comments:
+        lines.append("")
+        lines.append(f"💭 <b>{len(other_comments)} new comment(s)</b> in your projects")
+    if new_tasks or new_tx:
+        lines.append("")
+        bits = []
+        if new_tasks:
+            bits.append(f"{new_tasks} new task(s)")
+        if new_tx:
+            bits.append(f"{new_tx} cash-flow row(s)")
+        lines.append(f"🆕 {' · '.join(bits)} added by collaborators")
+    if len(lines) <= 2:
+        lines.append("<i>Nothing new in the last 24h — all caught up ✓</i>")
+    res = await tg_send(user["telegram_chat_id"], "\n".join(lines), parse_mode="HTML")
+    return {"ok": bool(res and res.get("ok")), "items": {
+        "mentions": len(mentions), "comments": len(other_comments),
+        "new_tasks": new_tasks, "new_transactions": new_tx,
+    }}
+
+
 # ───────────────────── Share statements via Telegram ─────────────────────
 class ShareStatementReq(BaseModel):
     kind: Literal["loan", "tasks", "transactions"] = "loan"
@@ -4355,7 +4443,8 @@ async def _mm_startup_tasks():
             _create_expense_internal, _create_note_internal,
         ))
         asyncio.create_task(reminder_loop(db))
-        logger.info("Background tasks started (Telegram poller + reminders)")
+        asyncio.create_task(digest_loop(db))
+        logger.info("Background tasks started (Telegram poller + reminders + digest)")
     except Exception as e:
         logger.warning(f"Startup tasks failed: {e}")
 

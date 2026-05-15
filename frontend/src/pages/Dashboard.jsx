@@ -311,7 +311,10 @@ export default function Dashboard() {
             <Newspaper size={12} className="mm-text-gold" />
             Today's News
             {news?.source === "custom" && (
-              <span className="text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-[rgba(122,184,255,0.12)] text-[#7AB8FF] border border-[rgba(122,184,255,0.25)]">
+              <span
+                className="text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-[rgba(122,184,255,0.12)] text-[#7AB8FF] border border-[rgba(122,184,255,0.25)]"
+                data-testid="news-source-chip"
+              >
                 Custom
               </span>
             )}

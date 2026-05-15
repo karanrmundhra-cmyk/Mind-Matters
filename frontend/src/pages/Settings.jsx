@@ -38,6 +38,8 @@ export default function Settings() {
   const [pwBusy, setPwBusy] = useState(false);
   const [theme, setTheme] = useState(() => localStorage.getItem("mm_theme") || "dark");
   const [focusMode, setFocusMode] = useState(() => localStorage.getItem("mm_focus_mode") === "1");
+  const [digest, setDigest] = useState(null);
+  const [digestBusy, setDigestBusy] = useState(false);
 
   // Sync from localStorage on first paint (so the toggle reflects state set elsewhere).
   useEffect(() => {
@@ -48,12 +50,14 @@ export default function Settings() {
   }, [focusMode]);
 
   const refresh = async () => {
-    const [s, c] = await Promise.all([
+    const [s, c, d] = await Promise.all([
       api.get("/telegram/status"),
       api.get("/cal/feed/token"),
+      api.get("/digest/settings").catch(() => ({ data: null })),
     ]);
     setStatus(s.data);
     setCalToken(c.data?.token || null);
+    setDigest(d.data);
   };
   useEffect(() => {
     refresh();
@@ -86,6 +90,34 @@ export default function Settings() {
       toast.success("Sent! Check Telegram.");
     } catch (e) {
       toast.error(e?.response?.data?.detail || "Failed");
+    }
+  };
+
+  const updateDigest = async (patch) => {
+    setDigestBusy(true);
+    try {
+      const next = { enabled: digest?.enabled ?? true, hour: digest?.hour ?? 9, ...patch };
+      await api.patch("/digest/settings", next);
+      setDigest((d) => ({ ...d, ...next }));
+      toast.success("Digest preferences updated");
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Failed");
+    } finally {
+      setDigestBusy(false);
+    }
+  };
+
+  const sendDigestNow = async () => {
+    setDigestBusy(true);
+    try {
+      const { data } = await api.post("/digest/send-now", {});
+      const items = data.items || {};
+      toast.success(`Digest sent — ${items.mentions || 0} mentions · ${items.comments || 0} comments`);
+      await refresh();
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Failed");
+    } finally {
+      setDigestBusy(false);
     }
   };
 
@@ -404,6 +436,68 @@ export default function Settings() {
                     <Send size={12} /> Open in Telegram
                   </a>
                 )}
+              </div>
+            )}
+          </div>
+        )}
+      </Card>
+
+      {/* Daily digest (Telegram) */}
+      <Card className="p-5" data-testid="settings-digest">
+        <div className="flex items-center gap-2 text-[10px] uppercase tracking-[0.3em] text-[#B7A98A]/65 mb-3">
+          <Send size={12} /> Daily Digest
+        </div>
+        {!digest?.telegram_linked ? (
+          <p className="text-sm text-[#B7A98A]/65">
+            Link Telegram above to receive a once-daily summary of <span className="mm-text-gold">@-mentions</span>{" "}
+            and new activity in your shared projects.
+          </p>
+        ) : (
+          <div className="space-y-3">
+            <p className="text-sm text-[#B7A98A]/75 leading-relaxed">
+              A once-daily Telegram message summarising mentions, new comments, and rows
+              added by collaborators across your shared projects in the last 24h.
+            </p>
+            <div className="flex flex-wrap items-center gap-3">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={!!digest?.enabled}
+                  onChange={(e) => updateDigest({ enabled: e.target.checked })}
+                  disabled={digestBusy}
+                  className="accent-[#C9A961]"
+                  data-testid="digest-enabled"
+                />
+                <span className="text-sm mm-text-gold-bright">Enabled</span>
+              </label>
+              <label className="flex items-center gap-2 text-sm">
+                <span className="text-[#B7A98A]/70">Send at</span>
+                <select
+                  value={digest?.hour ?? 9}
+                  onChange={(e) => updateDigest({ hour: Number(e.target.value) })}
+                  disabled={digestBusy || !digest?.enabled}
+                  className="mm-input-ghost text-xs"
+                  data-testid="digest-hour"
+                >
+                  {Array.from({ length: 24 }, (_, h) => (
+                    <option key={h} value={h}>
+                      {String(h).padStart(2, "0")}:00 UTC
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button
+                onClick={sendDigestNow}
+                disabled={digestBusy}
+                className="mm-btn-ghost text-xs flex items-center gap-1.5 disabled:opacity-40"
+                data-testid="digest-send-now"
+              >
+                <Send size={12} /> Send preview now
+              </button>
+            </div>
+            {digest?.last_sent_at && (
+              <div className="text-[11px] text-[#B7A98A]/55" data-testid="digest-last-sent">
+                Last sent: {new Date(digest.last_sent_at).toLocaleString()}
               </div>
             )}
           </div>

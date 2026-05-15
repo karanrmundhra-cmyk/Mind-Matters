@@ -441,7 +441,7 @@ export default function Routines() {
                     onSubtask={(r._depth || 0) >= 2 ? undefined : () => createSubroutine(r)}
                     onFlag={() => patch(r.id, { flagged: !r.flagged })}
                     flagged={!!r.flagged}
-                    onComment={projectId ? () => setCommentFor(r) : undefined}
+                    onComment={(projectId || r.project_id) ? () => setCommentFor(r) : undefined}
                     commentCount={commentCounts[r.id] || 0}
                     onDelete={() => remove(r.id)}
                   />

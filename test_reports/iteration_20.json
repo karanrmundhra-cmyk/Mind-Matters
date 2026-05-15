@@ -1,0 +1,49 @@
+{
+  "summary": "v2.21 end-to-end test PASSED on backend (15/15) and 4/4 UI items verified. Daily Telegram digest backend (GET/PATCH /digest/settings, POST /digest/send-now with telegram_linked gate and items payload) is solid. digest_loop is wired into server.py startup. Frontend: settings-digest card with digest-enabled/digest-hour/digest-send-now/digest-last-sent all render and are interactive for Karan (telegram_linked=true; last_sent_at=2026-05-15T16:21Z). Reports → Inbox renders activity-filter-project + activity-filter-kind dropdowns; client-side filtering works. Tasks page shows 16 comment buttons (relaxed onComment gate to projectId || row.project_id). news-source-chip data-testid exists and renders conditionally on news.source==='custom' (verified in DOM via direct fetch) — minor UI race noted below.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {
+        "flow": "Dashboard news widget when saving custom RSS via Edit-feed input",
+        "issue": "When customRss state changes rapidly (typing char-by-char in news-rss-input), useEffect([newsCategory, customRss]) fires multiple concurrent /api/news fetches. Last response to resolve may be a stale earlier fetch, leaving the news widget displaying google-news items even though the latest API call returned source='custom'. As a result, news-source-chip sometimes does not appear after save. Direct API and pre-seeded localStorage both confirm backend returns source='custom' correctly. Recommend an AbortController or request-token in load() to discard stale responses. Pre-existing — not introduced by v2.21.",
+        "affected_selectors": ["[data-testid='news-source-chip']", "[data-testid='news-widget']"]
+      }
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_v221.py",
+    "/app/test_reports/pytest/v221_results.xml"
+  ],
+  "action_items": [
+    "(Low priority) Add AbortController to Dashboard.load() to cancel stale /api/news fetches when customRss changes mid-flight — fixes the intermittent missing news-source-chip after rapid customRss edits.",
+    "(Optional) Add a brief 'sending…' state to digest-send-now button (it currently just disables via digestBusy)."
+  ],
+  "critical_code_review_comments": [
+    "server.py 3865-3924 (/digest/send-now): Logic correctly mirrors digest_loop body. 24h window uses created_at >= since_iso; mention detection uses lowercase set {handle, prefix} and tolerates @user.name punctuation via regex [\\w][\\w.\\-]{0,40}. Good.",
+    "server.py 3855-3862 (PATCH /digest/settings): hour clamping with max(0, min(23, int)) is robust. Pydantic should also enforce: consider `hour: int = Field(9, ge=0, le=23)` to fail-fast on invalid input.",
+    "tg.py digest_loop (872-980): 30-min poll cycle + last_digest_date fence prevents re-fire. Empty-digest short-circuit at 943-947 also stamps today_key — good. Minor: `if now.hour < hour` will never fire if hour=23 and loop starts at 23:30 (would skip until next day). Acceptable trade-off.",
+    "Settings.jsx 446-505 (settings-digest): Clean conditional render on digest.telegram_linked. updateDigest persists optimistically then refreshes — good UX. All 4 v2.21 data-testids present.",
+    "Reports.jsx 218-268: activity-filter-project options are derived from Map(activity.map(e=>[e.project_id, …])) which correctly dedupes by project. Empty-state differentiates 'No events match filters' vs 'No activity yet' — exactly per spec.",
+    "Dashboard.jsx 313-320: news-source-chip span has data-testid as requested. Conditional `news?.source === 'custom'` is correct. (See integration_issues for stale-response race.)"
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_v221.py",
+    "/app/test_reports/pytest/v221_results.xml",
+    "/app/test_reports/iteration_20.json"
+  ],
+  "success_rate": {
+    "backend": "100% (15/15 v2.21 pytest pass — digest settings GET/PATCH shape + clamp 0/23 + persistence, /digest/send-now items payload, telegram-not-linked → 400, digest_loop importable + wired in server startup, regression on mentionable/comment-counts/news-default/activity)",
+    "frontend": "95% — settings-digest, digest-enabled, digest-hour, digest-send-now, digest-last-sent, activity-filter-project, activity-filter-kind all render & function. news-source-chip code path verified but UI flow has a stale-response race when typing the custom RSS URL (see integration_issues)."
+  },
+  "test_credentials": "karan@mindmatters.local / changeme123",
+  "seed_data_creation": "Patched /api/digest/settings (hour=11 then restored to 9) and posted /api/digest/send-now once (Karan received a real preview Telegram message — last_digest_sent_at refreshed to 2026-05-15T16:30Z). Created one throwaway signup user TEST_digest_*@mindmatters.local to validate 400 on send-now when telegram not linked (left in DB; harmless).",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "v2.21 all 4 items (daily digest backend+UI, activity filters, all-projects comment-button visibility, news-source-chip testid) ship-ready. /api/digest/send-now WILL dispatch a real Telegram message — call sparingly during re-tests. digest_loop polls every 30 min — non-deterministic; rely on send-now to exercise the same code path. For news-source-chip UI test prefer the pre-seed-localStorage + page.reload() pattern over typing into the news-rss-input (avoids the stale-response race documented in integration_issues).",
+  "rca of the issue": "No v2.21 bug; the single minor finding is a pre-existing Dashboard race when customRss state changes rapidly via news-rss-input typing. Fix: track a request token (or AbortController) in load() so stale /api/news responses don't overwrite the latest setNews. Backend correctly returns source='custom' (verified via direct fetch returning {status:200, source:'custom', items_n:5})."
+}

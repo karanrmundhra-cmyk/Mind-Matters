@@ -118,6 +118,8 @@ export default function Reports() {
   const [briefing, setBriefing] = useState(null);
   const [briefingBusy, setBriefingBusy] = useState(false);
   const [activity, setActivity] = useState([]);
+  const [activityProject, setActivityProject] = useState("");
+  const [activityKind, setActivityKind] = useState("");
 
   useEffect(() => {
     (async () => {
@@ -213,25 +215,65 @@ export default function Reports() {
         <div className="space-y-5" data-testid="reports-inbox">
           {/* Activity Feed — multi-project collaboration signal */}
           <Card className="p-0 overflow-hidden" data-testid="inbox-activity">
-            <div className="px-5 py-3 border-b border-[rgba(201,169,97,0.15)] flex items-center gap-2">
+            <div className="px-5 py-3 border-b border-[rgba(201,169,97,0.15)] flex items-center gap-2 flex-wrap">
               <MessageSquare size={12} className="mm-text-gold" />
               <span className="text-[10px] uppercase tracking-[0.3em] mm-text-gold">Activity</span>
-              <span className="text-[10px] text-[#B7A98A]/55 ml-auto">
-                {activity.length} recent event{activity.length !== 1 ? "s" : ""}
-              </span>
+              {(() => {
+                const projOptions = Array.from(
+                  new Map(activity.map((e) => [e.project_id, { id: e.project_id, name: e.project_name, color: e.project_color }])).values(),
+                );
+                return (
+                  <div className="flex items-center gap-2 ml-auto">
+                    <select
+                      value={activityProject}
+                      onChange={(e) => setActivityProject(e.target.value)}
+                      className="mm-input-ghost text-[10px] !py-1"
+                      data-testid="activity-filter-project"
+                    >
+                      <option value="">All projects</option>
+                      {projOptions.map((p) => (
+                        <option key={p.id} value={p.id}>{p.name}</option>
+                      ))}
+                    </select>
+                    <select
+                      value={activityKind}
+                      onChange={(e) => setActivityKind(e.target.value)}
+                      className="mm-input-ghost text-[10px] !py-1"
+                      data-testid="activity-filter-kind"
+                    >
+                      <option value="">All kinds</option>
+                      <option value="comment">Comments</option>
+                      <option value="task_created">New tasks</option>
+                      <option value="routine_created">New routines</option>
+                      <option value="transaction_created">Cash flow</option>
+                    </select>
+                  </div>
+                );
+              })()}
             </div>
-            {activity.length === 0 ? (
-              <EmptyState
-                title="No activity yet"
-                hint="Comments and new rows across your shared projects will appear here."
-              />
-            ) : (
-              <div className="divide-y divide-[rgba(201,169,97,0.08)]">
-                {activity.map((ev, i) => (
-                  <ActivityRow key={`${ev.kind}-${ev.subject_id}-${i}`} ev={ev} />
-                ))}
-              </div>
-            )}
+            {(() => {
+              const filtered = activity.filter((e) =>
+                (!activityProject || e.project_id === activityProject) &&
+                (!activityKind || e.kind === activityKind),
+              );
+              if (filtered.length === 0) {
+                return (
+                  <EmptyState
+                    title={activity.length === 0 ? "No activity yet" : "No events match filters"}
+                    hint={activity.length === 0
+                      ? "Comments and new rows across your shared projects will appear here."
+                      : "Try clearing a filter above."}
+                  />
+                );
+              }
+              return (
+                <div className="divide-y divide-[rgba(201,169,97,0.08)]">
+                  {filtered.map((ev, i) => (
+                    <ActivityRow key={`${ev.kind}-${ev.subject_id}-${i}`} ev={ev} />
+                  ))}
+                </div>
+              );
+            })()}
           </Card>
 
           {/* Attention items + recent timeline (legacy inbox content) */}

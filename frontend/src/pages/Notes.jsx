@@ -444,7 +444,7 @@ export default function Notes() {
                 >
                   <BellRing size={16} />
                 </button>
-                {projectId && (
+                {(projectId || selected.project_id) && (
                   <button
                     onClick={() => setCommentFor(selected)}
                     className="text-[#B7A98A]/65 hover:text-[#E4C98C] transition"

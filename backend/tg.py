@@ -867,3 +867,114 @@ async def reminder_loop(db):
         except Exception as e:
             logger.warning(f"reminder_loop: {e}")
         await asyncio.sleep(30)
+
+
+async def digest_loop(db):
+    """Once-daily Telegram digest of @mentions + new row activity in the last
+    24h across each user's accessible projects. Runs every 30 min; fires for
+    each user once per UTC day at/after their preferred hour (default 09:00
+    UTC if no preference set on the user doc as `digest_hour`).
+
+    User can opt out by setting `digest_enabled: False` on their user doc.
+    """
+    import re
+    while True:
+        try:
+            now = datetime.now(timezone.utc)
+            today_key = now.date().isoformat()
+            since_iso = (now - timedelta(hours=24)).isoformat()
+            users = await db.users.find(
+                {"telegram_chat_id": {"$exists": True, "$ne": None}},
+                {"_id": 0},
+            ).to_list(500)
+            for u in users:
+                if u.get("digest_enabled") is False:
+                    continue
+                hour = int(u.get("digest_hour", 9))
+                if now.hour < hour:
+                    continue
+                if u.get("last_digest_date") == today_key:
+                    continue
+                # Resolve accessible project ids for this user
+                owned = await db.projects.find(
+                    {"owner_id": u["id"]}, {"_id": 0, "id": 1, "name": 1},
+                ).to_list(200)
+                pids = [p["id"] for p in owned]
+                proj_by_id = {p["id"]: p for p in owned}
+                members = await db.project_members.find(
+                    {"user_id": u["id"], "accepted": True},
+                    {"_id": 0, "project_id": 1},
+                ).to_list(200)
+                pids.extend(m["project_id"] for m in members)
+                if not pids:
+                    await db.users.update_one(
+                        {"id": u["id"]}, {"$set": {"last_digest_date": today_key}},
+                    )
+                    continue
+                # Hydrate missing project names for shared projects we don't own
+                missing = [pid for pid in pids if pid not in proj_by_id]
+                if missing:
+                    others = await db.projects.find(
+                        {"id": {"$in": missing}}, {"_id": 0, "id": 1, "name": 1},
+                    ).to_list(200)
+                    for p in others:
+                        proj_by_id[p["id"]] = p
+                # Pull last-24h comments + tasks + transactions
+                comments = await db.comments.find(
+                    {"project_id": {"$in": pids}, "created_at": {"$gte": since_iso}},
+                    {"_id": 0},
+                ).sort("created_at", -1).to_list(200)
+                new_tasks = await db.tasks.count_documents(
+                    {"project_id": {"$in": pids}, "created_at": {"$gte": since_iso},
+                     "user_id": {"$ne": u["id"]}},
+                )
+                new_tx = await db.transactions.count_documents(
+                    {"project_id": {"$in": pids}, "created_at": {"$gte": since_iso},
+                     "user_id": {"$ne": u["id"]}},
+                )
+                # Detect @mentions of THIS user
+                handle = (u.get("first_name") or u.get("email", "").split("@")[0] or "").lower()
+                prefix = u.get("email", "").split("@")[0].lower()
+                mention_re = re.compile(r"@([\w][\w.\-]{0,40})")
+                mentions = [c for c in comments if any(
+                    h.lower() in {handle, prefix} for h in mention_re.findall(c.get("body", ""))
+                )]
+                # Skip empty digest unless the user explicitly wants quiet days
+                if not mentions and not comments and not new_tasks and not new_tx:
+                    await db.users.update_one(
+                        {"id": u["id"]}, {"$set": {"last_digest_date": today_key}},
+                    )
+                    continue
+                # Build message
+                lines = ["☀️ <b>Your daily digest</b>", ""]
+                if mentions:
+                    lines.append(f"💬 <b>{len(mentions)} mention{'s' if len(mentions)!=1 else ''} of you</b>")
+                    for c in mentions[:5]:
+                        proj_name = proj_by_id.get(c["project_id"], {}).get("name", "Project")
+                        snippet = c.get("body", "").strip().replace("\n", " ")[:120]
+                        lines.append(f"  · {c.get('user_name','Someone')} in <i>{proj_name}</i>: {snippet}")
+                    if len(mentions) > 5:
+                        lines.append(f"  …and {len(mentions) - 5} more")
+                    lines.append("")
+                other_comments = [c for c in comments if c not in mentions]
+                if other_comments:
+                    lines.append(f"💭 <b>{len(other_comments)} new comment{'s' if len(other_comments)!=1 else ''}</b> in your projects")
+                    lines.append("")
+                if new_tasks or new_tx:
+                    bits = []
+                    if new_tasks:
+                        bits.append(f"{new_tasks} new task{'s' if new_tasks != 1 else ''}")
+                    if new_tx:
+                        bits.append(f"{new_tx} cash-flow row{'s' if new_tx != 1 else ''}")
+                    lines.append(f"🆕 {' · '.join(bits)} added by collaborators")
+                    lines.append("")
+                lines.append("<i>Sent once daily · reply STOP DIGEST to disable</i>")
+                await tg_send(u["telegram_chat_id"], "\n".join(lines), parse_mode="HTML")
+                await db.users.update_one(
+                    {"id": u["id"]},
+                    {"$set": {"last_digest_date": today_key,
+                              "last_digest_sent_at": now.isoformat()}},
+                )
+        except Exception as e:
+            logger.warning(f"digest_loop: {e}")
+        await asyncio.sleep(1800)  # 30 min
