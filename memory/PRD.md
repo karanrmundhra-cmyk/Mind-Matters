@@ -17,6 +17,63 @@ with the R.K.M. brand logo. AI-first input on every page (type → confirm → d
 - **Frontend**: React + Tailwind + Shadcn UI. Cormorant Garamond (serif), Outfit
   (display), Inter (body). Pure black + rich gold (#C9A961 / #E4C98C).
 
+### v2.14 — Mega 47-item batch (2026-02)
+**Security & login**
+- `/api/auth/forgot` no longer returns the reset code in the response body
+  (security fix). UI "YOUR RESET CODE" box removed from Login. Code goes via
+  Telegram bot only (email/SMTP coming next iteration).
+
+**Sidebar redesign (desktop)**
+- Collapsible sidebar (chevron toggle, persists in `localStorage.mm_sidebar_collapsed`).
+- Action dock embedded inside sidebar (Quick Add + Search + AI + Sync dot).
+  FloatingDock wrapped in `md:hidden` — mobile-only now.
+- Calendar removed from sidebar nav; merged into Reminders as a tab.
+
+**Dashboard**
+- Live date + time pill (auto-refreshes every minute).
+- Quick-nav grid expanded 5 → 7 (Reports + Settings added).
+- News widget — `/api/news` pulls 5 headlines from Google News RSS with
+  category dropdown (All/Business/Tech/India/World), localStorage persists.
+
+**Calendar / Reminders merge**
+- Reminders page hosts both tabs (Calendar + Reminders). `/calendar` redirects.
+- `GET /api/calendar/feed.ics?token=<jwt>` generates iCal subscription URL.
+
+**Notes** — Decisions tab removed, search bar removed, parse preview = Title+Body only.
+**Tasks** — Status adds Delegate; priority Flag wired (flagged rows float to top).
+**Cash Flow** — 5th Upcoming Payments tile + per-row currency dropdown + Loan Given/Taken categories + lowercase "Unified ledger.".
+
+**Data-model additions** — `flagged`, `attachments`, `parent_id` on Routine/Tx/Note (Task had them). `currency` on Tx.
+
+**Universal attachments** — `POST/DELETE /api/{module}/{id}/attachments[/{att_id}]` for tasks/routines/transactions/notes. 10MB/file, 10/row cap.
+
+**Seeding** — `POST /api/seed/first-login` (idempotent) auto-called after login. Inserts 2 example rows each in tasks/routines/transactions only when all three are empty.
+
+**Mobile + light mode** — `.mm-frozen-col` sticky-left CSS class added; light-mode contrast hardening overrides `text-white*` Tailwind utilities to `--mm-text`.
+
+**Focus mode** — also hides `nav-reports` + `nav-settings` + `.mm-focus-hide` (news, quick-nav).
+
+**Telegram setup** — instructions collapsed into `<details>` accordion.
+
+**Reports page** — restructured to 5 tabs: Inbox · Daily Brief · Synopsis · AI Briefing · Pattern Radar. Default tab now Synopsis (was Reports).
+
+**Renames** — every "Bulk add" → "Import" across pages + BulkAddDialog header.
+
+**Tests**: 12/12 backend pytest + 23/23 frontend critical flows. Zero regressions.
+
+**Deferred to next iteration** (explicit):
+- P1 — Multi-project + sharing (item 46). Foundational, ~3-5 days.
+- P1 — Cloud storage OAuth for Vault (item 36).
+- P1 — Currency CONVERSION math in summary cards (item 24, stub ships).
+- P1 — Subtask UI for Routines/CashFlow (item 16, data model ready).
+- P1 — Attachment dialog UI for Routines/CashFlow/Notes (backend ready).
+- P1 — Reminders compact-table redesign (item 37).
+- P1 — Reminder parse fix (item 38).
+- P2 — Section "+ Add section" inline (item 15 stub).
+- P2 — Mobile frozen-col wiring (CSS class ready).
+- P2 — Import 50-cap message + drag-drop (item 12).
+- P2 — Vault file mgmt + AI find-and-send via Telegram (item 36 follow-up).
+
 ### v2.12 — Calendar page · Reports page (Reports/Timeline/AI Briefing/Pattern Radar) · Notes Vault + Decisions tabs (2026-02)
 - **Calendar page** (`/calendar`): two tabs — Calendar (full 7×6 month grid)
   and Agenda (chronological flat list for the visible month). Aggregates

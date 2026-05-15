@@ -413,10 +413,10 @@ class ResetReq(BaseModel):
 
 @api.post("/auth/forgot")
 async def auth_forgot(body: ForgotReq):
-    """Generate a 6-digit reset code and store it.
-    Returns {ok:true, code:<6 digits>} in this single-user dev deployment so
-    the user can see the code immediately. Once Resend / SMTP is wired we'll
-    omit the field and send it via email instead.
+    """Generate a 6-digit reset code, store it (hashed), and deliver it
+    out-of-band via Telegram (if the user has linked their bot). The code is
+    NEVER returned in the response body — that would defeat the security model.
+    Response shape: {ok, delivered_via, expires_at}.
     """
     email = body.email.strip().lower()
     user = await db.users.find_one({"email": email}, {"_id": 0, "id": 1})
