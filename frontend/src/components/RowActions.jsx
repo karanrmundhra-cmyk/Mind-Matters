@@ -1,5 +1,5 @@
 import React from "react";
-import { ArrowUp, ArrowDown, BellRing, Trash2, GripVertical, Paperclip, ListPlus } from "lucide-react";
+import { ArrowUp, ArrowDown, BellRing, Trash2, GripVertical, Paperclip, ListPlus, Flag } from "lucide-react";
 
 /**
  * RowActions — shared row-right-edge action cluster.
@@ -11,6 +11,7 @@ import { ArrowUp, ArrowDown, BellRing, Trash2, GripVertical, Paperclip, ListPlus
  *   onDragStart?, onDragOver?, onDrop?, onDragEnd?
  *   onAttach?, attachmentCount? — paperclip icon (optional)
  *   onSubtask? — "+ subtask" icon (optional; tasks page only)
+ *   onFlag?, flagged? — priority flag toggle (gold when flagged)
  */
 export default function RowActions({
   rowId,
@@ -27,6 +28,8 @@ export default function RowActions({
   onAttach,
   attachmentCount = 0,
   onSubtask,
+  onFlag,
+  flagged = false,
 }) {
   const tid = (name) => (rowId ? `${kind}-${name}-${rowId}` : `${kind}-${name}`);
   return (
@@ -95,6 +98,21 @@ export default function RowActions({
           data-testid={tid("subtask")}
         >
           <ListPlus size={13} />
+        </button>
+      )}
+      {onFlag && (
+        <button
+          type="button"
+          onClick={onFlag}
+          className={`transition p-1 ${
+            flagged
+              ? "mm-text-gold-bright drop-shadow-[0_0_4px_rgba(228,201,140,0.5)]"
+              : "text-[#B7A98A]/45 hover:text-[#E4C98C]"
+          }`}
+          title={flagged ? "Un-flag" : "Priority flag — pin to top"}
+          data-testid={tid("flag")}
+        >
+          <Flag size={13} fill={flagged ? "currentColor" : "none"} />
         </button>
       )}
       {onReminder && (

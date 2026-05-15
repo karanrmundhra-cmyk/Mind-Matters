@@ -33,6 +33,8 @@ export function AuthProvider({ children }) {
     const { data } = await api.post("/auth/login", { email, password });
     localStorage.setItem("mm_token", data.token);
     setUser(data.user);
+    // First-login auto-seed (idempotent — server returns seeded:false if data exists)
+    try { await api.post("/seed/first-login", {}); } catch { /* */ }
     return data.user;
   }, []);
 
@@ -40,6 +42,7 @@ export function AuthProvider({ children }) {
     const { data } = await api.post("/auth/signup", { first_name, email, password });
     localStorage.setItem("mm_token", data.token);
     setUser(data.user);
+    try { await api.post("/seed/first-login", {}); } catch { /* */ }
     return data.user;
   }, []);
 
@@ -47,6 +50,7 @@ export function AuthProvider({ children }) {
     const { data } = await api.post("/auth/demo-login", { first_name });
     localStorage.setItem("mm_token", data.token);
     setUser(data.user);
+    try { await api.post("/seed/first-login", {}); } catch { /* */ }
     return data.user;
   }, []);
 

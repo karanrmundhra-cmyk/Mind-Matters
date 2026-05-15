@@ -14,7 +14,6 @@ import Routines from "@/pages/Routines";
 import CashFlow from "@/pages/CashFlow";
 import Notes from "@/pages/Notes";
 import Reminders from "@/pages/Reminders";
-import Calendar from "@/pages/Calendar";
 import Reports from "@/pages/Reports";
 import Settings from "@/pages/Settings";
 
@@ -51,7 +50,7 @@ function Root() {
         <Route path="cashflow" element={<Navigate to="/cash-flow" replace />} />
         <Route path="notes" element={<Notes />} />
         <Route path="reminders" element={<Reminders />} />
-        <Route path="calendar" element={<Calendar />} />
+        <Route path="calendar" element={<Navigate to="/reminders" replace />} />
         <Route path="reports" element={<Reports />} />
         <Route path="settings" element={<Settings />} />
         {/* v2 removed pages — redirect to dashboard */}

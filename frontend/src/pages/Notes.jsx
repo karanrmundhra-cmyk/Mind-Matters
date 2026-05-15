@@ -16,8 +16,6 @@ const TAG_OPTIONS = []; // No presets — user creates their own via "+ Custom" 
 const NOTE_COLUMNS = [
   { key: "title", label: "Title", type: "text", width: "1fr" },
   { key: "body", label: "Body", type: "text", width: "2fr" },
-  { key: "list_title", label: "Add to list", type: "text", width: "1fr" },
-  { key: "items_preview", label: "Items", type: "text", width: "1.5fr" },
 ];
 
 export default function Notes() {
@@ -177,7 +175,6 @@ export default function Notes() {
   // (and only when unlocked); Decisions shows only decision-tagged notes.
   const tabFiltered = (list) => {
     if (tab === "vault") return list.filter((n) => (n.tags || []).includes("vault"));
-    if (tab === "decisions") return list.filter((n) => (n.tags || []).includes("decision"));
     return list.filter((n) => !(n.tags || []).includes("vault"));
   };
   const tabPinned = tabFiltered(pinned);
@@ -232,7 +229,7 @@ export default function Notes() {
               className="mm-btn-ghost text-xs flex items-center gap-1.5"
               data-testid="bulk-add-open"
             >
-              <Upload size={12} /> Bulk add
+              <Upload size={12} /> Import
             </button>
             <ExportButton module="notes" />
           </div>
@@ -247,7 +244,6 @@ export default function Notes() {
         {[
           { id: "all", label: "All notes" },
           { id: "vault", label: "Vault" },
-          { id: "decisions", label: "Decisions" },
         ].map((t) => (
           <button
             key={t.id}
@@ -272,12 +268,13 @@ export default function Notes() {
           Vault items are tagged <code className="text-[#E4C98C]">vault</code> and hidden from the
           All notes tab. Tag any note with <code className="text-[#E4C98C]">vault</code> to move it
           here.
-        </p>
-      )}
-      {tab === "decisions" && (
-        <p className="text-[11px] text-[#B7A98A]/55 -mt-2">
-          Tag any note with <code className="text-[#E4C98C]">decision</code> to surface it as a
-          decision card here.
+          <button
+            onClick={() => toast.info("Cloud storage integration coming soon — connect Google Drive, Dropbox, OneDrive via Settings ▸ Integrations.")}
+            className="ml-3 mm-text-gold underline underline-offset-2 text-[11px]"
+            data-testid="vault-connect-storage"
+          >
+            Connect Storage →
+          </button>
         </p>
       )}
 
@@ -298,15 +295,10 @@ export default function Notes() {
       <div className="grid grid-cols-1 md:grid-cols-[320px_1fr] gap-4">
         <div className="space-y-3">
           <Card className="p-3">
-            <div className="flex items-center gap-2 px-2">
-              <Search size={14} className="text-[#B7A98A]/60" />
-              <input
-                value={q}
-                onChange={(e) => setQ(e.target.value)}
-                placeholder="Search notes & tags"
-                className="bg-transparent outline-none text-sm w-full"
-                data-testid="notes-search"
-              />
+            <div className="flex items-center justify-between px-2 py-1">
+              <span className="text-[10px] uppercase tracking-[0.25em] text-[#B7A98A]/60">
+                {notes.length} note{notes.length === 1 ? "" : "s"}
+              </span>
               <button
                 onClick={create}
                 className="text-[#B7A98A]/65 hover:text-[#E4C98C] transition shrink-0"
@@ -362,13 +354,11 @@ export default function Notes() {
             <EmptyState title="No notes" hint="Capture thoughts. Pin important ones to the dashboard." />
           ) : tabPinned.length + tabOthers.length === 0 ? (
             <EmptyState
-              title={tab === "vault" ? "Vault is empty" : tab === "decisions" ? "No decisions yet" : "No notes match"}
+              title={tab === "vault" ? "Vault is empty" : "No notes match"}
               hint={
                 tab === "vault"
                   ? "Tag a note with 'vault' to store it privately here."
-                  : tab === "decisions"
-                    ? "Tag a note with 'decision' to track it here."
-                    : "Try a different search or tag."
+                  : "Try a different search or tag."
               }
             />
           ) : (

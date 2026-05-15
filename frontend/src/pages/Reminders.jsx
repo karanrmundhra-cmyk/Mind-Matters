@@ -4,7 +4,8 @@ import { Card, SectionTitle, EmptyState } from "@/components/Primitives";
 import AiAddBar from "@/components/AiAddBar";
 import BulkAddDialog from "@/components/BulkAddDialog";
 import ExportButton from "@/components/ExportButton";
-import { BellRing, Plus, Trash2, Download, Check, Clock, Upload, RotateCcw } from "lucide-react";
+import Calendar from "@/pages/Calendar";
+import { BellRing, Plus, Trash2, Download, Check, Clock, Upload, RotateCcw, Link2 } from "lucide-react";
 import { toast } from "sonner";
 
 const REMINDER_COLUMNS = [
@@ -227,6 +228,7 @@ export default function Reminders() {
   const past = items.filter((r) => r.sent);
 
   const [bulkOpen, setBulkOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState("reminders"); // calendar | reminders
   const insertOne = async (row) => {
     let fire_iso = row.fire_at;
     if (!fire_iso && row.fire_at_local) fire_iso = new Date(row.fire_at_local).toISOString();
@@ -259,27 +261,65 @@ export default function Reminders() {
               className="mm-btn-ghost text-xs flex items-center gap-1.5"
               data-testid="bulk-add-open"
             >
-              <Upload size={12} /> Bulk add
+              <Upload size={12} /> Import
             </button>
             <ExportButton module="reminders" />
           </div>
         }
       />
       <p className="text-xs sm:text-sm text-[#B7A98A]/65 -mt-3 max-w-2xl">
-        Timely nudges straight to your phone. When created from another page, the original row
-        is attached below so you never lose context.
+        Timely nudges straight to your phone.
       </p>
 
-      <AiAddBar
-        kind="reminder"
-        placeholder="e.g. Remind me to call Brinda every Monday at 9am"
-        columns={REMINDER_COLUMNS}
-        describe={describe}
-        onConfirm={async (rows) => {
-          for (const r of rows) await insertOne(r);
-          await load();
-        }}
-      />
+      {/* Calendar | Reminders tab bar */}
+      <div className="flex items-center gap-1 border-b border-[rgba(201,169,97,0.12)]">
+        {[
+          { id: "calendar", label: "Calendar" },
+          { id: "reminders", label: "Reminders" },
+        ].map((t) => (
+          <button
+            key={t.id}
+            onClick={() => setActiveTab(t.id)}
+            className={`px-4 py-2 text-xs uppercase tracking-[0.2em] transition border-b-2 -mb-px ${
+              activeTab === t.id
+                ? "mm-text-gold-bright border-[#C9A961]"
+                : "text-[#B7A98A]/55 border-transparent hover:text-[#E4C98C]"
+            }`}
+            data-testid={`reminders-tab-${t.id}`}
+          >
+            {t.label}
+          </button>
+        ))}
+        <button
+          onClick={() => {
+            const url = `${BACKEND_URL}/api/calendar/feed.ics?token=${
+              encodeURIComponent(localStorage.getItem("mm_token") || "")
+            }`;
+            navigator.clipboard?.writeText(url);
+            toast.success("iCal feed URL copied. Subscribe in Google/iCloud/Outlook calendar.");
+          }}
+          className="ml-auto mm-btn-ghost text-xs flex items-center gap-1.5"
+          data-testid="reminders-sync-ical"
+          title="Generate iCal subscription URL for Google / iCloud / Outlook"
+        >
+          <Link2 size={12} /> Sync (iCal)
+        </button>
+      </div>
+
+      {activeTab === "calendar" ? (
+        <Calendar />
+      ) : (
+        <>
+          <AiAddBar
+            kind="reminder"
+            placeholder="e.g. Remind me to call Brinda every Monday at 9am"
+            columns={REMINDER_COLUMNS}
+            describe={describe}
+            onConfirm={async (rows) => {
+              for (const r of rows) await insertOne(r);
+              await load();
+            }}
+          />
 
       <Card className="p-4" data-testid="reminder-add-row">
         <div className="grid grid-cols-1 md:grid-cols-6 gap-3">
@@ -392,6 +432,8 @@ export default function Reminders() {
               ))}
             </Card>
           )}
+        </>
+      )}
         </>
       )}
 

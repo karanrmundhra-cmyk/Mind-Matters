@@ -24,8 +24,9 @@ import {
 import { toast } from "sonner";
 
 const TABS = [
-  { id: "reports", label: "Reports", icon: TrendingUp },
-  { id: "timeline", label: "Timeline", icon: Clock },
+  { id: "inbox", label: "Inbox", icon: Clock },
+  { id: "brief", label: "Daily Brief", icon: Sparkles },
+  { id: "synopsis", label: "Synopsis", icon: TrendingUp },
   { id: "briefing", label: "AI Briefing", icon: Sparkles },
   { id: "patterns", label: "Pattern Radar", icon: Radar },
 ];
@@ -38,7 +39,7 @@ const fmtINR = (n) =>
   }).format(n || 0);
 
 export default function Reports() {
-  const [tab, setTab] = useState("reports");
+  const [tab, setTab] = useState("synopsis");
   const [monthly, setMonthly] = useState([]);
   const [timeline, setTimeline] = useState([]);
   const [patterns, setPatterns] = useState([]);
@@ -135,8 +136,77 @@ export default function Reports() {
         ))}
       </div>
 
-      {tab === "reports" && (
-        <Card className="p-4 sm:p-6" data-testid="reports-charts">
+      {tab === "inbox" && (
+        <Card className="p-0 overflow-hidden" data-testid="reports-inbox">
+          {patterns.length === 0 && timeline.length === 0 ? (
+            <EmptyState title="All clear. You're on top of things." hint="Items needing your attention will surface here." />
+          ) : (
+            <>
+              {patterns.filter((p) => p.severity !== "info").map((p, i) => (
+                <div
+                  key={`p-${i}`}
+                  className="px-5 py-4 border-b border-[rgba(201,169,97,0.08)] flex items-start gap-3"
+                  data-testid="inbox-item"
+                >
+                  <AlertTriangle size={14} className="mm-text-gold-bright shrink-0 mt-1" />
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm mm-text-gold-bright">{p.title}</div>
+                    {p.detail && (
+                      <div className="text-[11px] text-[#B7A98A]/65 mt-1">{p.detail}</div>
+                    )}
+                  </div>
+                </div>
+              ))}
+              {timeline.slice(0, 8).map((ev, i) => (
+                <div
+                  key={`t-${i}`}
+                  className="px-5 py-3 border-b border-[rgba(201,169,97,0.08)] flex items-start gap-3"
+                  data-testid="inbox-item"
+                >
+                  <Clock size={14} className="text-[#B7A98A]/65 shrink-0 mt-1" />
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm mm-text-gold-bright truncate">{ev.title}</div>
+                    {ev.subtitle && (
+                      <div className="text-[11px] text-[#B7A98A]/55 truncate">{ev.subtitle}</div>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </>
+          )}
+        </Card>
+      )}
+
+      {tab === "brief" && (
+        <Card className="p-6" data-testid="reports-daily-brief">
+          <div className="text-[10px] uppercase tracking-[0.3em] mm-text-gold mb-4">
+            Today at a glance
+          </div>
+          <div className="mm-font-serif text-base mm-text-gold-bright leading-relaxed">
+            {briefing?.summary ||
+              "Tap 'AI Briefing' for a Gemini-written briefing — or use this view as a quick today snapshot powered by Pattern Radar and Timeline."}
+          </div>
+          {patterns.length > 0 && (
+            <div className="mt-5 space-y-2">
+              <div className="text-[10px] uppercase tracking-[0.25em] text-[#B7A98A]/60">
+                What needs attention
+              </div>
+              {patterns.slice(0, 4).map((p, i) => (
+                <div
+                  key={i}
+                  className="text-sm text-[#B7A98A]/85 flex items-start gap-2"
+                >
+                  <span className="mm-text-gold">•</span>
+                  <span>{p.title}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </Card>
+      )}
+
+      {tab === "synopsis" && (
+        <Card className="p-4 sm:p-6" data-testid="reports-synopsis">
           <div className="text-[10px] uppercase tracking-[0.3em] text-[#B7A98A]/60 mb-4">
             Monthly cash flow (last 6 months)
           </div>
@@ -179,57 +249,6 @@ export default function Reports() {
                 </BarChart>
               </ResponsiveContainer>
             </div>
-          )}
-        </Card>
-      )}
-
-      {tab === "timeline" && (
-        <Card className="p-0 overflow-hidden" data-testid="reports-timeline">
-          {timeline.length === 0 ? (
-            <EmptyState
-              title="No recent activity"
-              hint="Once you start adding tasks, expenses and notes they'll appear here."
-            />
-          ) : (
-            timeline.map((ev, i) => (
-              <div
-                key={i}
-                className="grid grid-cols-[110px_auto_1fr] gap-3 px-5 py-3 border-b border-[rgba(201,169,97,0.08)] items-center"
-                data-testid="reports-timeline-row"
-              >
-                <div className="text-[11px] text-[#B7A98A]/60">
-                  {new Date(ev.ts).toLocaleDateString("en-US", {
-                    day: "numeric",
-                    month: "short",
-                  })}
-                  <div className="text-[10px] text-[#B7A98A]/40">
-                    {new Date(ev.ts).toLocaleTimeString("en-US", {
-                      hour: "numeric",
-                      minute: "2-digit",
-                    })}
-                  </div>
-                </div>
-                <span
-                  className={`mm-chip text-[10px] ${
-                    ev.kind === "task"
-                      ? "mm-chip-gold"
-                      : ev.kind === "transaction"
-                        ? "border-amber-400/40 text-amber-200/85"
-                        : "border-emerald-400/40 text-emerald-200/85"
-                  }`}
-                >
-                  {ev.kind}
-                </span>
-                <div className="text-sm min-w-0">
-                  <div className="mm-text-gold-bright truncate">{ev.title}</div>
-                  {ev.subtitle && (
-                    <div className="text-[11px] text-[#B7A98A]/55 truncate">
-                      {ev.subtitle}
-                    </div>
-                  )}
-                </div>
-              </div>
-            ))
           )}
         </Card>
       )}

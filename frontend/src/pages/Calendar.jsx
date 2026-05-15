@@ -172,8 +172,7 @@ export default function Calendar() {
         }
       />
       <p className="text-xs sm:text-sm text-[#B7A98A]/65 -mt-3 max-w-2xl">
-        Everything on the calendar — tasks, reminders, deadlines — pulled
-        from across your modules so you never miss a beat.
+        All your tasks, reminders and deadlines in one view.
       </p>
 
       {/* Tabs */}

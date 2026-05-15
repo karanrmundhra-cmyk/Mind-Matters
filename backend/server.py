@@ -9,7 +9,7 @@ from dotenv import load_dotenv
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")  # must run BEFORE tg/docs_gen imports
 
-from fastapi import FastAPI, APIRouter, HTTPException, Depends, UploadFile, File, Form, Header
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, UploadFile, File, Form, Header, Query
 from fastapi.responses import JSONResponse
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -144,6 +144,7 @@ class TaskIn(BaseModel):
     group: str = ""  # custom group, user-defined (replaces block1..4)
     section: str = ""  # optional second-level grouping (Todoist-style sub-header)
     parent_id: Optional[str] = None  # if set, this is a subtask nested under another task
+    flagged: bool = False  # priority flag — flagged rows sort to top
     # Lightweight inline attachments — each entry: {name, mime, size, data_url}.
     # Capped at ~4MB total per task in the upload endpoint.
     attachments: List[Dict[str, Any]] = []
@@ -168,6 +169,9 @@ class RoutineIn(BaseModel):
     priority: Literal["Low", "Medium", "High"] = "Medium"
     status: Literal["Active", "Paused"] = "Active"
     section: str = ""  # optional second-level grouping (Todoist-style sub-header)
+    parent_id: Optional[str] = None  # nested subtask support (max depth 3, enforced client-side)
+    flagged: bool = False
+    attachments: List[Dict[str, Any]] = []
 
 
 class Routine(RoutineIn):
@@ -237,6 +241,10 @@ class TransactionIn(BaseModel):
     interest_type: Literal["percent", "fixed"] = "percent"
     repayment_date: Optional[str] = None  # YYYY-MM-DD
     emi: Optional[float] = None  # monthly EMI / installment ₹
+    currency: str = "INR"  # ISO code per row; summary cards convert to user's default
+    parent_id: Optional[str] = None  # for splitting bills into line items
+    flagged: bool = False
+    attachments: List[Dict[str, Any]] = []
     source: Literal["manual", "upload", "telegram"] = "manual"
 
 
@@ -277,6 +285,8 @@ class NoteIn(BaseModel):
     body: str = ""
     tags: List[str] = []
     pinned: bool = False
+    flagged: bool = False
+    attachments: List[Dict[str, Any]] = []
 
 
 class Note(NoteIn):
@@ -442,7 +452,7 @@ async def auth_forgot(body: ForgotReq):
             delivered_via = "telegram+screen"
     except Exception as e:
         logger.warning(f"forgot-password TG send failed: {e}")
-    return {"ok": True, "code": code, "delivered_via": delivered_via, "expires_at": expires_iso}
+    return {"ok": True, "delivered_via": delivered_via, "expires_at": expires_iso}
 
 
 @api.post("/auth/reset", response_model=TokenResp)
@@ -568,7 +578,7 @@ async def bulk_create_tasks(body: List[TaskIn], user=Depends(get_current_user)):
 async def update_task(task_id: str, body: Dict[str, Any], user=Depends(get_current_user)):
     body = {k: v for k, v in body.items()
             if k in {"date", "name", "task", "details", "status", "group", "section",
-                     "order_index", "sr_no", "parent_id", "attachments"}}
+                     "order_index", "sr_no", "parent_id", "attachments", "flagged"}}
     # Status compatibility: accept "Completed" alongside legacy "Done"
     if body.get("status") == "Completed":
         body["status"] = "Completed"  # keep as-is
@@ -705,7 +715,8 @@ async def bulk_routines(body: List[RoutineIn], user=Depends(get_current_user)):
 @api.patch("/routines/{rid}", response_model=Routine)
 async def update_routine(rid: str, body: Dict[str, Any], user=Depends(get_current_user)):
     body = {k: v for k, v in body.items()
-            if k in {"group", "name", "activity", "details", "frequency", "priority", "status", "section", "order_index", "sr_no"}}
+            if k in {"group", "name", "activity", "details", "frequency", "priority", "status",
+                     "section", "order_index", "sr_no", "parent_id", "flagged", "attachments"}}
     body["updated_at"] = now_iso()
     if "sr_no" in body:
         try:
@@ -992,7 +1003,8 @@ async def update_transaction(tid: str, body: Dict[str, Any], user=Depends(get_cu
     allowed = {"date", "amount", "mode", "company", "expense_head", "direction",
                "account", "notes", "name", "vendor", "details", "remarks", "head",
                "category", "group", "section", "order_index", "sr_no",
-               "interest_rate", "interest_type", "repayment_date", "emi"}
+               "interest_rate", "interest_type", "repayment_date", "emi",
+               "currency", "parent_id", "flagged", "attachments"}
     body = {k: v for k, v in body.items() if k in allowed}
     body["updated_at"] = now_iso()
     if "sr_no" in body:
@@ -1295,7 +1307,7 @@ async def create_note(body: NoteIn, user=Depends(get_current_user)):
 
 @api.patch("/notes/{nid}", response_model=Note)
 async def update_note(nid: str, body: Dict[str, Any], user=Depends(get_current_user)):
-    allowed = {"title", "body", "tags", "pinned"}
+    allowed = {"title", "body", "tags", "pinned", "attachments", "flagged"}
     body = {k: v for k, v in body.items() if k in allowed}
     body["updated_at"] = now_iso()
     res = await db.notes.find_one_and_update(
@@ -2290,6 +2302,281 @@ async def export_all_xlsx(user=Depends(get_current_user)):
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": 'attachment; filename="mind-matters-export.xlsx"'},
     )
+
+
+@api.get("/cashflow/upcoming-payments")
+async def cashflow_upcoming_payments(user=Depends(get_current_user)):
+    """Return reminders that originated on the cash-flow page plus any recurring
+    transactions whose next fire date falls in the current calendar month.
+    """
+    today = date.today()
+    month_start = today.replace(day=1)
+    next_month = (month_start + timedelta(days=32)).replace(day=1)
+    items = []
+    # Reminders sourced from cash-flow
+    async for r in db.reminders.find(
+        {"user_id": user["id"], "source_page": {"$in": ["cash-flow", "cashflow"]},
+         "sent": False}, {"_id": 0},
+    ):
+        try:
+            fire_d = datetime.fromisoformat(r["fire_at"].replace("Z", "+00:00")).date()
+        except Exception:
+            continue
+        if not (month_start <= fire_d < next_month):
+            continue
+        # Try to look up the linked transaction amount
+        amt = 0.0
+        if r.get("source_id"):
+            tx = await db.transactions.find_one(
+                {"id": r["source_id"], "user_id": user["id"]}, {"_id": 0},
+            )
+            if tx:
+                amt = float(tx.get("amount") or 0)
+        items.append({
+            "title": r.get("title") or "Payment",
+            "due_date": fire_d.isoformat(),
+            "amount": amt,
+            "reminder_id": r.get("id"),
+            "source_id": r.get("source_id"),
+        })
+    items.sort(key=lambda x: x["due_date"])
+    total = sum(it["amount"] for it in items)
+    return {"items": items, "total": round(total), "month": month_start.strftime("%B %Y")}
+
+
+@api.get("/calendar/feed.ics")
+async def calendar_ics_feed(token: str = Query(""), user_id: str = Query("")):
+    """iCal subscription feed of all of a user's tasks (with date) + reminders.
+    Auth: pass ?token=<jwt> as a query param (URL must work in calendar apps
+    that don't send Authorization headers).
+    """
+    user = None
+    if token:
+        try:
+            payload = pyjwt.decode(token, JWT_SECRET, algorithms=["HS256"])
+            user = await db.users.find_one({"id": payload.get("user_id") or payload.get("sub")}, {"_id": 0})
+        except Exception:
+            user = None
+    if not user:
+        raise HTTPException(401, "Token required")
+    lines = [
+        "BEGIN:VCALENDAR",
+        "VERSION:2.0",
+        "PRODID:-//Mind Matters//EN",
+        "CALSCALE:GREGORIAN",
+        "NAME:Mind Matters",
+        "X-WR-CALNAME:Mind Matters",
+    ]
+
+    def _esc(s):
+        return (s or "").replace("\\", "\\\\").replace(",", "\\,").replace(";", "\\;").replace("\n", "\\n")
+
+    def _add_event(uid, summary, start_date, description=""):
+        if not start_date:
+            return
+        try:
+            d = start_date if isinstance(start_date, str) else start_date.isoformat()
+            dt = d.replace("-", "")[:8]
+        except Exception:
+            return
+        lines.extend([
+            "BEGIN:VEVENT",
+            f"UID:{uid}@mindmatters",
+            f"DTSTAMP:{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}",
+            f"DTSTART;VALUE=DATE:{dt}",
+            f"SUMMARY:{_esc(summary)}",
+            f"DESCRIPTION:{_esc(description)}",
+            "END:VEVENT",
+        ])
+
+    async for t in db.tasks.find({"user_id": user["id"]}, {"_id": 0}):
+        if t.get("date"):
+            _add_event(t["id"], t.get("task") or "Task", t["date"],
+                       f"{t.get('group') or ''} · {t.get('name') or ''}")
+    async for r in db.reminders.find({"user_id": user["id"]}, {"_id": 0}):
+        fa = r.get("fire_at") or ""
+        if fa:
+            try:
+                d = datetime.fromisoformat(fa.replace("Z", "+00:00")).date().isoformat()
+            except Exception:
+                d = None
+            if d:
+                _add_event(r["id"], r.get("title") or "Reminder", d, r.get("notes") or "")
+    lines.append("END:VCALENDAR")
+    body = "\r\n".join(lines)
+    from fastapi.responses import Response
+    return Response(content=body, media_type="text/calendar; charset=utf-8")
+
+
+# ───────────────────── Universal attachments (tasks/routines/transactions/notes) ─────────────────────
+_ATTACH_COLLECTIONS = {
+    "tasks": "tasks",
+    "routines": "routines",
+    "transactions": "transactions",
+    "notes": "notes",
+}
+
+
+@api.post("/{module}/{rid}/attachments")
+async def upload_row_attachment(
+    module: str,
+    rid: str,
+    file: UploadFile = File(...),
+    user=Depends(get_current_user),
+):
+    coll = _ATTACH_COLLECTIONS.get(module)
+    if not coll:
+        raise HTTPException(404, "Unknown module")
+    row = await db[coll].find_one({"id": rid, "user_id": user["id"]}, {"_id": 0})
+    if not row:
+        raise HTTPException(404, "Row not found")
+    content = await file.read()
+    if len(content) > 10 * 1024 * 1024:
+        raise HTTPException(413, "Attachment too large (max 10MB)")
+    current = row.get("attachments") or []
+    if len(current) >= 10:
+        raise HTTPException(413, "Max 10 attachments per row")
+    mime = file.content_type or "application/octet-stream"
+    data_url = f"data:{mime};base64,{base64.b64encode(content).decode()}"
+    entry = {
+        "id": new_id()[:10],
+        "name": file.filename or "file",
+        "mime": mime,
+        "size": len(content),
+        "data_url": data_url,
+    }
+    current.append(entry)
+    await db[coll].update_one(
+        {"id": rid, "user_id": user["id"]},
+        {"$set": {"attachments": current, "updated_at": now_iso()}},
+    )
+    return entry
+
+
+@api.delete("/{module}/{rid}/attachments/{att_id}")
+async def delete_row_attachment(module: str, rid: str, att_id: str, user=Depends(get_current_user)):
+    coll = _ATTACH_COLLECTIONS.get(module)
+    if not coll:
+        raise HTTPException(404, "Unknown module")
+    row = await db[coll].find_one({"id": rid, "user_id": user["id"]}, {"_id": 0})
+    if not row:
+        raise HTTPException(404, "Row not found")
+    remaining = [a for a in (row.get("attachments") or []) if a.get("id") != att_id]
+    await db[coll].update_one(
+        {"id": rid, "user_id": user["id"]},
+        {"$set": {"attachments": remaining, "updated_at": now_iso()}},
+    )
+    return {"ok": True}
+
+
+@api.post("/seed/first-login")
+async def seed_first_login(user=Depends(get_current_user)):
+    """Insert 2 example rows each into tasks/routines/transactions ONLY if all
+    three collections are currently empty for this user. Idempotent — safe to
+    call on every login. Returns counts seeded.
+    """
+    today_iso = date.today().isoformat()
+    tasks_cnt = await db.tasks.count_documents({"user_id": user["id"]})
+    routines_cnt = await db.routines.count_documents({"user_id": user["id"]})
+    tx_cnt = await db.transactions.count_documents({"user_id": user["id"]})
+    if tasks_cnt or routines_cnt or tx_cnt:
+        return {"seeded": False, "reason": "already has data"}
+    now = now_iso()
+    common = {"user_id": user["id"], "created_at": now, "updated_at": now}
+    await db.tasks.insert_many([
+        {"id": new_id(), "sr_no": 1, "order_index": 0,
+         "date": today_iso, "group": "Work", "section": "",
+         "name": "Rahul", "task": "Courier",
+         "details": "Partnership Agreement Copy To Karan M",
+         "status": "Delegate", "parent_id": None, "flagged": False,
+         "attachments": [], **common},
+        {"id": new_id(), "sr_no": 2, "order_index": 1,
+         "date": today_iso, "group": "Work", "section": "",
+         "name": "Amit", "task": "Invoice follow-up",
+         "details": "Check if Q2 invoice was received",
+         "status": "Follow-Up", "parent_id": None, "flagged": False,
+         "attachments": [], **common},
+    ])
+    await db.routines.insert_many([
+        {"id": new_id(), "sr_no": 1, "order_index": 0,
+         "group": "3 Hours", "name": "Karan", "activity": "Uptime",
+         "details": "Rise & Shine", "frequency": "Daily",
+         "priority": "Medium", "status": "Active", "section": "",
+         "parent_id": None, "flagged": False, "attachments": [], **common},
+        {"id": new_id(), "sr_no": 2, "order_index": 1,
+         "group": "3 Hours", "name": "Karan", "activity": "Hydrate & Tea",
+         "details": "Health routine", "frequency": "Daily",
+         "priority": "Medium", "status": "Active", "section": "",
+         "parent_id": None, "flagged": False, "attachments": [], **common},
+    ])
+    await db.transactions.insert_many([
+        {"id": new_id(), "sr_no": 1, "order_index": 0,
+         "date": today_iso, "amount": 555.0, "name": "Zomato", "vendor": "Zomato",
+         "details": "Invoice number 3", "mode": "UPI",
+         "head": "Food & Beverages", "category": "expense",
+         "group": "Company 1", "section": "",
+         "expense_head": "Food & Beverages", "direction": "out",
+         "account": "Personal", "notes": "", "currency": "INR",
+         "parent_id": None, "flagged": False, "attachments": [],
+         "source": "manual", **common},
+        {"id": new_id(), "sr_no": 2, "order_index": 1,
+         "date": today_iso, "amount": 50000.0, "name": "Brinda", "vendor": "Brinda",
+         "details": "Lent at 9% pa", "mode": "Bank",
+         "head": "Personal Loan", "category": "loan_given",
+         "group": "Personal", "section": "",
+         "expense_head": "Personal Loan", "direction": "out",
+         "account": "Personal", "notes": "",
+         "interest_rate": 9.0, "currency": "INR",
+         "parent_id": None, "flagged": False, "attachments": [],
+         "source": "manual", **common},
+    ])
+    return {"seeded": True, "tasks": 2, "routines": 2, "transactions": 2}
+
+
+@api.post("/admin/wipe-all-data")
+async def admin_wipe_all_data(user=Depends(get_current_user)):
+    """Dev/maintenance: wipe ALL data rows for the current user (keeps account)."""
+    for coll in ("tasks", "routines", "transactions", "notes", "reminders",
+                 "deadlines", "loans", "investments", "affirmations", "routine_logs"):
+        await db[coll].delete_many({"user_id": user["id"]})
+    return {"ok": True, "user_id": user["id"]}
+
+
+@api.get("/news")
+async def news_today(category: str = "all", user=Depends(get_current_user)):
+    """Lightweight news widget — fetches headlines from a free RSS source per category.
+
+    Categories: all | business | tech | india | world. Falls back to a stable
+    static list if the network is unavailable so the dashboard never feels broken.
+    """
+    feeds = {
+        "all": "https://news.google.com/rss?hl=en-IN&gl=IN&ceid=IN:en",
+        "business": "https://news.google.com/rss/headlines/section/topic/BUSINESS?hl=en-IN&gl=IN&ceid=IN:en",
+        "tech": "https://news.google.com/rss/headlines/section/topic/TECHNOLOGY?hl=en-IN&gl=IN&ceid=IN:en",
+        "india": "https://news.google.com/rss/headlines/section/topic/NATION?hl=en-IN&gl=IN&ceid=IN:en",
+        "world": "https://news.google.com/rss/headlines/section/topic/WORLD?hl=en-IN&gl=IN&ceid=IN:en",
+    }
+    url = feeds.get(category, feeds["all"])
+    try:
+        import urllib.request
+        import re as _re
+        req = urllib.request.Request(url, headers={"User-Agent": "Mind Matters/1.0"})
+        with urllib.request.urlopen(req, timeout=4) as resp:
+            xml = resp.read().decode("utf-8", "ignore")
+        items = _re.findall(r"<item>(.*?)</item>", xml, flags=_re.DOTALL)[:5]
+        out = []
+        for it in items:
+            tm = _re.search(r"<title>(.*?)</title>", it, flags=_re.DOTALL)
+            lm = _re.search(r"<link>(.*?)</link>", it, flags=_re.DOTALL)
+            title = (tm.group(1) if tm else "").strip()
+            if title.startswith("<![CDATA["):
+                title = title[9:].rstrip("]>").strip()
+            out.append({"title": title, "url": (lm.group(1).strip() if lm else "")})
+        return {"category": category, "items": out, "source": "google-news"}
+    except Exception:
+        return {"category": category, "items": [
+            {"title": "News unavailable — check your connection", "url": ""},
+        ], "source": "fallback"}
 
 
 # ───────────────────── Reports + Calendar + Patterns ─────────────────────

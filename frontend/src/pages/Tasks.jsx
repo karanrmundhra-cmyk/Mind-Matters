@@ -13,7 +13,7 @@ import { Plus, Upload, Check } from "lucide-react";
 import { toast } from "sonner";
 import { todayISO } from "@/lib/format";
 
-const STATUSES = ["Pending", "Completed", "Follow-Up"];
+const STATUSES = ["Pending", "Completed", "Follow-Up", "Delegate"];
 
 const TASK_COLUMNS = [
   { key: "date", label: "Date", type: "date", width: "140px" },
@@ -120,10 +120,16 @@ export default function Tasks() {
       }
     });
     const out = [];
+    // Sort parents by: flagged-first, then their natural order
+    const flaggedParents = [];
+    const normalParents = [];
     tasks.forEach((t) => {
-      // Skip subtasks at the top level — they're rendered after their parent below.
       if (t.parent_id) return;
       if (!matches(t)) return;
+      (t.flagged ? flaggedParents : normalParents).push(t);
+    });
+    const orderedParents = [...flaggedParents, ...normalParents];
+    orderedParents.forEach((t) => {
       out.push(t);
       const kids = (childrenByParent.get(t.id) || []).filter(matches);
       kids.forEach((k) => out.push({ ...k, _isSubtask: true }));
@@ -340,7 +346,7 @@ export default function Tasks() {
               className="mm-btn-ghost text-xs flex items-center gap-1.5"
               data-testid="bulk-add-open"
             >
-              <Upload size={12} /> Bulk add
+              <Upload size={12} /> Import
             </button>
             <ExportButton module="tasks" />
           </div>
@@ -601,6 +607,8 @@ export default function Tasks() {
                 onAttach={() => setAttachFor(t)}
                 attachmentCount={(t.attachments || []).length}
                 onSubtask={t._isSubtask ? undefined : () => createSubtask(t)}
+                onFlag={() => patch(t.id, { flagged: !t.flagged })}
+                flagged={!!t.flagged}
                 onDelete={() => remove(t.id)}
               />
             </div>

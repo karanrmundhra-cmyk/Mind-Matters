@@ -183,7 +183,7 @@ export default function Routines() {
               className="mm-btn-ghost text-xs flex items-center gap-1.5"
               data-testid="bulk-add-open"
             >
-              <Upload size={12} /> Bulk add
+              <Upload size={12} /> Import
             </button>
             <ExportButton module="routines" />
           </div>
@@ -289,7 +289,7 @@ export default function Routines() {
         </div>
 
         {visible.length === 0 ? (
-          <EmptyState title={activeGroup ? `No routines in "${activeGroup}"` : "No routines yet"} hint="Add via AI, the row above, or Bulk add." />
+          <EmptyState title={activeGroup ? `No routines in "${activeGroup}"` : "No routines yet"} hint="Add via AI, the row above, or Import." />
         ) : (
           (() => {
             const anySection = visible.some((r) => (r.section || "").trim());

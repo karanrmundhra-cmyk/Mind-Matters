@@ -41,11 +41,36 @@ html.light {
 html.focus-mode [data-testid="nav-routines"],
 html.focus-mode [data-testid="nav-cashflow"],
 html.focus-mode [data-testid="nav-notes"],
-html.focus-mode [data-testid="nav-reminders"] {
+html.focus-mode [data-testid="nav-reminders"],
+html.focus-mode [data-testid="nav-reports"],
+html.focus-mode [data-testid="nav-settings"] {
   display: none !important;
 }
 html.focus-mode .mm-focus-hide {
   display: none !important;
+}
+
+/* Light mode contrast hardening — ensure body text + table cells + inputs
+ * inherit the dark foreground colour from --mm-text. Some Tailwind utility
+ * classes hard-code rgba(255,255,255,...) which is invisible on light. */
+html.light .text-white,
+html.light .text-white\\/50,
+html.light .text-white\\/60,
+html.light .text-white\\/70,
+html.light .text-white\\/80,
+html.light .text-white\\/85,
+html.light .text-white\\/90 {
+  color: var(--mm-text) !important;
+}
+html.light .mm-input,
+html.light .mm-input-ghost,
+html.light select,
+html.light textarea {
+  color: var(--mm-text);
+}
+html.light .mm-glass {
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(14px);
 }
 
 html.light input[type="date"],
@@ -256,6 +281,20 @@ input[type="month"] {
   color-scheme: dark;
   accent-color: #C9A961;
   color: #E4C98C;
+}
+
+/* Mobile-only: when a table row's first cell has class .mm-frozen-col, freeze it
+ * to the left edge while the row scrolls horizontally. Combined with a wider
+ * min-width on the grid, this gives spreadsheet-style "freeze panes" on phones.
+ */
+@media (max-width: 767px) {
+  .mm-frozen-col {
+    position: sticky;
+    left: 0;
+    background: var(--mm-bg, #0A0A0A);
+    z-index: 5;
+    box-shadow: 2px 0 6px -2px rgba(0, 0, 0, 0.45);
+  }
 }
 input[type="date"]::-webkit-datetime-edit-fields-wrapper,
 input[type="datetime-local"]::-webkit-datetime-edit-fields-wrapper,

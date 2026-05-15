@@ -15,8 +15,15 @@ import { todayISO } from "@/lib/format";
 const fmtINR = (n) =>
   new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 }).format(n || 0);
 
-const CATEGORIES = ["income", "expense", "asset", "liability"];
-const CAT_LABEL = { income: "Income", expense: "Expense", asset: "Asset", liability: "Liability" };
+const CATEGORIES = ["income", "expense", "asset", "liability", "loan_given", "loan_taken"];
+const CAT_LABEL = {
+  income: "Income",
+  expense: "Expense",
+  asset: "Asset",
+  liability: "Liability",
+  loan_given: "Loan Given",
+  loan_taken: "Loan Taken",
+};
 
 const TX_COLUMNS = [
   { key: "date", label: "Date", type: "date", width: "120px" },
@@ -33,6 +40,7 @@ const GRID = "md:grid-cols-[60px_140px_110px_1fr_1fr_110px_1fr_110px_120px_140px
 
 export default function CashFlow() {
   const [rows, setRows] = useState([]);
+  const [upcoming, setUpcoming] = useState(null);
   const [activeGroup, setActiveGroup] = useState("");
   const [duplicates, setDuplicates] = useState([]);
   const [stmtBusy, setStmtBusy] = useState(false);
@@ -56,6 +64,10 @@ export default function CashFlow() {
   const load = async () => {
     const { data } = await api.get("/transactions");
     setRows(data);
+    try {
+      const u = await api.get("/cashflow/upcoming-payments");
+      setUpcoming(u.data);
+    } catch { /* offline-safe */ }
   };
   useEffect(() => {
     load();
@@ -297,13 +309,19 @@ export default function CashFlow() {
           </div>
         }
       />
-      <p className="text-xs sm:text-sm text-[#B7A98A]/65 -mt-3 max-w-2xl">Unified Ledger.</p>
+      <p className="text-xs sm:text-sm text-[#B7A98A]/65 -mt-3 max-w-2xl">Unified ledger.</p>
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-4">
         <Stat testid="cashflow-tile-income" label="Income" value={fmtINR(totals.income)} />
         <Stat testid="cashflow-tile-expense" label="Expense" value={fmtINR(totals.expense)} />
         <Stat testid="cashflow-tile-asset" label="Assets" value={fmtINR(totals.asset)} />
         <Stat testid="cashflow-tile-liability" label="Liabilities" value={fmtINR(totals.liability)} />
+        <Stat
+          testid="cashflow-tile-upcoming"
+          label="Upcoming Payments"
+          value={upcoming ? fmtINR(upcoming.total) : "—"}
+          hint={upcoming ? `${upcoming.items.length} this ${upcoming.month?.split(" ")[0] || "month"}` : ""}
+        />
       </div>
 
       <AiAddBar
@@ -445,7 +463,23 @@ export default function CashFlow() {
                 <input list="tx-groups" defaultValue={t.group || ""} onBlur={(e) => patch(t.id, { group: e.target.value })} onKeyDown={advanceOnEnter} className="mm-input-ghost text-xs" placeholder="—" />
                 <input list="tx-vendors" defaultValue={t.vendor || t.name || t.company || ""} onBlur={(e) => patch(t.id, { vendor: e.target.value, name: e.target.value, company: e.target.value })} onKeyDown={advanceOnEnter} className="mm-input-ghost text-xs" placeholder="—" />
                 <input list="tx-details" defaultValue={t.details || t.notes || ""} onBlur={(e) => patch(t.id, { details: e.target.value, notes: e.target.value })} onKeyDown={advanceOnEnter} className="mm-input-ghost text-xs" placeholder="—" />
-                <input type="number" defaultValue={t.amount} onBlur={(e) => patch(t.id, { amount: Number(e.target.value) })} onKeyDown={advanceOnEnter} className="mm-input-ghost text-xs" />
+                <div className="flex items-center gap-1">
+                  <select
+                    value={t.currency || "INR"}
+                    onChange={(e) => patch(t.id, { currency: e.target.value })}
+                    className="mm-input-ghost text-[10px] !py-1 !px-1 w-12"
+                    data-testid="tx-currency"
+                    title="Currency"
+                  >
+                    <option value="INR">₹</option>
+                    <option value="USD">$</option>
+                    <option value="EUR">€</option>
+                    <option value="GBP">£</option>
+                    <option value="JPY">¥</option>
+                    <option value="AED">د.إ</option>
+                  </select>
+                  <input type="number" defaultValue={t.amount} onBlur={(e) => patch(t.id, { amount: Number(e.target.value) })} onKeyDown={advanceOnEnter} className="mm-input-ghost text-xs flex-1" />
+                </div>
                 <input list="tx-modes" defaultValue={t.mode || t.remarks || ""} onBlur={(e) => patch(t.id, { mode: e.target.value, remarks: e.target.value })} onKeyDown={advanceOnEnter} className="mm-input-ghost text-xs" placeholder="—" />
                 <input list="tx-heads" defaultValue={t.head || t.expense_head || ""} onBlur={(e) => patch(t.id, { head: e.target.value, expense_head: e.target.value })} onKeyDown={advanceOnEnter} className="mm-input-ghost text-xs" />
                 <select

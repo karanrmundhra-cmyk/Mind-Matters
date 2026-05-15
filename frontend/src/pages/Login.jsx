@@ -46,17 +46,9 @@ export default function Login() {
         toast.success("Welcome back");
         navigate(from, { replace: true });
       } else if (mode === "forgot") {
-        const { data } = await api.post("/auth/forgot", { email: email.trim().toLowerCase() });
-        if (data?.code) {
-          setIssuedCode(data.code);
-          setDeliveredVia(data.delivered_via || "screen");
-        }
+        await api.post("/auth/forgot", { email: email.trim().toLowerCase() });
         setMode("reset");
-        toast.success(
-          data?.delivered_via === "telegram+screen"
-            ? "Code sent to your Telegram (also shown below)"
-            : "If that email exists, a reset code was generated",
-        );
+        toast.success("If that email exists, a reset code was sent. Check your inbox / Telegram.");
       } else if (mode === "reset") {
         const { data } = await api.post("/auth/reset", {
           email: email.trim().toLowerCase(),
@@ -233,21 +225,6 @@ export default function Login() {
                   minLength={6}
                 />
               </div>
-              {issuedCode && (
-                <div
-                  className="rounded-lg border border-[rgba(201,169,97,0.3)] bg-[rgba(201,169,97,0.06)] px-4 py-3"
-                  data-testid="reset-code-hint"
-                >
-                  <div className="text-[10px] uppercase tracking-[0.25em] text-[#B7A98A]/65 mb-1">
-                    Your reset code
-                    {deliveredVia === "telegram+screen" ? " (also sent to Telegram)" : ""}
-                  </div>
-                  <div className="mm-font-serif text-2xl mm-text-gold-bright tracking-[0.4em]">
-                    {issuedCode}
-                  </div>
-                  <div className="text-[10px] text-[#B7A98A]/45 mt-1">Expires in 30 minutes.</div>
-                </div>
-              )}
             </>
           )}
 

@@ -113,7 +113,7 @@ export default function BulkAddDialog({ open, onClose, kind, onConfirm, describe
           <div className="flex items-center gap-2">
             <Upload size={16} className="mm-text-gold" />
             <div className="mm-font-display text-base mm-text-gold-bright">
-              Bulk add — {kind}
+              Import — {kind}
             </div>
           </div>
           <button onClick={close} className="text-[#B7A98A]/60 hover:text-[#E4C98C]">

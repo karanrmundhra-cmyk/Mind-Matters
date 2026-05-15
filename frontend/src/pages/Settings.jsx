@@ -358,14 +358,21 @@ export default function Settings() {
           </div>
         ) : (
           <div className="space-y-4 text-sm">
-            <p className="text-[#B7A98A]/70 leading-relaxed">
-              Each user runs their own private Telegram bot. Follow these steps once:
-            </p>
-            <ol className="list-decimal pl-5 space-y-2 text-[#B7A98A]/85">
-              <li>Open Telegram → search <span className="mm-text-gold-bright">@BotFather</span> → send <code className="mm-text-gold">/newbot</code>. Give it a name and a unique username ending in <code>bot</code>. BotFather replies with a long token (e.g. <code className="text-xs">7123456789:AA...</code>).</li>
-              <li>Paste that token into the server's <code>.env</code> under <code>TELEGRAM_BOT_TOKEN</code> and restart the backend. <span className="text-[#B7A98A]/55">(Admins only for now — will expose a UI field next iteration.)</span></li>
-              <li>Once linked, your bot appears below. Click <em>Generate code</em> and tap the Telegram button to auto-link this account to your chat.</li>
-            </ol>
+            <details className="group" data-testid="tg-setup-details">
+              <summary className="cursor-pointer text-[11px] uppercase tracking-[0.25em] text-[#B7A98A]/65 hover:mm-text-gold transition select-none">
+                How to connect Telegram ▾
+              </summary>
+              <div className="mt-3 space-y-3">
+                <p className="text-[#B7A98A]/70 leading-relaxed">
+                  Each user runs their own private Telegram bot. Follow these steps once:
+                </p>
+                <ol className="list-decimal pl-5 space-y-2 text-[#B7A98A]/85">
+                  <li>Open Telegram → search <span className="mm-text-gold-bright">@BotFather</span> → send <code className="mm-text-gold">/newbot</code>. Give it a name and a unique username ending in <code>bot</code>. BotFather replies with a long token (e.g. <code className="text-xs">7123456789:AA...</code>).</li>
+                  <li>Paste that token into the server's <code>.env</code> under <code>TELEGRAM_BOT_TOKEN</code> and restart the backend. <span className="text-[#B7A98A]/55">(Admins only for now — will expose a UI field next iteration.)</span></li>
+                  <li>Once linked, your bot appears below. Click <em>Generate code</em> and tap the Telegram button to auto-link this account to your chat.</li>
+                </ol>
+              </div>
+            </details>
             <div className="flex gap-2 pt-2">
               <button onClick={generate} className="mm-btn-primary text-xs flex items-center gap-1.5" data-testid="tg-generate">
                 <LinkIcon size={12} /> Generate code

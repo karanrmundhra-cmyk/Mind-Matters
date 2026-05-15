@@ -5,6 +5,7 @@ import { useAuth } from "@/lib/auth";
 import { Card } from "@/components/Primitives";
 import {
   Wind, Plus, Trash2, CalendarClock, CheckSquare, Repeat, Wallet, StickyNote, BellRing, Banknote,
+  BarChart3, Settings as SettingsIcon, Newspaper, ExternalLink,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -22,6 +23,8 @@ const QUICK_NAV = [
   { to: "/cash-flow", label: "Cash Flow", icon: Wallet, testid: "quicknav-cashflow" },
   { to: "/notes", label: "Notes", icon: StickyNote, testid: "quicknav-notes" },
   { to: "/reminders", label: "Reminders", icon: BellRing, testid: "quicknav-reminders" },
+  { to: "/reports", label: "Reports", icon: BarChart3, testid: "quicknav-reports" },
+  { to: "/settings", label: "Settings", icon: SettingsIcon, testid: "quicknav-settings" },
 ];
 
 export default function Dashboard() {
@@ -32,24 +35,31 @@ export default function Dashboard() {
   const [deadlines, setDeadlines] = useState([]);
   const [draft, setDraft] = useState({ title: "", due_date: "" });
   const [loanSummary, setLoanSummary] = useState(null);
+  const [news, setNews] = useState(null);
+  const [newsCategory, setNewsCategory] = useState(
+    localStorage.getItem("mm_news_category") || "all",
+  );
 
   const load = async () => {
-    const [w, q, a, d, ls] = await Promise.all([
+    const [w, q, a, d, ls, nw] = await Promise.all([
       api.get("/weather"),
       api.get("/quote/today"),
       api.get("/affirmations/today"),
       api.get("/deadlines"),
       api.get("/cashflow/loan-summary").catch(() => ({ data: null })),
+      api.get(`/news?category=${encodeURIComponent(newsCategory)}`).catch(() => ({ data: null })),
     ]);
     setWeather(w.data);
     setQuote(q.data);
     setAffirmation(a.data);
     setDeadlines(d.data || []);
     setLoanSummary(ls.data);
+    setNews(nw.data);
   };
   useEffect(() => {
     load();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [newsCategory]);
 
   const savePersonalAffirmation = async (text) => {
     try {
@@ -103,12 +113,22 @@ export default function Dashboard() {
     }
   };
 
-  const today = new Date();
+  const [now, setNow] = useState(new Date());
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 60_000);
+    return () => clearInterval(id);
+  }, []);
+
+  const today = now;
   const greetDate = today.toLocaleDateString("en-US", {
     weekday: "long",
     day: "numeric",
     month: "long",
     year: "numeric",
+  });
+  const greetTime = today.toLocaleTimeString("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
   });
   const hour = today.getHours();
   const greet =
@@ -119,8 +139,8 @@ export default function Dashboard() {
       {/* Header greeting */}
       <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4 sm:gap-5">
         <div>
-          <div className="text-[10px] sm:text-[11px] uppercase tracking-[0.3em] text-[#B7A98A]/60">
-            {greetDate}
+          <div className="text-[10px] sm:text-[11px] uppercase tracking-[0.3em] text-[#B7A98A]/60" data-testid="dashboard-date-time">
+            {greetDate} · {greetTime}
           </div>
           <h1 className="mm-font-display text-3xl sm:text-5xl lg:text-6xl text-white mt-2 font-light leading-tight">
             {greet},{" "}
@@ -159,7 +179,7 @@ export default function Dashboard() {
 
       {/* Quick access icon row */}
       <div
-        className="grid grid-cols-5 gap-2 sm:gap-3"
+        className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-7 gap-2 sm:gap-3 mm-focus-hide"
         data-testid="quick-nav-grid"
       >
         {QUICK_NAV.map((n) => (
@@ -274,6 +294,54 @@ export default function Dashboard() {
           </Card>
         </NavLink>
       )}
+
+      {/* News widget */}
+      <Card className="p-5 sm:p-6 mm-focus-hide" data-testid="news-widget">
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2 text-[10px] uppercase tracking-[0.3em] text-[#B7A98A]/65">
+            <Newspaper size={12} className="mm-text-gold" />
+            Today's News
+          </div>
+          <select
+            value={newsCategory}
+            onChange={(e) => {
+              setNewsCategory(e.target.value);
+              localStorage.setItem("mm_news_category", e.target.value);
+            }}
+            className="mm-input-ghost text-[10px] !py-1"
+            data-testid="news-category"
+          >
+            <option value="all">All</option>
+            <option value="business">Business</option>
+            <option value="tech">Tech</option>
+            <option value="india">India</option>
+            <option value="world">World</option>
+          </select>
+        </div>
+        {!news ? (
+          <div className="text-xs text-[#B7A98A]/50">Loading…</div>
+        ) : news.items.length === 0 ? (
+          <div className="text-xs text-[#B7A98A]/50">News unavailable</div>
+        ) : (
+          <div className="space-y-2">
+            {news.items.map((item, i) => (
+              <a
+                key={i}
+                href={item.url || "#"}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-start gap-2 px-3 py-2 rounded-lg border border-[rgba(201,169,97,0.15)] hover:border-[#C9A961]/40 hover:bg-[rgba(201,169,97,0.04)] transition group"
+                data-testid="news-item"
+              >
+                <ExternalLink size={11} className="mm-text-gold-bright shrink-0 mt-1" />
+                <span className="text-xs sm:text-sm text-[#E4C98C]/85 group-hover:mm-text-gold-bright transition leading-snug">
+                  {item.title}
+                </span>
+              </a>
+            ))}
+          </div>
+        )}
+      </Card>
 
       {/* Deadlines countdown */}
       <Card className="p-5 sm:p-6" data-testid="deadlines-card">
