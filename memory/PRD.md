@@ -17,6 +17,30 @@ with the R.K.M. brand logo. AI-first input on every page (type → confirm → d
 - **Frontend**: React + Tailwind + Shadcn UI. Cormorant Garamond (serif), Outfit
   (display), Inter (body). Pure black + rich gold (#C9A961 / #E4C98C).
 
+### v2.15 — Finish-line batch on deferred P1 items (2026-02)
+- **Sync dot tooltip** now shows "X ago" — green="Synced · 14s ago",
+  yellow="2 changes queued · last sync 30s ago", red="Reconnecting · last
+  sync 5m ago". `humanAgo()` helper + `lastSyncAt` tracked in the
+  IndexedDB sync queue state.
+- **Import dialog** — clear "Up to 50 entries at a time" message; over-50
+  pastes/uploads are truncated client-side with a toast.
+- **Reminder parse fix** — schema upgraded so the LLM returns verb-led
+  titles ('Call Brinda' not 'hit Brinda'), separates notes from title,
+  defaults time-of-day intelligently ('evening'=18:00, 'noon'=12:00 etc.).
+- **Reminders compact table** — removed bulky source-context gold metadata
+  block; replaced with small inline `reminder-source-badge` ("Tasks" /
+  "Cash Flow" / etc.) on the right side of each row.
+- **Currency conversion math** — new `/api/fx/rates` (cached 6h, falls back
+  to a static table) + `/api/cashflow/totals?base=INR` returns category
+  totals in the requested base. CashFlow page uses converted totals when
+  available; falls back to local sum on offline.
+- **Universal AttachmentsDialog** (`/components/AttachmentsDialog.jsx`) —
+  shared modal now used by Routines + CashFlow (Tasks keeps its own).
+  Accepts module ∈ {tasks, routines, transactions, notes}, 10MB/file,
+  jpg/png/pdf/xlsx/csv/doc/docx.
+- **Priority flag** wired on Routines + CashFlow too (was Tasks-only).
+- Tests: 9/9 v2.15 backend pytest + 11/12 frontend testids green.
+
 ### v2.14 — Mega 47-item batch (2026-02)
 **Security & login**
 - `/api/auth/forgot` no longer returns the reset code in the response body

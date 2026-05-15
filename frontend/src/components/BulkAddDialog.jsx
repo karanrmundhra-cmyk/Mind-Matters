@@ -119,6 +119,7 @@ export default function BulkAddDialog({ open, onClose, kind, onConfirm, describe
         onClick={(e) => e.stopPropagation()}
         data-testid="bulk-add-modal"
       >
+        <div data-testid="bulk-add-dialog" className="contents">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
             <Upload size={16} className="mm-text-gold" />
@@ -265,6 +266,7 @@ export default function BulkAddDialog({ open, onClose, kind, onConfirm, describe
             </div>
           </>
         )}
+        </div>
       </div>
     </div>
   );
