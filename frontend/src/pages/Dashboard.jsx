@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { NavLink } from "react-router-dom";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { useProjectReload } from "@/lib/projects";
 import { Card } from "@/components/Primitives";
 import {
   Wind, Plus, Trash2, CalendarClock, CheckSquare, Repeat, Wallet, StickyNote, BellRing, Banknote,
@@ -60,6 +61,7 @@ export default function Dashboard() {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [newsCategory]);
+  useProjectReload(load);
 
   const savePersonalAffirmation = async (text) => {
     try {

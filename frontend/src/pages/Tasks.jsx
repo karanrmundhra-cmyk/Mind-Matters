@@ -9,6 +9,8 @@ import ReminderDialog from "@/components/ReminderDialog";
 import FilterHeader from "@/components/FilterHeader";
 import ExportButton from "@/components/ExportButton";
 import { useReorder } from "@/lib/useReorder";
+import { useProjectReload } from "@/lib/projects";
+import { nestRows, depthPaddingClass } from "@/lib/nestRows";
 import { Plus, Upload, Check } from "lucide-react";
 import { toast } from "sonner";
 import { todayISO } from "@/lib/format";
@@ -62,6 +64,7 @@ export default function Tasks() {
   useEffect(() => {
     load();
   }, []);
+  useProjectReload(load);
 
   const { move, onDragStart, onDragOver, onDrop, onDragEnd, draggingId } =
     useReorder("tasks", tasks, setTasks, { onCommit: load });
@@ -98,8 +101,6 @@ export default function Tasks() {
   const textMatch = (a, b) => (!b ? true : String(a || "").toLowerCase().includes(b.toLowerCase()));
 
   const visible = useMemo(() => {
-    // First apply filters to ALL tasks (so child rows surface only when they
-    // independently match the active group / status / etc. — same UX as parents).
     const matches = (t) => {
       if (activeGroup && t.group !== activeGroup) return false;
       if (filters.sr && String(t.sr_no) !== filters.sr) return false;
@@ -111,41 +112,7 @@ export default function Tasks() {
       if (filters.status && t.status !== filters.status) return false;
       return true;
     };
-    // Group children by parent_id so we can interleave them right after their parent.
-    const childrenByParent = new Map();
-    tasks.forEach((t) => {
-      if (t.parent_id) {
-        if (!childrenByParent.has(t.parent_id)) childrenByParent.set(t.parent_id, []);
-        childrenByParent.get(t.parent_id).push(t);
-      }
-    });
-    const out = [];
-    // Sort parents by: flagged-first, then their natural order
-    const flaggedParents = [];
-    const normalParents = [];
-    tasks.forEach((t) => {
-      if (t.parent_id) return;
-      if (!matches(t)) return;
-      (t.flagged ? flaggedParents : normalParents).push(t);
-    });
-    const orderedParents = [...flaggedParents, ...normalParents];
-    orderedParents.forEach((t) => {
-      out.push(t);
-      const kids = (childrenByParent.get(t.id) || []).filter(matches);
-      kids.forEach((k) => out.push({ ...k, _isSubtask: true }));
-    });
-    // Also include orphan subtasks (parent missing/filtered out) so the user
-    // never loses sight of a row entirely.
-    tasks.forEach((t) => {
-      if (!t.parent_id) return;
-      const parentVisible = out.some((r) => r.id === t.parent_id);
-      const parentExists = tasks.some((p) => p.id === t.parent_id);
-      if (!parentVisible && parentExists) return; // skip — parent was just filtered out
-      if (!parentExists && matches(t)) {
-        out.push({ ...t, _isSubtask: true });
-      }
-    });
-    return out;
+    return nestRows(tasks, { matches, maxDepth: 2 });
   }, [tasks, activeGroup, filters]);
 
   const pendingCount = tasks.filter((t) => t.status === "Pending").length;
@@ -483,8 +450,9 @@ export default function Tasks() {
               key={t.id}
               className={`grid grid-cols-2 ${GRID} gap-3 px-4 py-2.5 border-b border-[rgba(201,169,97,0.08)] hover:bg-[rgba(201,169,97,0.04)] transition items-center ${
                 draggingId === t.id ? "opacity-40" : ""
-              } ${t._isSubtask ? "pl-10 bg-[rgba(201,169,97,0.015)]" : ""}`}
+              } ${t._isSubtask ? `${depthPaddingClass(t._depth || 1)} bg-[rgba(201,169,97,0.015)]` : ""}`}
               data-testid={t._isSubtask ? "task-subtask-row" : "task-row"}
+              data-depth={t._depth || 0}
               data-row="data"
             >
               <div className="flex items-center gap-2">
@@ -614,7 +582,7 @@ export default function Tasks() {
                   } catch (e) { toast.error(e?.response?.data?.detail || "Upload failed"); }
                 }}
                 attachmentCount={(t.attachments || []).length}
-                onSubtask={t._isSubtask ? undefined : () => createSubtask(t)}
+                onSubtask={(t._depth || 0) >= 2 ? undefined : () => createSubtask(t)}
                 onFlag={() => patch(t.id, { flagged: !t.flagged })}
                 flagged={!!t.flagged}
                 onDelete={() => remove(t.id)}

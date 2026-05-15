@@ -10,6 +10,7 @@ import {
 import { toast } from "sonner";
 import ReminderDialog from "@/components/ReminderDialog";
 import { capWords } from "@/lib/format";
+import { useProjectReload } from "@/lib/projects";
 
 const TAG_OPTIONS = []; // No presets — user creates their own via "+ Custom" chip
 
@@ -49,6 +50,7 @@ export default function Notes() {
     load();
     // eslint-disable-next-line
   }, [q, filterTag]);
+  useProjectReload(load);
 
   useEffect(() => {
     if (selected) {

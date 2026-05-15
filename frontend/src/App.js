@@ -4,6 +4,7 @@ import "@/index.css";
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { Toaster } from "sonner";
 import { AuthProvider, useAuth } from "@/lib/auth";
+import { ProjectProvider } from "@/lib/projects";
 import AppShell from "@/components/AppShell";
 import AuroraBackground from "@/components/AuroraBackground";
 import SplashScreen from "@/components/SplashScreen";
@@ -69,9 +70,11 @@ function App() {
     <div className="App mm-font-body text-white">
       <AuroraBackground />
       <AuthProvider>
-        <BrowserRouter>
-          <Root />
-        </BrowserRouter>
+        <ProjectProvider>
+          <BrowserRouter>
+            <Root />
+          </BrowserRouter>
+        </ProjectProvider>
       </AuthProvider>
       <Toaster
         theme="dark"

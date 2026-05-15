@@ -35,6 +35,7 @@ export function AuthProvider({ children }) {
     setUser(data.user);
     // First-login auto-seed (idempotent — server returns seeded:false if data exists)
     try { await api.post("/seed/first-login", {}); } catch { /* */ }
+    window.dispatchEvent(new CustomEvent("mm:auth-changed"));
     return data.user;
   }, []);
 
@@ -43,6 +44,7 @@ export function AuthProvider({ children }) {
     localStorage.setItem("mm_token", data.token);
     setUser(data.user);
     try { await api.post("/seed/first-login", {}); } catch { /* */ }
+    window.dispatchEvent(new CustomEvent("mm:auth-changed"));
     return data.user;
   }, []);
 
@@ -51,12 +53,15 @@ export function AuthProvider({ children }) {
     localStorage.setItem("mm_token", data.token);
     setUser(data.user);
     try { await api.post("/seed/first-login", {}); } catch { /* */ }
+    window.dispatchEvent(new CustomEvent("mm:auth-changed"));
     return data.user;
   }, []);
 
   const logout = useCallback(() => {
     localStorage.removeItem("mm_token");
+    localStorage.removeItem("mm_current_project");
     setUser(null);
+    window.dispatchEvent(new CustomEvent("mm:auth-changed"));
   }, []);
 
   return (

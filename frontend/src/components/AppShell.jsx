@@ -37,6 +37,7 @@ import AiChat from "@/components/AiChat";
 import QuickAdd from "@/components/QuickAdd";
 import CommandPalette from "@/components/CommandPalette";
 import FloatingDock from "@/components/FloatingDock";
+import ProjectSelector from "@/components/ProjectSelector";
 import { useAuth } from "@/lib/auth";
 
 const NAV = [
@@ -209,7 +210,10 @@ export default function AppShell() {
 
       {/* Main content */}
       <main className="flex-1 relative min-w-0 pb-24 md:pb-10">
-        <div className="mx-auto max-w-[1280px] px-5 md:px-10 py-6 md:py-10">
+        <div className="flex justify-end px-5 md:px-10 pt-4">
+          <ProjectSelector />
+        </div>
+        <div className="mx-auto max-w-[1280px] px-5 md:px-10 py-6 md:py-10 pt-3 md:pt-4">
           <Outlet />
         </div>
 

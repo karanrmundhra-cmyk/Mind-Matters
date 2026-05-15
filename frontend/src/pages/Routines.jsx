@@ -10,6 +10,8 @@ import FilterHeader from "@/components/FilterHeader";
 import ExportButton from "@/components/ExportButton";
 import AttachmentsDialog from "@/components/AttachmentsDialog";
 import { useReorder } from "@/lib/useReorder";
+import { useProjectReload } from "@/lib/projects";
+import { nestRows, depthPaddingClass } from "@/lib/nestRows";
 import { Plus, Flame, Check, Upload } from "lucide-react";
 import { toast } from "sonner";
 
@@ -49,6 +51,7 @@ export default function Routines() {
   useEffect(() => {
     load();
   }, []);
+  useProjectReload(load);
 
   const { move, onDragStart, onDragOver, onDrop, onDragEnd, draggingId } =
     useReorder("routines", routines, setRoutines, { onCommit: load });
@@ -112,28 +115,7 @@ export default function Routines() {
       if (!textMatch(r.frequency, filters.frequency)) return false;
       return true;
     };
-    const childrenByParent = new Map();
-    routines.forEach((r) => {
-      if (r.parent_id) {
-        if (!childrenByParent.has(r.parent_id)) childrenByParent.set(r.parent_id, []);
-        childrenByParent.get(r.parent_id).push(r);
-      }
-    });
-    const flaggedParents = [];
-    const normalParents = [];
-    routines.forEach((r) => {
-      if (r.parent_id) return;
-      if (!matches(r)) return;
-      (r.flagged ? flaggedParents : normalParents).push(r);
-    });
-    const out = [];
-    [...flaggedParents, ...normalParents].forEach((r) => {
-      out.push(r);
-      (childrenByParent.get(r.id) || []).filter(matches).forEach((k) =>
-        out.push({ ...k, _isSubtask: true }),
-      );
-    });
-    return out;
+    return nestRows(routines, { matches, maxDepth: 2 });
   }, [routines, activeGroup, filters]);
 
   const createSubroutine = async (parent) => {
@@ -360,8 +342,9 @@ export default function Routines() {
                 key={r.id}
                 className={`grid grid-cols-2 ${GRID} gap-3 px-4 py-2.5 border-b border-[rgba(201,169,97,0.08)] hover:bg-[rgba(201,169,97,0.04)] items-center ${
                   draggingId === r.id ? "opacity-40" : ""
-                } ${r._isSubtask ? "pl-10 bg-[rgba(201,169,97,0.015)]" : ""}`}
+                } ${r._isSubtask ? `${depthPaddingClass(r._depth || 1)} bg-[rgba(201,169,97,0.015)]` : ""}`}
                 data-testid={r._isSubtask ? "routine-subtask-row" : "routine-row"}
+                data-depth={r._depth || 0}
                 data-row="data"
               >
                 <div className="flex items-center gap-2">
@@ -442,7 +425,7 @@ export default function Routines() {
                       catch (e) { toast.error(e?.response?.data?.detail || "Upload failed"); }
                     }}
                     attachmentCount={(r.attachments || []).length}
-                    onSubtask={r._isSubtask ? undefined : () => createSubroutine(r)}
+                    onSubtask={(r._depth || 0) >= 2 ? undefined : () => createSubroutine(r)}
                     onFlag={() => patch(r.id, { flagged: !r.flagged })}
                     flagged={!!r.flagged}
                     onDelete={() => remove(r.id)}

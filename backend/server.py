@@ -146,6 +146,7 @@ class TaskIn(BaseModel):
     section: str = ""  # optional second-level grouping (Todoist-style sub-header)
     parent_id: Optional[str] = None  # if set, this is a subtask nested under another task
     flagged: bool = False  # priority flag — flagged rows sort to top
+    project_id: Optional[str] = None  # v2.17 — project this row belongs to
     # Lightweight inline attachments — each entry: {name, mime, size, data_url}.
     # Capped at ~4MB total per task in the upload endpoint.
     attachments: List[Dict[str, Any]] = []
@@ -172,6 +173,7 @@ class RoutineIn(BaseModel):
     section: str = ""  # optional second-level grouping (Todoist-style sub-header)
     parent_id: Optional[str] = None  # nested subtask support (max depth 3, enforced client-side)
     flagged: bool = False
+    project_id: Optional[str] = None  # v2.17 — project this row belongs to
     attachments: List[Dict[str, Any]] = []
 
 
@@ -245,6 +247,7 @@ class TransactionIn(BaseModel):
     currency: str = "INR"  # ISO code per row; summary cards convert to user's default
     parent_id: Optional[str] = None  # for splitting bills into line items
     flagged: bool = False
+    project_id: Optional[str] = None  # v2.17 — project this row belongs to
     attachments: List[Dict[str, Any]] = []
     source: Literal["manual", "upload", "telegram"] = "manual"
 
@@ -287,6 +290,7 @@ class NoteIn(BaseModel):
     tags: List[str] = []
     pinned: bool = False
     flagged: bool = False
+    project_id: Optional[str] = None  # v2.17 — project this row belongs to
     attachments: List[Dict[str, Any]] = []
 
 
@@ -489,6 +493,7 @@ async def list_tasks(
     name: Optional[str] = None,
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
+    project_id: Optional[str] = None,
     user=Depends(get_current_user),
 ):
     q: Dict[str, Any] = {"user_id": user["id"]}
@@ -502,6 +507,8 @@ async def list_tasks(
             q["date"]["$gte"] = date_from
         if date_to:
             q["date"]["$lte"] = date_to
+    if project_id:
+        q["project_id"] = project_id
     docs = await db.tasks.find(q, {"_id": 0}).sort("sr_no", 1).to_list(5000)
     return [Task(**d) for d in docs]
 
@@ -551,6 +558,9 @@ async def create_task(body: TaskIn, user=Depends(get_current_user)):
         "created_at": now_iso(),
         "updated_at": now_iso(),
     }
+    if not doc.get("project_id"):
+        doc["project_id"] = await _ensure_default_project(user["id"])
+    await _assert_project_write(user["id"], doc["project_id"])
     await db.tasks.insert_one(dict(doc))
     return Task(**doc)
 
@@ -559,6 +569,7 @@ async def create_task(body: TaskIn, user=Depends(get_current_user)):
 async def bulk_create_tasks(body: List[TaskIn], user=Depends(get_current_user)):
     out = []
     sr = await _next_sr("tasks", user["id"])
+    default_pid = await _ensure_default_project(user["id"])
     for b in body:
         doc = {
             **b.model_dump(),
@@ -569,6 +580,8 @@ async def bulk_create_tasks(body: List[TaskIn], user=Depends(get_current_user)):
             "created_at": now_iso(),
             "updated_at": now_iso(),
         }
+        if not doc.get("project_id"):
+            doc["project_id"] = default_pid
         sr += 1
         await db.tasks.insert_one(dict(doc))
         out.append(Task(**doc))
@@ -579,7 +592,8 @@ async def bulk_create_tasks(body: List[TaskIn], user=Depends(get_current_user)):
 async def update_task(task_id: str, body: Dict[str, Any], user=Depends(get_current_user)):
     body = {k: v for k, v in body.items()
             if k in {"date", "name", "task", "details", "status", "group", "section",
-                     "order_index", "sr_no", "parent_id", "attachments", "flagged"}}
+                     "order_index", "sr_no", "parent_id", "attachments", "flagged",
+                     "project_id"}}
     # Status compatibility: accept "Completed" alongside legacy "Done"
     if body.get("status") == "Completed":
         body["status"] = "Completed"  # keep as-is
@@ -666,8 +680,11 @@ async def delete_task_attachment(task_id: str, att_id: str, user=Depends(get_cur
 
 # ───────────────────────────── routines ─────────────────────────────
 @api.get("/routines", response_model=List[Routine])
-async def list_routines(user=Depends(get_current_user)):
-    docs = await db.routines.find({"user_id": user["id"]}, {"_id": 0}).sort("sr_no", 1).to_list(1000)
+async def list_routines(project_id: Optional[str] = None, user=Depends(get_current_user)):
+    q: Dict[str, Any] = {"user_id": user["id"]}
+    if project_id:
+        q["project_id"] = project_id
+    docs = await db.routines.find(q, {"_id": 0}).sort("sr_no", 1).to_list(1000)
     # Backfill sr_no for any old docs missing it (one-time, ordered by created_at).
     if any((d.get("sr_no") or 0) <= 0 for d in docs):
         ordered = sorted(docs, key=lambda d: d.get("created_at", ""))
@@ -690,6 +707,9 @@ async def create_routine(body: RoutineIn, user=Depends(get_current_user)):
         "created_at": now_iso(),
         "updated_at": now_iso(),
     }
+    if not doc.get("project_id"):
+        doc["project_id"] = await _ensure_default_project(user["id"])
+    await _assert_project_write(user["id"], doc["project_id"])
     await db.routines.insert_one(dict(doc))
     return Routine(**doc)
 
@@ -698,6 +718,7 @@ async def create_routine(body: RoutineIn, user=Depends(get_current_user)):
 async def bulk_routines(body: List[RoutineIn], user=Depends(get_current_user)):
     out = []
     sr = await _next_sr("routines", user["id"])
+    default_pid = await _ensure_default_project(user["id"])
     for b in body:
         doc = {
             **b.model_dump(),
@@ -707,6 +728,8 @@ async def bulk_routines(body: List[RoutineIn], user=Depends(get_current_user)):
             "created_at": now_iso(),
             "updated_at": now_iso(),
         }
+        if not doc.get("project_id"):
+            doc["project_id"] = default_pid
         sr += 1
         await db.routines.insert_one(dict(doc))
         out.append(Routine(**doc))
@@ -717,7 +740,8 @@ async def bulk_routines(body: List[RoutineIn], user=Depends(get_current_user)):
 async def update_routine(rid: str, body: Dict[str, Any], user=Depends(get_current_user)):
     body = {k: v for k, v in body.items()
             if k in {"group", "name", "activity", "details", "frequency", "priority", "status",
-                     "section", "order_index", "sr_no", "parent_id", "flagged", "attachments"}}
+                     "section", "order_index", "sr_no", "parent_id", "flagged", "attachments",
+                     "project_id"}}
     body["updated_at"] = now_iso()
     if "sr_no" in body:
         try:
@@ -964,6 +988,7 @@ async def loans_summary(user=Depends(get_current_user)):
 async def list_transactions(
     month: Optional[str] = None,  # YYYY-MM
     expense_head: Optional[str] = None,
+    project_id: Optional[str] = None,
     user=Depends(get_current_user),
 ):
     q: Dict[str, Any] = {"user_id": user["id"]}
@@ -971,6 +996,8 @@ async def list_transactions(
         q["date"] = {"$regex": f"^{month}"}
     if expense_head:
         q["expense_head"] = expense_head
+    if project_id:
+        q["project_id"] = project_id
     docs = await db.transactions.find(q, {"_id": 0}).sort("sr_no", 1).to_list(10000)
     # Backfill sr_no for any legacy docs missing it.
     if any((d.get("sr_no") or 0) <= 0 for d in docs):
@@ -995,6 +1022,9 @@ async def create_transaction(body: TransactionIn, user=Depends(get_current_user)
         "created_at": now_iso(),
         "updated_at": now_iso(),
     }
+    if not doc.get("project_id"):
+        doc["project_id"] = await _ensure_default_project(user["id"])
+    await _assert_project_write(user["id"], doc["project_id"])
     await db.transactions.insert_one(dict(doc))
     return Transaction(**doc)
 
@@ -1005,7 +1035,7 @@ async def update_transaction(tid: str, body: Dict[str, Any], user=Depends(get_cu
                "account", "notes", "name", "vendor", "details", "remarks", "head",
                "category", "group", "section", "order_index", "sr_no",
                "interest_rate", "interest_type", "repayment_date", "emi",
-               "currency", "parent_id", "flagged", "attachments"}
+               "currency", "parent_id", "flagged", "attachments", "project_id"}
     body = {k: v for k, v in body.items() if k in allowed}
     body["updated_at"] = now_iso()
     if "sr_no" in body:
@@ -1280,7 +1310,7 @@ async def investments_summary(user=Depends(get_current_user)):
 
 # ───────────────────────────── notes ─────────────────────────────
 @api.get("/notes", response_model=List[Note])
-async def list_notes(q: Optional[str] = None, tag: Optional[str] = None, user=Depends(get_current_user)):
+async def list_notes(q: Optional[str] = None, tag: Optional[str] = None, project_id: Optional[str] = None, user=Depends(get_current_user)):
     query: Dict[str, Any] = {"user_id": user["id"]}
     if tag:
         query["tags"] = tag
@@ -1289,6 +1319,8 @@ async def list_notes(q: Optional[str] = None, tag: Optional[str] = None, user=De
             {"title": {"$regex": q, "$options": "i"}},
             {"body": {"$regex": q, "$options": "i"}},
         ]
+    if project_id:
+        query["project_id"] = project_id
     docs = await db.notes.find(query, {"_id": 0}).sort("updated_at", -1).to_list(2000)
     return [Note(**d) for d in docs]
 
@@ -1302,13 +1334,16 @@ async def create_note(body: NoteIn, user=Depends(get_current_user)):
         "created_at": now_iso(),
         "updated_at": now_iso(),
     }
+    if not doc.get("project_id"):
+        doc["project_id"] = await _ensure_default_project(user["id"])
+    await _assert_project_write(user["id"], doc["project_id"])
     await db.notes.insert_one(dict(doc))
     return Note(**doc)
 
 
 @api.patch("/notes/{nid}", response_model=Note)
 async def update_note(nid: str, body: Dict[str, Any], user=Depends(get_current_user)):
-    allowed = {"title", "body", "tags", "pinned", "attachments", "flagged"}
+    allowed = {"title", "body", "tags", "pinned", "attachments", "flagged", "project_id"}
     body = {k: v for k, v in body.items() if k in allowed}
     body["updated_at"] = now_iso()
     res = await db.notes.find_one_and_update(
@@ -2007,71 +2042,443 @@ async def telegram_setup_pdf():
     )
 
 
-# ───────────────────── Reset & seed (v2.2) ─────────────────────
+# ───────────────────── Projects + Sharing + Comments (v2.17) ─────────────────────
+# Every data row (tasks, routines, transactions, notes, reminders, deadlines)
+# carries a `project_id`. Users can own multiple projects and be invited to
+# others. Roles: admin | editor | commenter | viewer.
+
+_PROJECT_DATA_COLLECTIONS = (
+    "tasks", "routines", "transactions", "notes", "reminders", "deadlines",
+)
+
+_PROJECT_COLORS = [
+    "#C9A961", "#7AB8FF", "#9EE493", "#FF9F7A", "#D89BFF",
+    "#FFD27A", "#7AF0D8", "#FF8AB3", "#A7F39B", "#B5A8FF",
+]
+
+
+class ProjectIn(BaseModel):
+    name: str
+    color: Optional[str] = None
+
+
+class Project(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    id: str
+    owner_id: str
+    name: str
+    color: str = "#C9A961"
+    is_default: bool = False
+    created_at: str
+    # Hydrated server-side (not persisted):
+    role: Optional[str] = None  # admin | editor | commenter | viewer
+    shared: bool = False
+    member_count: int = 1
+
+
+class ProjectMember(BaseModel):
+    id: str
+    project_id: str
+    user_id: Optional[str] = None      # populated once invitee creates / has an account
+    invited_email: str
+    role: Literal["admin", "editor", "commenter", "viewer"]
+    accepted: bool = False
+    invited_by: str
+    created_at: str
+
+
+class ShareReq(BaseModel):
+    email: str
+    role: Literal["admin", "editor", "commenter", "viewer"] = "editor"
+
+
+class MemberRoleReq(BaseModel):
+    role: Literal["admin", "editor", "commenter", "viewer"]
+
+
+class CommentIn(BaseModel):
+    resource_type: Literal["task", "routine", "transaction", "note"]
+    resource_id: str
+    body: str
+
+
+class Comment(BaseModel):
+    id: str
+    project_id: str
+    resource_type: str
+    resource_id: str
+    user_id: str
+    user_name: str = ""
+    body: str
+    created_at: str
+
+
+async def _ensure_default_project(user_id: str) -> str:
+    """Return the user's default project id; create one if missing.
+
+    First-run: if user has any existing data rows but no project, create the
+    default project AND back-fill `project_id` on every existing row.
+    """
+    existing = await db.projects.find_one(
+        {"owner_id": user_id, "is_default": True}, {"_id": 0}
+    )
+    if existing:
+        return existing["id"]
+
+    # Maybe user has a non-default project — use the oldest one as default.
+    any_proj = await db.projects.find_one(
+        {"owner_id": user_id}, {"_id": 0}, sort=[("created_at", 1)]
+    )
+    if any_proj:
+        await db.projects.update_one(
+            {"id": any_proj["id"]}, {"$set": {"is_default": True}}
+        )
+        return any_proj["id"]
+
+    proj_id = new_id()
+    doc = {
+        "id": proj_id, "owner_id": user_id,
+        "name": "Personal", "color": "#C9A961",
+        "is_default": True, "created_at": now_iso(),
+    }
+    await db.projects.insert_one(dict(doc))
+    # Back-fill project_id on any existing rows for this user.
+    for coll in _PROJECT_DATA_COLLECTIONS:
+        await db[coll].update_many(
+            {"user_id": user_id, "$or": [{"project_id": {"$exists": False}}, {"project_id": None}]},
+            {"$set": {"project_id": proj_id}},
+        )
+    return proj_id
+
+
+async def _user_accessible_project_ids(user_id: str, email: str = "") -> List[str]:
+    owned = await db.projects.find({"owner_id": user_id}, {"_id": 0, "id": 1}).to_list(500)
+    pids = [p["id"] for p in owned]
+    member_query: Dict[str, Any] = {"user_id": user_id, "accepted": True}
+    members = await db.project_members.find(member_query, {"_id": 0, "project_id": 1}).to_list(500)
+    pids.extend(m["project_id"] for m in members)
+    # Also accept invites pending acceptance by email (auto-accept on next access)
+    if email:
+        pending = await db.project_members.find(
+            {"invited_email": email.lower(), "accepted": False},
+            {"_id": 0, "id": 1, "project_id": 1},
+        ).to_list(200)
+        if pending:
+            ids = [p["id"] for p in pending]
+            await db.project_members.update_many(
+                {"id": {"$in": ids}},
+                {"$set": {"user_id": user_id, "accepted": True, "accepted_at": now_iso()}},
+            )
+            pids.extend(p["project_id"] for p in pending)
+    return list(dict.fromkeys(pids))  # preserve order, dedupe
+
+
+async def _user_role_in_project(user_id: str, project_id: str) -> Optional[str]:
+    proj = await db.projects.find_one({"id": project_id}, {"_id": 0})
+    if not proj:
+        return None
+    if proj["owner_id"] == user_id:
+        return "admin"
+    member = await db.project_members.find_one(
+        {"project_id": project_id, "user_id": user_id, "accepted": True}, {"_id": 0}
+    )
+    return member["role"] if member else None
+
+
+async def _assert_project_write(user_id: str, project_id: Optional[str]):
+    """Raise 403 if user lacks editor/admin access to the given project."""
+    if not project_id:
+        return
+    role = await _user_role_in_project(user_id, project_id)
+    if role not in ("admin", "editor"):
+        raise HTTPException(403, "You don't have write access to this project")
+
+
+async def _hydrate_project_for_user(proj: Dict[str, Any], user_id: str) -> Dict[str, Any]:
+    role = await _user_role_in_project(user_id, proj["id"])
+    member_count = 1 + await db.project_members.count_documents(
+        {"project_id": proj["id"], "accepted": True}
+    )
+    return {
+        **{k: v for k, v in proj.items() if k != "_id"},
+        "role": role or "viewer",
+        "shared": proj.get("owner_id") != user_id or member_count > 1,
+        "member_count": member_count,
+    }
+
+
+@api.get("/projects", response_model=List[Project])
+async def list_projects(user=Depends(get_current_user)):
+    await _ensure_default_project(user["id"])
+    pids = await _user_accessible_project_ids(user["id"], user.get("email", ""))
+    docs = await db.projects.find({"id": {"$in": pids}}, {"_id": 0}).to_list(500)
+    out = []
+    for d in docs:
+        out.append(await _hydrate_project_for_user(d, user["id"]))
+    out.sort(key=lambda p: (not p.get("is_default"), p.get("name", "").lower()))
+    return [Project(**p) for p in out]
+
+
+@api.post("/projects", response_model=Project)
+async def create_project(body: ProjectIn, user=Depends(get_current_user)):
+    name = body.name.strip() or "Project"
+    color = (body.color or "").strip() or _PROJECT_COLORS[
+        len(await db.projects.find({"owner_id": user["id"]}, {"_id": 0, "id": 1}).to_list(50)) % len(_PROJECT_COLORS)
+    ]
+    doc = {
+        "id": new_id(), "owner_id": user["id"], "name": name, "color": color,
+        "is_default": False, "created_at": now_iso(),
+    }
+    await db.projects.insert_one(dict(doc))
+    return Project(**await _hydrate_project_for_user(doc, user["id"]))
+
+
+@api.patch("/projects/{pid}", response_model=Project)
+async def update_project(pid: str, body: Dict[str, Any], user=Depends(get_current_user)):
+    proj = await db.projects.find_one({"id": pid}, {"_id": 0})
+    if not proj:
+        raise HTTPException(404, "Project not found")
+    role = await _user_role_in_project(user["id"], pid)
+    if role != "admin":
+        raise HTTPException(403, "Only admins can edit a project")
+    allowed = {"name", "color"}
+    body = {k: v for k, v in body.items() if k in allowed}
+    if body:
+        await db.projects.update_one({"id": pid}, {"$set": body})
+    fresh = await db.projects.find_one({"id": pid}, {"_id": 0})
+    return Project(**await _hydrate_project_for_user(fresh, user["id"]))
+
+
+@api.delete("/projects/{pid}")
+async def delete_project(pid: str, user=Depends(get_current_user)):
+    proj = await db.projects.find_one({"id": pid}, {"_id": 0})
+    if not proj:
+        raise HTTPException(404, "Project not found")
+    if proj["owner_id"] != user["id"]:
+        raise HTTPException(403, "Only the owner can delete a project")
+    if proj.get("is_default"):
+        raise HTTPException(400, "Cannot delete the default project")
+    # Cascade: remove members, comments, and reassign rows to default project.
+    default_id = await _ensure_default_project(user["id"])
+    for coll in _PROJECT_DATA_COLLECTIONS:
+        await db[coll].update_many(
+            {"user_id": user["id"], "project_id": pid},
+            {"$set": {"project_id": default_id}},
+        )
+    await db.project_members.delete_many({"project_id": pid})
+    await db.comments.delete_many({"project_id": pid})
+    await db.projects.delete_one({"id": pid})
+    return {"ok": True}
+
+
+@api.get("/projects/{pid}/members")
+async def list_project_members(pid: str, user=Depends(get_current_user)):
+    role = await _user_role_in_project(user["id"], pid)
+    if not role:
+        raise HTTPException(403, "Not a member of this project")
+    proj = await db.projects.find_one({"id": pid}, {"_id": 0})
+    owner = await db.users.find_one({"id": proj["owner_id"]}, {"_id": 0, "id": 1, "email": 1, "first_name": 1})
+    members = await db.project_members.find({"project_id": pid}, {"_id": 0}).to_list(200)
+    return {
+        "owner": {
+            "user_id": owner["id"] if owner else proj["owner_id"],
+            "email": owner.get("email") if owner else "",
+            "first_name": owner.get("first_name", "") if owner else "",
+            "role": "admin",
+        },
+        "members": members,
+    }
+
+
+@api.post("/projects/{pid}/share")
+async def share_project(pid: str, body: ShareReq, user=Depends(get_current_user)):
+    role = await _user_role_in_project(user["id"], pid)
+    if role != "admin":
+        raise HTTPException(403, "Only admins can invite members")
+    email = body.email.strip().lower()
+    if not email or "@" not in email:
+        raise HTTPException(400, "Invalid email")
+    proj = await db.projects.find_one({"id": pid}, {"_id": 0})
+    if not proj:
+        raise HTTPException(404, "Project not found")
+    if proj["owner_id"] == user["id"] and user.get("email") == email:
+        raise HTTPException(400, "Cannot invite yourself")
+    invitee = await db.users.find_one({"email": email}, {"_id": 0})
+    existing = await db.project_members.find_one(
+        {"project_id": pid, "invited_email": email}, {"_id": 0}
+    )
+    if existing:
+        await db.project_members.update_one(
+            {"id": existing["id"]}, {"$set": {"role": body.role}}
+        )
+        return {"ok": True, "updated": True}
+    member = {
+        "id": new_id(), "project_id": pid,
+        "user_id": invitee["id"] if invitee else None,
+        "invited_email": email, "role": body.role,
+        "accepted": bool(invitee), "invited_by": user["id"],
+        "created_at": now_iso(),
+    }
+    if invitee:
+        member["accepted_at"] = now_iso()
+    await db.project_members.insert_one(dict(member))
+    return {"ok": True, "member_id": member["id"], "accepted": member["accepted"]}
+
+
+@api.patch("/projects/{pid}/members/{mid}")
+async def update_project_member(pid: str, mid: str, body: MemberRoleReq,
+                                user=Depends(get_current_user)):
+    role = await _user_role_in_project(user["id"], pid)
+    if role != "admin":
+        raise HTTPException(403, "Only admins can change roles")
+    res = await db.project_members.update_one(
+        {"id": mid, "project_id": pid}, {"$set": {"role": body.role}}
+    )
+    if res.matched_count == 0:
+        raise HTTPException(404, "Member not found")
+    return {"ok": True}
+
+
+@api.delete("/projects/{pid}/members/{mid}")
+async def remove_project_member(pid: str, mid: str, user=Depends(get_current_user)):
+    role = await _user_role_in_project(user["id"], pid)
+    if role != "admin":
+        # Allow a member to remove themselves (leave a project)
+        member = await db.project_members.find_one(
+            {"id": mid, "project_id": pid}, {"_id": 0}
+        )
+        if not member or member.get("user_id") != user["id"]:
+            raise HTTPException(403, "Only admins can remove members")
+    await db.project_members.delete_one({"id": mid, "project_id": pid})
+    return {"ok": True}
+
+
+@api.get("/projects/{pid}/comments", response_model=List[Comment])
+async def list_comments(pid: str, resource_type: Optional[str] = None,
+                        resource_id: Optional[str] = None,
+                        user=Depends(get_current_user)):
+    role = await _user_role_in_project(user["id"], pid)
+    if not role:
+        raise HTTPException(403, "Not a member of this project")
+    q: Dict[str, Any] = {"project_id": pid}
+    if resource_type:
+        q["resource_type"] = resource_type
+    if resource_id:
+        q["resource_id"] = resource_id
+    docs = await db.comments.find(q, {"_id": 0}).sort("created_at", 1).to_list(500)
+    return [Comment(**d) for d in docs]
+
+
+@api.post("/projects/{pid}/comments", response_model=Comment)
+async def post_comment(pid: str, body: CommentIn, user=Depends(get_current_user)):
+    role = await _user_role_in_project(user["id"], pid)
+    if role not in ("admin", "editor", "commenter"):
+        raise HTTPException(403, "You can't comment in this project")
+    doc = {
+        "id": new_id(), "project_id": pid,
+        "resource_type": body.resource_type, "resource_id": body.resource_id,
+        "user_id": user["id"],
+        "user_name": user.get("first_name", "") or user.get("email", "")[:24],
+        "body": body.body.strip(),
+        "created_at": now_iso(),
+    }
+    if not doc["body"]:
+        raise HTTPException(400, "Comment body required")
+    await db.comments.insert_one(dict(doc))
+    return Comment(**doc)
+
+
+@api.delete("/comments/{cid}")
+async def delete_comment(cid: str, user=Depends(get_current_user)):
+    c = await db.comments.find_one({"id": cid}, {"_id": 0})
+    if not c:
+        raise HTTPException(404, "Comment not found")
+    role = await _user_role_in_project(user["id"], c["project_id"])
+    if c["user_id"] != user["id"] and role != "admin":
+        raise HTTPException(403, "Cannot delete this comment")
+    await db.comments.delete_one({"id": cid})
+    return {"ok": True}
+
+
+# ───────────────────── v2.17 startup migrations ─────────────────────
+_LEGACY_DEMO_SIGNATURES = {
+    "tasks": [
+        {"task": "call about repair", "name": "Brinda"},
+    ],
+    "routines": [
+        {"activity": "20 min walk", "name": "Self"},
+    ],
+    "transactions": [
+        {"vendor": "Coffee Shop", "details": "morning latte"},
+    ],
+    "notes": [
+        {"title": "Shopping List", "body": "• milk\n• eggs\n• bread"},
+    ],
+    "reminders": [
+        {"title": "Welcome to Mind Matters"},
+    ],
+    "deadlines": [
+        {"title": "Quarterly Review"},
+    ],
+}
+
+
+async def _purge_legacy_demo_data() -> None:
+    """Remove all rows that match the OLD demo-seed signatures (Item 47).
+
+    Also fully wipes the unattached `you@mindmatters.local` demo user's data
+    if it has never been claimed by a real signup.
+    """
+    total = 0
+    for coll, sigs in _LEGACY_DEMO_SIGNATURES.items():
+        for sig in sigs:
+            res = await db[coll].delete_many(sig)
+            total += res.deleted_count
+    # Demo user without password — wipe its data entirely.
+    demo = await db.users.find_one(
+        {"email": "you@mindmatters.local", "password_hash": {"$in": [None, ""]}},
+        {"_id": 0, "id": 1},
+    )
+    if demo:
+        for coll in _PROJECT_DATA_COLLECTIONS + ("routine_logs", "affirmations"):
+            res = await db[coll].delete_many({"user_id": demo["id"]})
+            total += res.deleted_count
+    if total:
+        logger.info(f"v2.17 demo purge: removed {total} legacy demo rows")
+
+
+async def _backfill_default_projects() -> None:
+    """Ensure every user has a default 'Personal' project + back-fill project_id."""
+    users = await db.users.find({}, {"_id": 0, "id": 1}).to_list(5000)
+    fixed = 0
+    for u in users:
+        before = await db.projects.count_documents({"owner_id": u["id"]})
+        await _ensure_default_project(u["id"])
+        if not before:
+            fixed += 1
+    if fixed:
+        logger.info(f"v2.17 project backfill: seeded default project for {fixed} users")
+
+
+
 class ResetReq(BaseModel):
     confirm: str  # must equal "RESET"
 
 
 @api.post("/reset/seed")
 async def reset_and_seed(body: ResetReq, user=Depends(get_current_user)):
-    """Wipe this user's data and seed exactly one example per page so a new
-    user immediately understands the layout."""
+    """Wipe this user's data and seed exactly the strict v2.17 starter rows
+    (Item 47): 2 tasks · 2 routines · 2 cash-flow entries. Other modules
+    (notes/reminders/deadlines) start empty so the user makes them their own.
+    """
     if body.confirm != "RESET":
         raise HTTPException(400, "Send {confirm:'RESET'} to proceed")
     uid = user["id"]
-    today = today_key()
     for c in ("tasks", "routines", "transactions", "notes",
               "reminders", "deadlines", "routine_logs"):
         await db[c].delete_many({"user_id": uid})
-
-    # Seeds
-    await db.tasks.insert_one({
-        "id": new_id(), "user_id": uid, "sr_no": 1, "order_index": 0,
-        "date": today, "group": "Personal", "name": "Brinda",
-        "task": "call about repair", "details": "follow up on the bar unit quote",
-        "status": "Pending",
-        "created_at": now_iso(), "updated_at": now_iso(),
-    })
-    await db.routines.insert_one({
-        "id": new_id(), "user_id": uid, "sr_no": 1, "order_index": 0,
-        "group": "Morning", "name": "Self", "activity": "20 min walk",
-        "details": "around the block + breathing", "frequency": "Daily",
-        "priority": "Medium", "status": "Active",
-        "created_at": now_iso(), "updated_at": now_iso(),
-    })
-    await db.transactions.insert_one({
-        "id": new_id(), "user_id": uid, "sr_no": 1, "order_index": 0,
-        "date": today, "group": "Personal", "name": "Coffee Shop",
-        "vendor": "Coffee Shop", "details": "morning latte",
-        "amount": 280, "remarks": "", "mode": "Card", "head": "Food & Drink",
-        "category": "expense",
-        "company": "Coffee Shop", "expense_head": "Food & Drink",
-        "direction": "out", "account": "Personal", "notes": "morning latte",
-        "source": "manual", "created_at": now_iso(), "updated_at": now_iso(),
-    })
-    await db.notes.insert_one({
-        "id": new_id(), "user_id": uid,
-        "title": "Shopping List",
-        "body": "• milk\n• eggs\n• bread",
-        "tags": ["shopping"], "pinned": False,
-        "created_at": now_iso(), "updated_at": now_iso(),
-    })
-    await db.reminders.insert_one({
-        "id": new_id(), "user_id": uid,
-        "title": "Welcome to Mind Matters",
-        "notes": "Tap the + or AI bar on any page to capture your first item.",
-        "fire_at": (datetime.now(timezone.utc) + timedelta(hours=2)).isoformat(),
-        "recurrence": "none", "sent": False,
-        "source_page": None, "source_context": None,
-        "created_at": now_iso(),
-    })
-    await db.deadlines.insert_one({
-        "id": new_id(), "user_id": uid,
-        "title": "Quarterly Review",
-        "due_date": (datetime.now(timezone.utc) + timedelta(days=30)).date().isoformat(),
-        "notes": "first one's a sample — edit or delete me",
-        "created_at": now_iso(),
-    })
+    pid = await _ensure_default_project(uid)
+    await _seed_strict_starter(uid, pid)
     return {"ok": True, "seeded": 6}
 
 
@@ -2084,6 +2491,7 @@ class ReminderIn(BaseModel):
     custom_recurrence: Optional[str] = None  # human-readable label for "custom" preset
     source_page: Optional[str] = None
     source_context: Optional[Dict[str, Any]] = None
+    project_id: Optional[str] = None  # v2.17
 
 
 class Reminder(BaseModel):
@@ -2101,14 +2509,19 @@ class Reminder(BaseModel):
 
 
 @api.get("/reminders", response_model=List[Reminder])
-async def list_reminders(user=Depends(get_current_user)):
-    docs = await db.reminders.find({"user_id": user["id"]}, {"_id": 0}) \
+async def list_reminders(project_id: Optional[str] = None, user=Depends(get_current_user)):
+    q: Dict[str, Any] = {"user_id": user["id"]}
+    if project_id:
+        q["project_id"] = project_id
+    docs = await db.reminders.find(q, {"_id": 0}) \
         .sort("fire_at", 1).to_list(500)
     return [Reminder(**d) for d in docs]
 
 
 @api.post("/reminders", response_model=Reminder)
 async def create_reminder(body: ReminderIn, user=Depends(get_current_user)):
+    project_id = body.project_id or await _ensure_default_project(user["id"])
+    await _assert_project_write(user["id"], project_id)
     doc = {
         "id": new_id(), "user_id": user["id"],
         "title": body.title, "notes": body.notes or "",
@@ -2116,6 +2529,7 @@ async def create_reminder(body: ReminderIn, user=Depends(get_current_user)):
         "custom_recurrence": body.custom_recurrence,
         "source_page": body.source_page,
         "source_context": body.source_context,
+        "project_id": project_id,
         "sent": False, "created_at": now_iso(),
     }
     await db.reminders.insert_one(dict(doc))
@@ -2125,7 +2539,7 @@ async def create_reminder(body: ReminderIn, user=Depends(get_current_user)):
 @api.patch("/reminders/{rid}", response_model=Reminder)
 async def update_reminder(rid: str, body: Dict[str, Any], user=Depends(get_current_user)):
     allowed = {"title", "notes", "fire_at", "recurrence", "custom_recurrence",
-               "sent", "source_page", "source_context"}
+               "sent", "source_page", "source_context", "project_id"}
     body = {k: v for k, v in body.items() if k in allowed}
     res = await db.reminders.find_one_and_update(
         {"id": rid, "user_id": user["id"]}, {"$set": body},
@@ -2472,18 +2886,31 @@ async def delete_row_attachment(module: str, rid: str, att_id: str, user=Depends
 
 @api.post("/seed/first-login")
 async def seed_first_login(user=Depends(get_current_user)):
-    """Insert 2 example rows each into tasks/routines/transactions ONLY if all
-    three collections are currently empty for this user. Idempotent — safe to
+    """Insert the strict v2.17 starter rows (Item 47) ONLY if all three
+    starter collections are empty for this user. Idempotent — safe to
     call on every login. Returns counts seeded.
     """
-    today_iso = date.today().isoformat()
     tasks_cnt = await db.tasks.count_documents({"user_id": user["id"]})
     routines_cnt = await db.routines.count_documents({"user_id": user["id"]})
     tx_cnt = await db.transactions.count_documents({"user_id": user["id"]})
     if tasks_cnt or routines_cnt or tx_cnt:
         return {"seeded": False, "reason": "already has data"}
+    pid = await _ensure_default_project(user["id"])
+    await _seed_strict_starter(user["id"], pid)
+    return {"seeded": True, "tasks": 2, "routines": 2, "transactions": 2}
+
+
+async def _seed_strict_starter(uid: str, project_id: str) -> None:
+    """Insert the EXACT strict starter rows specified by Item 47:
+    - Tasks: 2 (Rahul Courier, Amit Invoice follow-up)
+    - Routines: 2 (Uptime, Hydrate & Tea)
+    - Cash Flow: 2 (Zomato expense, Brinda loan)
+    Notes / reminders / deadlines stay empty for the user to fill in.
+    """
+    today_iso = date.today().isoformat()
     now = now_iso()
-    common = {"user_id": user["id"], "created_at": now, "updated_at": now}
+    common = {"user_id": uid, "created_at": now, "updated_at": now,
+              "project_id": project_id}
     await db.tasks.insert_many([
         {"id": new_id(), "sr_no": 1, "order_index": 0,
          "date": today_iso, "group": "Work", "section": "",
@@ -2531,7 +2958,6 @@ async def seed_first_login(user=Depends(get_current_user)):
          "parent_id": None, "flagged": False, "attachments": [],
          "source": "manual", **common},
     ])
-    return {"seeded": True, "tasks": 2, "routines": 2, "transactions": 2}
 
 
 @api.post("/admin/wipe-all-data")
@@ -3291,6 +3717,7 @@ class DeadlineIn(BaseModel):
     title: str
     due_date: str  # YYYY-MM-DD
     notes: Optional[str] = ""
+    project_id: Optional[str] = None  # v2.17
 
 
 class Deadline(BaseModel):
@@ -3303,17 +3730,23 @@ class Deadline(BaseModel):
 
 
 @api.get("/deadlines", response_model=List[Deadline])
-async def list_deadlines(user=Depends(get_current_user)):
-    docs = await db.deadlines.find({"user_id": user["id"]}, {"_id": 0}) \
+async def list_deadlines(project_id: Optional[str] = None, user=Depends(get_current_user)):
+    q: Dict[str, Any] = {"user_id": user["id"]}
+    if project_id:
+        q["project_id"] = project_id
+    docs = await db.deadlines.find(q, {"_id": 0}) \
         .sort("due_date", 1).to_list(200)
     return [Deadline(**d) for d in docs]
 
 
 @api.post("/deadlines", response_model=Deadline)
 async def create_deadline(body: DeadlineIn, user=Depends(get_current_user)):
+    project_id = body.project_id or await _ensure_default_project(user["id"])
+    await _assert_project_write(user["id"], project_id)
     doc = {
         "id": new_id(), "user_id": user["id"],
         "title": body.title, "due_date": body.due_date, "notes": body.notes or "",
+        "project_id": project_id,
         "created_at": now_iso(),
     }
     await db.deadlines.insert_one(dict(doc))
@@ -3322,7 +3755,7 @@ async def create_deadline(body: DeadlineIn, user=Depends(get_current_user)):
 
 @api.patch("/deadlines/{did}", response_model=Deadline)
 async def update_deadline(did: str, body: Dict[str, Any], user=Depends(get_current_user)):
-    body = {k: v for k, v in body.items() if k in {"title", "due_date", "notes"}}
+    body = {k: v for k, v in body.items() if k in {"title", "due_date", "notes", "project_id"}}
     res = await db.deadlines.find_one_and_update(
         {"id": did, "user_id": user["id"]}, {"$set": body},
         projection={"_id": 0}, return_document=True,
@@ -3679,9 +4112,23 @@ async def _mm_startup_tasks():
                         f"{dropped_i.deleted_count} investments")
     except Exception as e:
         logger.warning(f"startup wipe failed: {e}")
+
+    # v2.17 migration — Item 47: Purge legacy demo data + Item 46: Ensure
+    # every user has a default "Personal" project and back-fill project_id
+    # on existing rows.
+    try:
+        await _purge_legacy_demo_data()
+        await _backfill_default_projects()
+    except Exception as e:
+        logger.warning(f"v2.17 migration failed: {e}")
+
     # Indexes
     try:
         await db.users.create_index("email", unique=True, sparse=True)
+        await db.projects.create_index([("owner_id", 1)])
+        await db.project_members.create_index([("project_id", 1), ("user_id", 1)])
+        await db.project_members.create_index("invited_email")
+        await db.comments.create_index([("project_id", 1), ("resource_type", 1), ("resource_id", 1)])
     except Exception as e:
         logger.warning(f"index create: {e}")
     try:

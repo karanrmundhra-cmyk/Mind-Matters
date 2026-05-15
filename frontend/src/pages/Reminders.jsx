@@ -147,6 +147,7 @@ export default function Reminders() {
   useEffect(() => {
     load();
   }, []);
+  useProjectReload(load);
 
   const toUTC = (local) => {
     if (!local) return null;

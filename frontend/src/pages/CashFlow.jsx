@@ -9,6 +9,8 @@ import FilterHeader from "@/components/FilterHeader";
 import ExportButton from "@/components/ExportButton";
 import AttachmentsDialog from "@/components/AttachmentsDialog";
 import { useReorder } from "@/lib/useReorder";
+import { useProjectReload } from "@/lib/projects";
+import { nestRows, depthPaddingClass } from "@/lib/nestRows";
 import { Plus, Upload, Check, X } from "lucide-react";
 import { toast } from "sonner";
 import { todayISO } from "@/lib/format";
@@ -79,6 +81,7 @@ export default function CashFlow() {
   useEffect(() => {
     load();
   }, []);
+  useProjectReload(load);
 
   const { move, onDragStart, onDragOver, onDrop, onDragEnd, draggingId } =
     useReorder("transactions", rows, setRows, { onCommit: load });
@@ -156,28 +159,7 @@ export default function CashFlow() {
       if (!txt(r.head || r.expense_head, filters.head)) return false;
       return true;
     };
-    const childrenByParent = new Map();
-    rows.forEach((r) => {
-      if (r.parent_id) {
-        if (!childrenByParent.has(r.parent_id)) childrenByParent.set(r.parent_id, []);
-        childrenByParent.get(r.parent_id).push(r);
-      }
-    });
-    const flagged = [];
-    const normal = [];
-    rows.forEach((r) => {
-      if (r.parent_id) return;
-      if (!matches(r)) return;
-      (r.flagged ? flagged : normal).push(r);
-    });
-    const out = [];
-    [...flagged, ...normal].forEach((r) => {
-      out.push(r);
-      (childrenByParent.get(r.id) || []).filter(matches).forEach((k) =>
-        out.push({ ...k, _isSubtask: true }),
-      );
-    });
-    return out;
+    return nestRows(rows, { matches, maxDepth: 2 });
   }, [rows, activeGroup, filters]);
 
   const splitBill = async (parent) => {
@@ -493,8 +475,9 @@ export default function CashFlow() {
               nodes.push(
               <div
                 key={t.id}
-                className={`grid grid-cols-2 ${GRID} gap-3 px-4 py-2.5 border-b border-[rgba(201,169,97,0.08)] hover:bg-[rgba(201,169,97,0.04)] items-center ${draggingId === t.id ? "opacity-40" : ""} ${t._isSubtask ? "pl-10 bg-[rgba(201,169,97,0.015)]" : ""}`}
+                className={`grid grid-cols-2 ${GRID} gap-3 px-4 py-2.5 border-b border-[rgba(201,169,97,0.08)] hover:bg-[rgba(201,169,97,0.04)] items-center ${draggingId === t.id ? "opacity-40" : ""} ${t._isSubtask ? `${depthPaddingClass(t._depth || 1)} bg-[rgba(201,169,97,0.015)]` : ""}`}
                 data-testid={t._isSubtask ? "tx-subtask-row" : "tx-row"}
+                data-depth={t._depth || 0}
                 data-row="data"
               >
                 <input
@@ -576,7 +559,7 @@ export default function CashFlow() {
                     catch (e) { toast.error(e?.response?.data?.detail || "Upload failed"); }
                   }}
                   attachmentCount={(t.attachments || []).length}
-                  onSubtask={t._isSubtask ? undefined : () => splitBill(t)}
+                  onSubtask={(t._depth || 0) >= 2 ? undefined : () => splitBill(t)}
                   onFlag={() => patch(t.id, { flagged: !t.flagged })}
                   flagged={!!t.flagged}
                   onDelete={() => remove(t.id)}
