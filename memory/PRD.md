@@ -17,6 +17,26 @@ with the R.K.M. brand logo. AI-first input on every page (type → confirm → d
 - **Frontend**: React + Tailwind + Shadcn UI. Cormorant Garamond (serif), Outfit
   (display), Inter (body). Pure black + rich gold (#C9A961 / #E4C98C).
 
+### v2.22 — 30-item polish sprint (2026-02)
+- Continuous Phase-1-to-4 sprint per user spec: removed reset-code box,
+  logout button moved inline with user name, news widget fonts unified,
+  Notes Decisions tab + search bar removed, Tasks status / Routines
+  frequency defaults emptied with `+ Create Custom` placeholders, RowActions
+  changed to 3×2 grid (84px), CashFlow Upload→Import + capitalised
+  categories + lowercase 'ledger' subtitle, line-through styling on
+  completed rows, bulk-delete-completed for tasks + routines
+  (`DELETE /api/tasks/completed` and `DELETE /api/routines/completed`
+  with sr_no compaction), sidebar collapse-toggle moved inline with the
+  4-icon dock, dashboard quick-nav grew to 7 cards (added Reports +
+  Settings), dashboard greeting line now shows weekday + date + time
+  (`FRIDAY, MAY 15, 2026 · 8:13 PM`, updates per minute), light mode
+  CSS tokens darkened for readability, RoutineIn.status Literal widened
+  to include Done/Completed, legacy lowercase transaction categories
+  normalised on startup (`Expense`/`Loan Given` etc.).
+- **Tests**: 6/6 v2.22 backend pytest + visual frontend confirmation via
+  screenshot per `/app/test_reports/iteration_21.json`. Item 11 (popovers
+  vs centered modals) explicitly deferred — large component refactor.
+
 ### v2.21 — Daily Telegram digest + Activity filters + polish (2026-02)
 - **Daily Telegram digest** (new): `digest_loop` in `tg.py` runs every 30 min;
   fires once per UTC day at/after each user's `digest_hour` (default 09:00

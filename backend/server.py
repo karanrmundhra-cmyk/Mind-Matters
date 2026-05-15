@@ -169,7 +169,7 @@ class RoutineIn(BaseModel):
     details: str = ""
     frequency: str = "Daily"  # free-form now (Daily/Weekly/Custom…)
     priority: Literal["Low", "Medium", "High"] = "Medium"
-    status: Literal["Active", "Paused"] = "Active"
+    status: Literal["Active", "Paused", "Done", "Completed"] = "Active"
     section: str = ""  # optional second-level grouping (Todoist-style sub-header)
     parent_id: Optional[str] = None  # nested subtask support (max depth 3, enforced client-side)
     flagged: bool = False
@@ -2687,6 +2687,21 @@ async def _backfill_default_projects() -> None:
             fixed += 1
     if fixed:
         logger.info(f"v2.17 project backfill: seeded default project for {fixed} users")
+    # v2.22 — Normalise legacy lowercase categories on transactions so they
+    # match the capitalised CATEGORIES dropdown in the frontend (Item 25).
+    _category_map = {
+        "expense": "Expense", "income": "Income",
+        "asset": "Asset", "liability": "Liability",
+        "loan_given": "Loan Given", "loan_taken": "Loan Taken",
+    }
+    total = 0
+    for old, new in _category_map.items():
+        res = await db.transactions.update_many(
+            {"category": old}, {"$set": {"category": new}},
+        )
+        total += res.modified_count
+    if total:
+        logger.info(f"v2.22 category normalise: updated {total} transactions")
 
 
 
@@ -3171,7 +3186,7 @@ async def _seed_strict_starter(uid: str, project_id: str) -> None:
         {"id": new_id(), "sr_no": 1, "order_index": 0,
          "date": today_iso, "amount": 555.0, "name": "Zomato", "vendor": "Zomato",
          "details": "Invoice number 3", "mode": "UPI",
-         "head": "Food & Beverages", "category": "expense",
+         "head": "Food & Beverages", "category": "Expense",
          "group": "Company 1", "section": "",
          "expense_head": "Food & Beverages", "direction": "out",
          "account": "Personal", "notes": "", "currency": "INR",
@@ -3180,7 +3195,7 @@ async def _seed_strict_starter(uid: str, project_id: str) -> None:
         {"id": new_id(), "sr_no": 2, "order_index": 1,
          "date": today_iso, "amount": 50000.0, "name": "Brinda", "vendor": "Brinda",
          "details": "Lent at 9% pa", "mode": "Bank",
-         "head": "Personal Loan", "category": "loan_given",
+         "head": "Personal Loan", "category": "Loan Given",
          "group": "Personal", "section": "",
          "expense_head": "Personal Loan", "direction": "out",
          "account": "Personal", "notes": "",
