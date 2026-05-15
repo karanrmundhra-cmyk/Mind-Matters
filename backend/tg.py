@@ -16,6 +16,7 @@ import json as _json
 import logging
 import os
 import re
+import uuid
 from datetime import datetime, timezone, timedelta
 from typing import Optional
 
@@ -572,6 +573,95 @@ async def _handle_update(db, ai_parse_fn, create_task_fn, create_expense_fn, cre
 
     # Text-based yes/no for the most recent pending (works alongside inline buttons).
     low = text.strip().lower()
+
+    # ───────── Inline-reply commands from digest (v2.22) ─────────
+    # /done <sr>    — toggle a task to Done by Sr#
+    # /comment <kind> <sr> <text>  — append a comment to a task/routine/tx
+    m_done = re.match(r"^/done\s+#?(\d+)\s*$", low)
+    if m_done:
+        sr = int(m_done.group(1))
+        row = await db.tasks.find_one(
+            {"user_id": user["id"], "sr_no": sr}, {"_id": 0},
+        )
+        if not row:
+            await tg_send(chat_id, f"No task found with Sr #{sr}.")
+            return
+        await db.tasks.update_one(
+            {"id": row["id"]},
+            {"$set": {"status": "Done",
+                      "updated_at": datetime.now(timezone.utc).isoformat()}},
+        )
+        await tg_send(
+            chat_id,
+            f"✓ Marked task #{sr} as Done: <i>{(row.get('task') or row.get('name') or '')[:80]}</i>",
+            parse_mode="HTML",
+        )
+        return
+    m_cmt = re.match(
+        r"^/comment\s+(task|routine|tx|transaction)\s+#?(\d+)\s+(.+)$",
+        text.strip(), flags=re.IGNORECASE | re.DOTALL,
+    )
+    if m_cmt:
+        kind = m_cmt.group(1).lower()
+        if kind == "tx":
+            kind = "transaction"
+        coll = {"task": "tasks", "routine": "routines",
+                "transaction": "transactions"}[kind]
+        sr = int(m_cmt.group(2))
+        body = m_cmt.group(3).strip()
+        row = await db[coll].find_one(
+            {"user_id": user["id"], "sr_no": sr}, {"_id": 0},
+        )
+        if not row:
+            await tg_send(chat_id, f"No {kind} found with Sr #{sr}.")
+            return
+        project_id = row.get("project_id")
+        if not project_id:
+            await tg_send(
+                chat_id,
+                f"That {kind} isn't attached to a project — open the app to add it.",
+            )
+            return
+        doc = {
+            "id": str(uuid.uuid4()), "project_id": project_id,
+            "resource_type": kind, "resource_id": row["id"],
+            "user_id": user["id"],
+            "user_name": user.get("first_name") or
+                user.get("email", "").split("@")[0] or "user",
+            "body": body,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
+        await db.comments.insert_one(dict(doc))
+        await tg_send(
+            chat_id,
+            f"💬 Comment added on {kind} #{sr}.",
+        )
+        return
+    if low in {"/help", "/commands"}:
+        await tg_send(
+            chat_id,
+            "<b>Commands</b>\n"
+            "• <code>/done &lt;sr&gt;</code> — mark a task as Done by Sr#\n"
+            "• <code>/comment task|routine|tx &lt;sr&gt; &lt;text&gt;</code> — "
+            "add a comment to a row\n"
+            "• <code>stop digest</code> — disable the daily digest\n"
+            "• Free text → AI parses into task/expense/note → confirm to save",
+            parse_mode="HTML",
+        )
+        return
+    if low in {"stop digest", "/stop_digest", "stopdigest"}:
+        await db.users.update_one(
+            {"id": user["id"]}, {"$set": {"digest_enabled": False}},
+        )
+        await tg_send(chat_id, "✓ Daily digest disabled. Re-enable from Settings → Daily Digest.")
+        return
+    if low in {"start digest", "/start_digest", "startdigest"}:
+        await db.users.update_one(
+            {"id": user["id"]}, {"$set": {"digest_enabled": True}},
+        )
+        await tg_send(chat_id, "✓ Daily digest re-enabled.")
+        return
+
     if low in {"yes", "y", "ok", "confirm", "go", "sure", "save"}:
         pending = await _latest_pending_for_chat(db, chat_id)
         if pending:
@@ -968,7 +1058,7 @@ async def digest_loop(db):
                         bits.append(f"{new_tx} cash-flow row{'s' if new_tx != 1 else ''}")
                     lines.append(f"🆕 {' · '.join(bits)} added by collaborators")
                     lines.append("")
-                lines.append("<i>Sent once daily · reply STOP DIGEST to disable</i>")
+                lines.append("<i>Tip: reply /done &lt;sr&gt; · /comment task &lt;sr&gt; &lt;text&gt; · stop digest</i>")
                 await tg_send(u["telegram_chat_id"], "\n".join(lines), parse_mode="HTML")
                 await db.users.update_one(
                     {"id": u["id"]},

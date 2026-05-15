@@ -3917,6 +3917,8 @@ async def digest_send_now(user=Depends(get_current_user)):
         lines.append(f"🆕 {' · '.join(bits)} added by collaborators")
     if len(lines) <= 2:
         lines.append("<i>Nothing new in the last 24h — all caught up ✓</i>")
+    lines.append("")
+    lines.append("<i>Tip: reply /done &lt;sr&gt; · /comment task &lt;sr&gt; &lt;text&gt;</i>")
     res = await tg_send(user["telegram_chat_id"], "\n".join(lines), parse_mode="HTML")
     return {"ok": bool(res and res.get("ok")), "items": {
         "mentions": len(mentions), "comments": len(other_comments),
