@@ -1,0 +1,36 @@
+{
+  "summary": "Re-test of v2.20 /api/news custom_url fix — PASSED. Backend signature now declares `custom_url: Optional[str] = None`; src_label is assigned BEFORE the try-block ('custom' when custom_url starts with http(s)://, else 'google-news'). All 6 focused news tests + full v2.20 suite (16/16) GREEN. Frontend Custom chip renders correctly: pre-seeded mm_news_custom_url=BBC RSS → news.source='custom' → Dashboard shows 'CUSTOM' chip badge next to 'TODAY'S NEWS' heading and lists 5 BBC items. Removing the URL hides the chip and reverts to google-news.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_v220.py",
+    "/app/test_reports/pytest/v220_news_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py /api/news (3182-3223): fix is clean. src_label is computed up-front (3198-3203) so the success return at 3219 can never NameError; the http/https whitelist correctly excludes ftp:// and bare 'not-a-url' strings (both confirmed via pytest).",
+    "Dashboard.jsx (313-317): conditional `news?.source === 'custom'` renders the Custom chip correctly. Optional improvement: add a data-testid='news-source-chip' to the chip span to make targeted Playwright assertions cleaner (currently we resolve via text='Custom' inside the news-widget — works but slightly brittle)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_v220.py",
+    "/app/test_reports/pytest/v220_news_results.xml",
+    "/app/test_reports/iteration_19.json"
+  ],
+  "success_rate": {
+    "backend": "100% (16/16 v2.20 pytest pass; 6/6 news-focused cases pass — default returns google-news, BBC custom_url returns source=custom with 5 items, hnrss custom_url returns source=custom, ftp:// and 'not-a-url' both fall through to google-news, category=tech returns google-news)",
+    "frontend": "100% — Dashboard Custom chip renders when news.source==='custom' and disappears when localStorage.mm_news_custom_url is cleared; news widget displays 5 BBC items end-to-end via REACT_APP_BACKEND_URL"
+  },
+  "test_credentials": "karan@mindmatters.local / changeme123",
+  "seed_data_creation": "None — read-only test against /api/news. localStorage.mm_news_custom_url was set during the UI test and cleared at the end.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "v2.20 /api/news custom_url feature is fully shipped. All 4 v2.20 features (mention autocomplete + Telegram notify wiring + Notes-page comment thread + News custom RSS) now GREEN. test_v220.py covers all backend cases; TestNewsCustomUrl class has 6 cases including BBC + hnrss live fetches, ftp:// rejection, 'not-a-url' rejection, default google-news fallback, and category=tech. For UI verification of Custom chip: pre-seed localStorage.setItem('mm_news_custom_url', '<URL>') BEFORE reload (component reads from localStorage at mount), then poll the news-widget until textContent no longer contains 'Loading\\u2026' (note: UNICODE ELLIPSIS, not three dots — important distinction in selectors).",
+  "rca of the issue": "Original /api/news bug (iteration_18) was a two-part defect: missing `custom_url` param in function signature + undefined `src_label` causing NameError on success path. Fix verified at server.py 3182-3223: signature now `async def news_today(category: str = 'all', custom_url: Optional[str] = None, user=Depends(...))` and src_label is bound on both branches (custom or google-news) before the try-block. Confirmed via 6 pytest cases + live UI rendering of the Custom chip with BBC feed items."
+}

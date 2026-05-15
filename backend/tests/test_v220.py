@@ -190,6 +190,29 @@ class TestNewsCustomUrl:
         assert r.status_code == 200
         assert r.json().get("source") != "custom"
 
+    def test_not_a_url_falls_back_to_google_news(self, auth):
+        # 'not-a-url' must fall through to category-based feed.
+        r = auth.get(f"{BASE_URL}/api/news",
+                     params={"custom_url": "not-a-url"})
+        assert r.status_code == 200
+        data = r.json()
+        assert data.get("source") != "custom"
+        assert data.get("source") in ("google-news", "fallback")
+
+    def test_bbc_custom_url_returns_source_custom(self, auth):
+        url = "https://feeds.bbci.co.uk/news/world/rss.xml"
+        r = auth.get(f"{BASE_URL}/api/news", params={"custom_url": url})
+        assert r.status_code == 200, r.text
+        data = r.json()
+        assert data.get("source") == "custom", data
+        assert isinstance(data.get("items"), list)
+
+    def test_category_tech_returns_google_news(self, auth):
+        r = auth.get(f"{BASE_URL}/api/news", params={"category": "tech"})
+        assert r.status_code == 200
+        data = r.json()
+        assert data.get("source") in ("google-news", "fallback")
+
 
 # ───────────────── 5) v2.19 regression — comment counts batch endpoint ─────────────────
 class TestRegressionCommentsCounts:

@@ -3180,8 +3180,10 @@ async def admin_wipe_all_data(user=Depends(get_current_user)):
 
 
 @api.get("/news")
-async def news_today(category: str = "all", user=Depends(get_current_user)):
-    """Lightweight news widget — fetches headlines from a free RSS source per category.
+async def news_today(category: str = "all", custom_url: Optional[str] = None,
+                     user=Depends(get_current_user)):
+    """Lightweight news widget — fetches headlines from a free RSS source per
+    category, or a user-supplied custom RSS URL (overrides category).
 
     Categories: all | business | tech | india | world. Falls back to a stable
     static list if the network is unavailable so the dashboard never feels broken.
@@ -3193,7 +3195,12 @@ async def news_today(category: str = "all", user=Depends(get_current_user)):
         "india": "https://news.google.com/rss/headlines/section/topic/NATION?hl=en-IN&gl=IN&ceid=IN:en",
         "world": "https://news.google.com/rss/headlines/section/topic/WORLD?hl=en-IN&gl=IN&ceid=IN:en",
     }
-    url = feeds.get(category, feeds["all"])
+    if custom_url and custom_url.strip().lower().startswith(("http://", "https://")):
+        url = custom_url.strip()
+        src_label = "custom"
+    else:
+        url = feeds.get(category, feeds["all"])
+        src_label = "google-news"
     try:
         import urllib.request
         import re as _re
