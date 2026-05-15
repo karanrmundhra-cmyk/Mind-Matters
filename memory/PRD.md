@@ -17,6 +17,28 @@ with the R.K.M. brand logo. AI-first input on every page (type → confirm → d
 - **Frontend**: React + Tailwind + Shadcn UI. Cormorant Garamond (serif), Outfit
   (display), Inter (body). Pure black + rich gold (#C9A961 / #E4C98C).
 
+### v2.20 — @-mentions · Notes comments · Custom RSS (2026-02)
+- **@-mention autocomplete** in `CommentDrawer`: typing `@` opens a popover
+  of project members (owner + accepted invitees) showing a TG chip when the
+  member's Telegram is linked. Selection inserts `@Name ` into the textarea.
+  Comment bodies render `@handles` in highlighted gold spans.
+- **Telegram mention notify**: `_extract_mentions` + `_notify_mentions` pings
+  each mentioned member's linked Telegram chat with the comment snippet +
+  project name + actor. Fire-and-forget — never blocks comment creation.
+- **New endpoint**: `GET /api/projects/{pid}/mentionable` → membership-gated
+  list of `{user_id, name, email, telegram_linked}`.
+- **Notes-page comment thread** (Item from backlog): each selected note in a
+  project shows a comment-bubble icon → opens the same `CommentDrawer`
+  with `resourceType='note'`.
+- **News widget custom RSS** (Item 7): Dashboard now has a "Custom RSS"
+  toggle that opens an editor (`news-rss-editor`). Saved URLs persist to
+  `localStorage.mm_news_custom_url` and override category-based feeds.
+  `/api/news?custom_url=<URL>` returns `source='custom'`; a Custom chip
+  appears on the widget when active. Falls through to google-news for
+  invalid URLs (ftp://, bare strings).
+- **Tests**: 16/16 v2.20 pytest GREEN + 100% frontend per
+  `/app/test_reports/iteration_19.json`. Regression v2.17→v2.19 still green.
+
 ### v2.19 — Inline commenting on rows (2026-02)
 - New `CommentDrawer` slide-in panel + comment-bubble icon (`MessageSquare`)
   on every Tasks / Routines / Cash-Flow row when a project is selected.
