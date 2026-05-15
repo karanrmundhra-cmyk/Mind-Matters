@@ -3839,7 +3839,7 @@ async def tg_send_test(body: TgTestReq, user=Depends(get_current_user)):
 # ───────────────────── Daily digest settings (v2.21) ─────────────────────
 class DigestPrefs(BaseModel):
     enabled: bool = True
-    hour: int = 9  # UTC hour (0-23)
+    hour: int = Field(9, ge=0, le=23)  # UTC hour
 
 
 @api.get("/digest/settings")

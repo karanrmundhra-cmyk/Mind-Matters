@@ -492,7 +492,16 @@ export default function Settings() {
                 className="mm-btn-ghost text-xs flex items-center gap-1.5 disabled:opacity-40"
                 data-testid="digest-send-now"
               >
-                <Send size={12} /> Send preview now
+                {digestBusy ? (
+                  <>
+                    <span className="inline-block w-3 h-3 rounded-full border border-[#C9A961] border-t-transparent animate-spin" />
+                    Sending…
+                  </>
+                ) : (
+                  <>
+                    <Send size={12} /> Send preview now
+                  </>
+                )}
               </button>
             </div>
             {digest?.last_sent_at && (
