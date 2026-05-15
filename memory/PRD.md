@@ -17,6 +17,31 @@ with the R.K.M. brand logo. AI-first input on every page (type → confirm → d
 - **Frontend**: React + Tailwind + Shadcn UI. Cormorant Garamond (serif), Outfit
   (display), Inter (body). Pure black + rich gold (#C9A961 / #E4C98C).
 
+### v2.21 — Daily Telegram digest + Activity filters + polish (2026-02)
+- **Daily Telegram digest** (new): `digest_loop` in `tg.py` runs every 30 min;
+  fires once per UTC day at/after each user's `digest_hour` (default 09:00
+  UTC). Summarises last-24h @mentions of you + new comments + new tasks/tx
+  added by collaborators across your shared projects. Skips users without
+  Telegram linked and silently skips empty days. Settings: `GET/PATCH
+  /api/digest/settings` and `POST /api/digest/send-now` (preview).
+- **Settings → Daily Digest card**: enabled toggle, hour picker (00:00–23:00
+  UTC), Send-preview button, last-sent timestamp. Renders only when
+  Telegram is linked.
+- **Activity-feed filters in Reports → Inbox**: client-side dropdowns
+  `activity-filter-project` (auto-populated from event project_ids) +
+  `activity-filter-kind` (comment / task_created / routine_created /
+  transaction_created). Empty-state differentiates "no events" vs
+  "no events match filters".
+- **All-Projects comment visibility**: comment-bubble icon on
+  Tasks/Routines/CashFlow/Notes now shows whenever the row itself has a
+  `project_id`, even if the global selected project state hasn't loaded.
+- **News widget**: `data-testid="news-source-chip"` added to the Custom
+  badge; `AbortController` wired around the Dashboard fetcher so rapidly
+  changing customRss text never leaves stale responses overwriting the
+  latest news payload.
+- **Tests**: 15/15 v2.21 pytest GREEN + 4/4 UI items + regression v2.17→v2.20
+  green per `/app/test_reports/iteration_20.json`.
+
 ### v2.20 — @-mentions · Notes comments · Custom RSS (2026-02)
 - **@-mention autocomplete** in `CommentDrawer`: typing `@` opens a popover
   of project members (owner + accepted invitees) showing a TG chip when the

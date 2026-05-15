@@ -45,18 +45,19 @@ export default function Dashboard() {
   );
   const [editingRss, setEditingRss] = useState(false);
 
-  const load = async () => {
+  const load = async (signal) => {
     const newsUrl = customRss
       ? `/news?custom_url=${encodeURIComponent(customRss)}`
       : `/news?category=${encodeURIComponent(newsCategory)}`;
     const [w, q, a, d, ls, nw] = await Promise.all([
-      api.get("/weather"),
-      api.get("/quote/today"),
-      api.get("/affirmations/today"),
-      api.get("/deadlines"),
-      api.get("/cashflow/loan-summary").catch(() => ({ data: null })),
-      api.get(newsUrl).catch(() => ({ data: null })),
+      api.get("/weather", { signal }),
+      api.get("/quote/today", { signal }),
+      api.get("/affirmations/today", { signal }),
+      api.get("/deadlines", { signal }),
+      api.get("/cashflow/loan-summary", { signal }).catch(() => ({ data: null })),
+      api.get(newsUrl, { signal }).catch(() => ({ data: null })),
     ]);
+    if (signal?.aborted) return;
     setWeather(w.data);
     setQuote(q.data);
     setAffirmation(a.data);
@@ -65,10 +66,12 @@ export default function Dashboard() {
     setNews(nw.data);
   };
   useEffect(() => {
-    load();
+    const ctrl = new AbortController();
+    load(ctrl.signal).catch(() => { /* aborted is fine */ });
+    return () => ctrl.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [newsCategory, customRss]);
-  useProjectReload(load);
+  useProjectReload(() => load());
 
   const savePersonalAffirmation = async (text) => {
     try {
