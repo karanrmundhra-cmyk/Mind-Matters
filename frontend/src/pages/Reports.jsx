@@ -20,6 +20,8 @@ import {
   Info,
   CheckCircle2,
   RefreshCw,
+  MessageSquare,
+  Plus,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -38,8 +40,76 @@ const fmtINR = (n) =>
     maximumFractionDigits: 0,
   }).format(n || 0);
 
+const ACTIVITY_KIND_LABEL = {
+  comment: "commented on",
+  task_created: "added a task",
+  routine_created: "added a routine",
+  transaction_created: "added a cash-flow entry",
+};
+
+const ACTIVITY_KIND_ICON = {
+  comment: MessageSquare,
+  task_created: Plus,
+  routine_created: Plus,
+  transaction_created: Plus,
+};
+
+function timeAgo(iso) {
+  if (!iso) return "";
+  const secs = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 1000));
+  if (secs < 60) return `${secs}s ago`;
+  const mins = Math.floor(secs / 60);
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.floor(hrs / 24);
+  if (days < 7) return `${days}d ago`;
+  return new Date(iso).toLocaleDateString();
+}
+
+function ActivityRow({ ev }) {
+  const Icon = ACTIVITY_KIND_ICON[ev.kind] || Clock;
+  return (
+    <div
+      className="px-5 py-3 flex items-start gap-3 hover:bg-[rgba(201,169,97,0.03)] transition"
+      data-testid={`activity-${ev.kind}`}
+    >
+      <Icon size={14} className="mm-text-gold-bright shrink-0 mt-1" />
+      <div className="flex-1 min-w-0">
+        <div className="text-sm text-[#E4C98C] flex items-center gap-2 flex-wrap">
+          <span className="font-medium mm-text-gold-bright">{ev.actor_name}</span>
+          <span className="text-[#B7A98A]/70">
+            {ACTIVITY_KIND_LABEL[ev.kind] || ev.kind}
+          </span>
+          {ev.subject_kind && (
+            <span className="text-[10px] uppercase tracking-[0.18em] text-[#B7A98A]/55">
+              {ev.subject_kind}
+            </span>
+          )}
+        </div>
+        {ev.body && (
+          <div className="text-[12px] text-[#B7A98A]/80 mt-1 line-clamp-2">{ev.body}</div>
+        )}
+        <div className="flex items-center gap-2 mt-1.5 text-[10px]">
+          <span
+            className="inline-flex items-center gap-1.5 px-1.5 py-0.5 rounded border border-[rgba(201,169,97,0.2)] bg-[rgba(201,169,97,0.04)]"
+            data-testid="activity-project-badge"
+          >
+            <span
+              className="w-1.5 h-1.5 rounded-full"
+              style={{ backgroundColor: ev.project_color || "#C9A961" }}
+            />
+            <span className="mm-text-gold/85">{ev.project_name}</span>
+          </span>
+          <span className="text-[#B7A98A]/50">{timeAgo(ev.created_at)}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function Reports() {
-  const [tab, setTab] = useState("synopsis");
+  const [tab, setTab] = useState("inbox");
   const [monthly, setMonthly] = useState([]);
   const [timeline, setTimeline] = useState([]);
   const [patterns, setPatterns] = useState([]);
@@ -47,17 +117,20 @@ export default function Reports() {
   const [aiPatternsBusy, setAiPatternsBusy] = useState(false);
   const [briefing, setBriefing] = useState(null);
   const [briefingBusy, setBriefingBusy] = useState(false);
+  const [activity, setActivity] = useState([]);
 
   useEffect(() => {
     (async () => {
-      const [m, t, p] = await Promise.all([
+      const [m, t, p, a] = await Promise.all([
         api.get("/reports/cashflow-monthly?months=6"),
         api.get("/reports/timeline?days=30"),
         api.get("/reports/patterns"),
+        api.get("/activity?limit=30").catch(() => ({ data: [] })),
       ]);
       setMonthly(m.data || []);
       setTimeline(t.data || []);
       setPatterns(p.data || []);
+      setActivity(a.data || []);
     })();
   }, []);
 
@@ -137,11 +210,39 @@ export default function Reports() {
       </div>
 
       {tab === "inbox" && (
-        <Card className="p-0 overflow-hidden" data-testid="reports-inbox">
-          {patterns.length === 0 && timeline.length === 0 ? (
-            <EmptyState title="All clear. You're on top of things." hint="Items needing your attention will surface here." />
-          ) : (
-            <>
+        <div className="space-y-5" data-testid="reports-inbox">
+          {/* Activity Feed — multi-project collaboration signal */}
+          <Card className="p-0 overflow-hidden" data-testid="inbox-activity">
+            <div className="px-5 py-3 border-b border-[rgba(201,169,97,0.15)] flex items-center gap-2">
+              <MessageSquare size={12} className="mm-text-gold" />
+              <span className="text-[10px] uppercase tracking-[0.3em] mm-text-gold">Activity</span>
+              <span className="text-[10px] text-[#B7A98A]/55 ml-auto">
+                {activity.length} recent event{activity.length !== 1 ? "s" : ""}
+              </span>
+            </div>
+            {activity.length === 0 ? (
+              <EmptyState
+                title="No activity yet"
+                hint="Comments and new rows across your shared projects will appear here."
+              />
+            ) : (
+              <div className="divide-y divide-[rgba(201,169,97,0.08)]">
+                {activity.map((ev, i) => (
+                  <ActivityRow key={`${ev.kind}-${ev.subject_id}-${i}`} ev={ev} />
+                ))}
+              </div>
+            )}
+          </Card>
+
+          {/* Attention items + recent timeline (legacy inbox content) */}
+          {(patterns.filter((p) => p.severity !== "info").length > 0 || timeline.length > 0) && (
+            <Card className="p-0 overflow-hidden" data-testid="inbox-attention">
+              <div className="px-5 py-3 border-b border-[rgba(201,169,97,0.15)] flex items-center gap-2">
+                <Clock size={12} className="mm-text-gold" />
+                <span className="text-[10px] uppercase tracking-[0.3em] mm-text-gold">
+                  Needs attention
+                </span>
+              </div>
               {patterns.filter((p) => p.severity !== "info").map((p, i) => (
                 <div
                   key={`p-${i}`}
@@ -172,9 +273,14 @@ export default function Reports() {
                   </div>
                 </div>
               ))}
-            </>
+            </Card>
           )}
-        </Card>
+          {activity.length === 0
+            && patterns.filter((p) => p.severity !== "info").length === 0
+            && timeline.length === 0 && (
+            <EmptyState title="All clear. You're on top of things." hint="Items needing your attention will surface here." />
+          )}
+        </div>
       )}
 
       {tab === "brief" && (

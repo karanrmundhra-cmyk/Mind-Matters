@@ -39,7 +39,7 @@ const TX_COLUMNS = [
   { key: "category", label: "Category", type: "text", width: "120px" },
 ];
 
-const GRID = "md:grid-cols-[60px_140px_110px_1fr_1fr_110px_1fr_110px_120px_140px]";
+const GRID = "grid-cols-[56px_120px_100px_1fr_1fr_100px_1fr_110px_110px_130px] md:grid-cols-[60px_140px_110px_1fr_1fr_110px_1fr_110px_120px_140px]";
 
 export default function CashFlow() {
   const [rows, setRows] = useState([]);
@@ -399,8 +399,9 @@ export default function CashFlow() {
       <GroupTabs groups={groups} active={activeGroup} onChange={setActiveGroup} onAdd={newGroupPrompt} />
 
       <Card className="p-0 overflow-hidden" data-testid="tx-table">
+        <div className="mm-table-wrap overflow-x-auto md:overflow-visible">
         {/* Headers w/ filter icons */}
-        <div className={`hidden md:grid ${GRID} gap-3 px-4 py-3 border-b border-[rgba(201,169,97,0.2)]`}>
+        <div className={`grid ${GRID} gap-3 px-4 py-3 border-b border-[rgba(201,169,97,0.2)] min-w-[1100px] md:min-w-0`}>
           <FilterHeader label="Sr" value={filters.sr} options={srOptions} onChange={(v) => setFilters((f) => ({ ...f, sr: v }))} />
           <FilterHeader label="Date" value={filters.date} options={dateOptions} onChange={(v) => setFilters((f) => ({ ...f, date: v }))} />
           <FilterHeader label="Group" value={filters.group} options={groups} onChange={(v) => setFilters((f) => ({ ...f, group: v }))} />
@@ -414,8 +415,8 @@ export default function CashFlow() {
         </div>
 
         {/* Manual entry bar BELOW headers */}
-        <div className={`hidden md:grid ${GRID} gap-3 px-4 py-3 border-b border-[rgba(201,169,97,0.12)] bg-[rgba(201,169,97,0.04)] items-center`} data-testid="manual-add" data-row="entry">
-          <div className="mm-text-gold/60 text-xs">#new</div>
+        <div className={`grid ${GRID} gap-3 px-4 py-3 border-b border-[rgba(201,169,97,0.12)] bg-[rgba(201,169,97,0.04)] items-center min-w-[1100px] md:min-w-0`} data-testid="manual-add" data-row="entry">
+          <div className="mm-text-gold/60 text-xs mm-frozen-col px-1">#new</div>
           <input type="date" value={draft.date} onChange={(e) => setDraft({ ...draft, date: e.target.value })} onKeyDown={advanceOnEnter} className="mm-input text-xs !py-1.5" />
           <input list="tx-groups" placeholder={activeGroup || "+ Create Custom"} value={draft.group} onChange={(e) => setDraft({ ...draft, group: e.target.value })} onKeyDown={advanceOnEnter} className="mm-input text-xs !py-1.5" data-testid="new-tx-group" />
           <input list="tx-vendors" placeholder="+ Create Custom" value={draft.vendor} onChange={(e) => setDraft({ ...draft, vendor: e.target.value })} onKeyDown={advanceOnEnter} className="mm-input text-xs !py-1.5" />
@@ -491,7 +492,7 @@ export default function CashFlow() {
                     else e.target.value = t.sr_no || idx + 1;
                   }}
                   onKeyDown={advanceOnEnter}
-                  className="mm-input-ghost text-xs !py-1.5 w-12 text-center"
+                  className="mm-input-ghost text-xs !py-1.5 w-12 text-center mm-frozen-col"
                   data-testid="tx-sr-input"
                 />
                 <input type="date" value={t.date || ""} onChange={(e) => patch(t.id, { date: e.target.value })} onKeyDown={advanceOnEnter} className="mm-input-ghost text-xs" />
@@ -654,6 +655,7 @@ export default function CashFlow() {
             return nodes;
           })()
         )}
+        </div>
       </Card>
 
       <datalist id="tx-groups">{groups.map((g) => <option key={g} value={g} />)}</datalist>

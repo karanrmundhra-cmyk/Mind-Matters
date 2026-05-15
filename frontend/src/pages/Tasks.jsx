@@ -26,7 +26,7 @@ const TASK_COLUMNS = [
   { key: "status", label: "Status", type: "select", options: STATUSES, width: "130px" },
 ];
 
-const GRID = "md:grid-cols-[60px_140px_120px_140px_1.1fr_1fr_130px_140px]";
+const GRID = "grid-cols-[56px_120px_110px_120px_1fr_1fr_120px_130px] md:grid-cols-[60px_140px_120px_140px_1.1fr_1fr_130px_140px]";
 
 export default function Tasks() {
   const [tasks, setTasks] = useState([]);
@@ -338,8 +338,9 @@ export default function Tasks() {
       <GroupTabs groups={groups} active={activeGroup} onChange={setActiveGroup} onAdd={newGroupPrompt} />
 
       <Card className="p-0 overflow-hidden" data-testid="tasks-table">
+        <div className="mm-table-wrap overflow-x-auto md:overflow-visible">
         {/* Headers with filter icons */}
-        <div className={`hidden md:grid ${GRID} gap-3 px-4 py-3 border-b border-[rgba(201,169,97,0.2)]`}>
+        <div className={`grid ${GRID} gap-3 px-4 py-3 border-b border-[rgba(201,169,97,0.2)] min-w-[920px] md:min-w-0`}>
           <FilterHeader label="Sr" value={filters.sr} options={srOptions} onChange={(v) => setFilters((f) => ({ ...f, sr: v }))} testId="filter-sr" />
           <FilterHeader label="Date" value={filters.date} options={dateOptions} onChange={(v) => setFilters((f) => ({ ...f, date: v }))} testId="filter-date" />
           <FilterHeader label="Group" value={filters.group} options={groups} onChange={(v) => setFilters((f) => ({ ...f, group: v }))} testId="filter-group" />
@@ -352,11 +353,11 @@ export default function Tasks() {
 
         {/* Manual entry row BELOW headers */}
         <div
-          className={`hidden md:grid ${GRID} gap-3 px-4 py-3 border-b border-[rgba(201,169,97,0.12)] bg-[rgba(201,169,97,0.04)] items-center`}
+          className={`grid ${GRID} gap-3 px-4 py-3 border-b border-[rgba(201,169,97,0.12)] bg-[rgba(201,169,97,0.04)] items-center min-w-[920px] md:min-w-0`}
           data-testid="task-add-row"
           data-row="entry"
         >
-          <div className="mm-text-gold/60 text-xs">#new</div>
+          <div className="mm-text-gold/60 text-xs mm-frozen-col px-1">#new</div>
           <input
             type="date"
             value={draft.date}
@@ -448,14 +449,14 @@ export default function Tasks() {
               nodes.push(
             <div
               key={t.id}
-              className={`grid grid-cols-2 ${GRID} gap-3 px-4 py-2.5 border-b border-[rgba(201,169,97,0.08)] hover:bg-[rgba(201,169,97,0.04)] transition items-center ${
+              className={`grid ${GRID} gap-3 px-4 py-2.5 border-b border-[rgba(201,169,97,0.08)] hover:bg-[rgba(201,169,97,0.04)] transition items-center min-w-[920px] md:min-w-0 ${
                 draggingId === t.id ? "opacity-40" : ""
               } ${t._isSubtask ? `${depthPaddingClass(t._depth || 1)} bg-[rgba(201,169,97,0.015)]` : ""}`}
               data-testid={t._isSubtask ? "task-subtask-row" : "task-row"}
               data-depth={t._depth || 0}
               data-row="data"
             >
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 mm-frozen-col px-1">
                 <button
                   onClick={() => toggleDone(t.id)}
                   className={`w-5 h-5 rounded-full border flex items-center justify-center transition shrink-0 ${
@@ -593,6 +594,7 @@ export default function Tasks() {
             return nodes;
           })()
         )}
+        </div>
       </Card>
 
       <datalist id="task-groups">{groups.map((g) => <option key={g} value={g} />)}</datalist>

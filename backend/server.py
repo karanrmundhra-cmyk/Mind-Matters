@@ -2400,6 +2400,105 @@ async def delete_comment(cid: str, user=Depends(get_current_user)):
     return {"ok": True}
 
 
+# ───────────────────── Activity feed (v2.18) ─────────────────────
+@api.get("/activity")
+async def activity_feed(limit: int = 30, user=Depends(get_current_user)):
+    """Aggregate recent events across every project the user can see.
+
+    Surfaces 4 event types into a single chronological list:
+      • comment      — someone posted a comment on a row in a shared project
+      • task_created — a task was added (any accessible project)
+      • routine_created — a routine added
+      • transaction_created — a cash-flow entry added
+
+    Each event includes `project_id`, `project_name`, `project_color`,
+    `actor` (user_id + display name), `subject` (resource type + title), and
+    `created_at`. Used by the Reports → Inbox tab.
+    """
+    await _ensure_default_project(user["id"])
+    pids = await _user_accessible_project_ids(user["id"], user.get("email", ""))
+    if not pids:
+        return []
+    projects = await db.projects.find(
+        {"id": {"$in": pids}}, {"_id": 0, "id": 1, "name": 1, "color": 1, "owner_id": 1},
+    ).to_list(200)
+    proj_by_id = {p["id"]: p for p in projects}
+    owner_ids = list({p["owner_id"] for p in projects})
+    member_user_ids = await db.project_members.find(
+        {"project_id": {"$in": pids}, "user_id": {"$ne": None}},
+        {"_id": 0, "user_id": 1},
+    ).to_list(500)
+    member_ids = list({m["user_id"] for m in member_user_ids if m.get("user_id")})
+    all_user_ids = list(set(owner_ids + member_ids))
+    user_docs = await db.users.find(
+        {"id": {"$in": all_user_ids}},
+        {"_id": 0, "id": 1, "first_name": 1, "email": 1},
+    ).to_list(500)
+    user_by_id = {u["id"]: u for u in user_docs}
+
+    def _actor_label(uid):
+        u = user_by_id.get(uid)
+        if not u:
+            return "Someone"
+        return u.get("first_name") or u.get("email", "").split("@")[0] or "Someone"
+
+    def _proj_meta(pid):
+        p = proj_by_id.get(pid)
+        return {
+            "project_id": pid,
+            "project_name": p.get("name", "Project") if p else "Project",
+            "project_color": p.get("color", "#C9A961") if p else "#C9A961",
+        }
+
+    events = []
+    # Comments — always include (the primary 'activity' signal).
+    comments = await db.comments.find(
+        {"project_id": {"$in": pids}}, {"_id": 0},
+    ).sort("created_at", -1).to_list(limit)
+    for c in comments:
+        events.append({
+            "kind": "comment",
+            "actor_id": c["user_id"],
+            "actor_name": c.get("user_name") or _actor_label(c["user_id"]),
+            "subject_kind": c["resource_type"],
+            "subject_id": c["resource_id"],
+            "body": c["body"][:220],
+            "created_at": c["created_at"],
+            **_proj_meta(c["project_id"]),
+        })
+
+    # Recent row creations across accessible projects (any user).
+    # We only show rows whose user_id is in the project's member set.
+    half = max(5, limit // 2)
+    for coll, kind, title_field in (
+        ("tasks", "task_created", "task"),
+        ("routines", "routine_created", "activity"),
+        ("transactions", "transaction_created", "vendor"),
+    ):
+        docs = await db[coll].find(
+            {"project_id": {"$in": pids}, "user_id": {"$in": all_user_ids}},
+            {"_id": 0},
+        ).sort("created_at", -1).to_list(half)
+        for d in docs:
+            title = d.get(title_field) or d.get("details") or d.get("name") or "(untitled)"
+            if isinstance(title, float):
+                title = str(title)
+            events.append({
+                "kind": kind,
+                "actor_id": d.get("user_id"),
+                "actor_name": _actor_label(d.get("user_id")),
+                "subject_kind": coll[:-1],  # task / routine / transaction
+                "subject_id": d["id"],
+                "body": str(title)[:140],
+                "created_at": d.get("created_at") or now_iso(),
+                **_proj_meta(d.get("project_id")),
+            })
+
+    events.sort(key=lambda e: e["created_at"], reverse=True)
+    return events[:limit]
+
+
+
 # ───────────────────── v2.17 startup migrations ─────────────────────
 _LEGACY_DEMO_SIGNATURES = {
     "tasks": [
@@ -2505,6 +2604,7 @@ class Reminder(BaseModel):
     sent: bool = False
     source_page: Optional[str] = None
     source_context: Optional[Dict[str, Any]] = None
+    project_id: Optional[str] = None
     created_at: str
 
 
@@ -3726,6 +3826,7 @@ class Deadline(BaseModel):
     title: str
     due_date: str
     notes: str = ""
+    project_id: Optional[str] = None
     created_at: str
 
 

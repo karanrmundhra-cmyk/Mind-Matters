@@ -7,6 +7,7 @@ import ExportButton from "@/components/ExportButton";
 import Calendar from "@/pages/Calendar";
 import { BellRing, Plus, Trash2, Download, Check, Clock, Upload, RotateCcw, Link2 } from "lucide-react";
 import { toast } from "sonner";
+import { useProjectReload } from "@/lib/projects";
 
 const REMINDER_COLUMNS = [
   { key: "title", label: "Title", type: "text", width: "1.4fr" },
@@ -49,8 +50,8 @@ function renderGroupedUpcoming(upcoming, helpers) {
 
   return ordered.map((key) => (
     <div key={key} data-testid={`reminder-group-${key}`}>
-      <div className="px-5 py-2 bg-[rgba(201,169,97,0.06)] border-b border-[rgba(201,169,97,0.12)] text-[10px] uppercase tracking-[0.3em] mm-text-gold">
-        {SOURCE_LABEL[key] || `From ${key}`} · {groups[key].length}
+      <div className="px-4 py-1.5 bg-[rgba(201,169,97,0.04)] border-b border-[rgba(201,169,97,0.1)] text-[10px] uppercase tracking-[0.3em] mm-text-gold min-w-[760px] md:min-w-0">
+        {SOURCE_LABEL[key] || `From ${key}`} <span className="text-[#B7A98A]/50">· {groups[key].length}</span>
       </div>
       {groups[key].map((r) => (
         <UpcomingRow key={r.id} r={r} {...helpers} />
@@ -63,10 +64,13 @@ function UpcomingRow({ r, patch, remove, downloadIcs, toLocal, toUTC }) {
   const srcLabel = SOURCE_LABEL[r.source_page] || (r.source_page ? `From ${r.source_page}` : "");
   return (
     <div
-      className="px-5 py-2 border-b border-[rgba(201,169,97,0.08)] hover:bg-[rgba(201,169,97,0.03)] transition"
+      className="px-4 py-2 border-b border-[rgba(201,169,97,0.08)] hover:bg-[rgba(201,169,97,0.03)] transition min-w-[760px] md:min-w-0"
       data-testid="reminder-row"
     >
-      <div className="grid grid-cols-1 md:grid-cols-[1.4fr_180px_120px_1fr_70px_28px_28px] gap-2 items-center">
+      <div className="grid grid-cols-[40px_1.4fr_180px_120px_1fr_80px_28px_28px] gap-2 items-center">
+        <div className="mm-text-gold/55 text-[11px] mm-frozen-col text-center">
+          {srcLabel ? "·" : "#"}
+        </div>
         <input
           defaultValue={r.title}
           onBlur={(e) => patch(r.id, { title: e.target.value })}
@@ -99,13 +103,13 @@ function UpcomingRow({ r, patch, remove, downloadIcs, toLocal, toUTC }) {
         />
         {srcLabel ? (
           <span
-            className="text-[9px] uppercase tracking-[0.15em] px-2 py-1 rounded border border-[rgba(201,169,97,0.25)] bg-[rgba(201,169,97,0.04)] mm-text-gold/85 text-center"
+            className="text-[9px] uppercase tracking-[0.15em] px-1.5 py-1 rounded border border-[rgba(201,169,97,0.25)] bg-[rgba(201,169,97,0.04)] mm-text-gold/85 text-center truncate"
             data-testid="reminder-source-badge"
             title={`Linked to ${srcLabel}`}
           >
             {srcLabel.replace("From ", "")}
           </span>
-        ) : <span />}
+        ) : <span className="text-[9px] uppercase tracking-[0.15em] text-[#B7A98A]/40 text-center">—</span>}
         <button
           onClick={() => downloadIcs(r.id)}
           className="text-[#B7A98A]/65 hover:text-[#E4C98C] transition p-1"
@@ -381,11 +385,29 @@ export default function Reminders() {
             <div className="px-5 py-3 border-b border-[rgba(201,169,97,0.15)] text-[10px] uppercase tracking-[0.3em] text-[#B7A98A]/70 flex items-center gap-2">
               <Clock size={11} /> Upcoming
             </div>
+            <div className="mm-table-wrap overflow-x-auto md:overflow-visible">
+            {/* Column headers — match Tasks/Routines compact style */}
+            <div
+              className="grid grid-cols-[40px_1.4fr_180px_120px_1fr_80px_28px_28px] gap-2 items-center px-4 py-2 border-b border-[rgba(201,169,97,0.2)] min-w-[760px] md:min-w-0"
+              data-testid="reminders-table-header"
+            >
+              <div className="mm-frozen-col text-[10px] uppercase tracking-[0.18em] text-[#B7A98A]/70 text-center">
+                #
+              </div>
+              <div className="text-[10px] uppercase tracking-[0.18em] text-[#B7A98A]/70">Title</div>
+              <div className="text-[10px] uppercase tracking-[0.18em] text-[#B7A98A]/70">When</div>
+              <div className="text-[10px] uppercase tracking-[0.18em] text-[#B7A98A]/70">Recurrence</div>
+              <div className="text-[10px] uppercase tracking-[0.18em] text-[#B7A98A]/70">Notes</div>
+              <div className="text-[10px] uppercase tracking-[0.18em] text-[#B7A98A]/70 text-center">Source</div>
+              <div />
+              <div />
+            </div>
             {upcoming.length === 0 ? (
               <div className="px-5 py-6 text-sm text-[#B7A98A]/50">No upcoming reminders.</div>
             ) : (
               renderGroupedUpcoming(upcoming, { patch, remove, downloadIcs, toLocal, toUTC })
             )}
+            </div>
           </Card>
 
           {past.length > 0 && (

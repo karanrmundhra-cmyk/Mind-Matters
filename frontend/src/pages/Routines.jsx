@@ -25,7 +25,7 @@ const ROUTINE_COLUMNS = [
   { key: "frequency", label: "Frequency", type: "text", width: "140px" },
 ];
 
-const GRID = "md:grid-cols-[60px_140px_140px_1.1fr_1.1fr_140px_140px]";
+const GRID = "grid-cols-[56px_120px_120px_1fr_1fr_120px_130px] md:grid-cols-[60px_140px_140px_1.1fr_1.1fr_140px_140px]";
 
 export default function Routines() {
   const [routines, setRoutines] = useState([]);
@@ -229,7 +229,8 @@ export default function Routines() {
       <GroupTabs groups={groups} active={activeGroup} onChange={setActiveGroup} onAdd={newGroupPrompt} />
 
       <Card className="p-0 overflow-hidden" data-testid="routines-table">
-        <div className={`hidden md:grid ${GRID} gap-3 px-4 py-3 border-b border-[rgba(201,169,97,0.2)]`}>
+        <div className="mm-table-wrap overflow-x-auto md:overflow-visible">
+        <div className={`grid ${GRID} gap-3 px-4 py-3 border-b border-[rgba(201,169,97,0.2)] min-w-[800px] md:min-w-0`}>
           <FilterHeader label="Sr" value={filters.sr} options={srOptions} onChange={(v) => setFilters((f) => ({ ...f, sr: v }))} />
           <FilterHeader label="Group" value={filters.group} options={groups} onChange={(v) => setFilters((f) => ({ ...f, group: v }))} />
           <FilterHeader label="Name" value={filters.name} options={names} onChange={(v) => setFilters((f) => ({ ...f, name: v }))} />
@@ -241,11 +242,11 @@ export default function Routines() {
 
         {/* Manual entry bar BELOW headers */}
         <div
-          className={`hidden md:grid ${GRID} gap-3 px-4 py-3 border-b border-[rgba(201,169,97,0.12)] bg-[rgba(201,169,97,0.04)] items-center`}
+          className={`grid ${GRID} gap-3 px-4 py-3 border-b border-[rgba(201,169,97,0.12)] bg-[rgba(201,169,97,0.04)] items-center min-w-[800px] md:min-w-0`}
           data-testid="routine-add-row"
           data-row="entry"
         >
-          <div className="mm-text-gold/60 text-xs">#new</div>
+          <div className="mm-text-gold/60 text-xs mm-frozen-col px-1">#new</div>
           <input
             list="routine-groups"
             placeholder={activeGroup || "+ Group"}
@@ -340,14 +341,14 @@ export default function Routines() {
               nodes.push(
               <div
                 key={r.id}
-                className={`grid grid-cols-2 ${GRID} gap-3 px-4 py-2.5 border-b border-[rgba(201,169,97,0.08)] hover:bg-[rgba(201,169,97,0.04)] items-center ${
+                className={`grid ${GRID} gap-3 px-4 py-2.5 border-b border-[rgba(201,169,97,0.08)] hover:bg-[rgba(201,169,97,0.04)] items-center min-w-[800px] md:min-w-0 ${
                   draggingId === r.id ? "opacity-40" : ""
                 } ${r._isSubtask ? `${depthPaddingClass(r._depth || 1)} bg-[rgba(201,169,97,0.015)]` : ""}`}
                 data-testid={r._isSubtask ? "routine-subtask-row" : "routine-row"}
                 data-depth={r._depth || 0}
                 data-row="data"
               >
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 mm-frozen-col px-1">
                   <button
                     onClick={() => toggleToday(r.id, !done)}
                     className={`w-5 h-5 rounded-full border flex items-center justify-center transition ${
@@ -437,6 +438,7 @@ export default function Routines() {
             return nodes;
           })()
         )}
+        </div>
       </Card>
 
       <datalist id="routine-groups">{groups.map((g) => <option key={g} value={g} />)}</datalist>

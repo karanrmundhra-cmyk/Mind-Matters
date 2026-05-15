@@ -1,0 +1,37 @@
+{
+  "summary": "v2.18 (activity feed + reminders compact table + mobile frozen first column) — ALL GREEN. Backend 8/8 pytest (test_v218.py, 2.51s): /api/activity returns list with required fields {kind,project_id,project_name,project_color,actor_id,actor_name,subject_kind,subject_id,body,created_at}, sorted newest-first, all 4 kinds present (comment, task_created, routine_created, transaction_created), filters to accessible projects only, newly-created comments surface in feed within 0.3s; POST /api/reminders & /api/deadlines & /api/notes without project_id all auto-default to user's Personal project and round-trip via GET. Regression v2.17 13/13 still green. Frontend (Playwright 1920 + 420 mobile): Reports → Inbox is now the default tab, renders 23 activity rows across all 4 kinds with data-testid='activity-<kind>', each row has activity-project-badge with colored dot + project name + time-ago + actor_name, plus inbox-attention card. Reminders Upcoming card renders [data-testid='reminders-table-header'] with columns #/Title/When/Recurrence/Notes/Source and mm-frozen-col on first cell, group sub-header 'FROM STANDALONE · 1' visible, [data-testid='reminder-row'] rows present. Mobile viewport (420x800) on Tasks/Routines/CashFlow: .mm-table-wrap has overflowX=auto, mm-frozen-col cells have position=sticky left=0, horizontal scroll works (Tasks scrollWidth=920, Routines=800, CashFlow=1100 — exactly matching spec). Headers + entry row + data rows all render on mobile (no more md:grid hiding).",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_v218.py",
+    "/app/test_reports/pytest/v218_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py /api/activity (line 2404-2498): clean implementation — combines comments + tasks + routines + transactions, filters via _user_accessible_project_ids, sorts newest-first, caps at `limit`. Memory-safe (max ~limit/2 docs per coll). Edge case: events from collections without created_at fall back to now_iso() — fine but means historic rows imported without timestamps would bunch up at top of feed. Not actionable for current scope.",
+    "ActivityRow component (Reports.jsx line 70-109): well-structured, uses ev.project_color for live chip styling, body truncated to 2 lines via line-clamp-2. Uses ev.actor_name with first_name|email-prefix|'Someone' fallback — good.",
+    "Reminders.jsx UpcomingRow (line 63): mm-frozen-col cell is at depth-2 (inside data-testid='reminder-row' → div.grid → div.mm-frozen-col). Tests must query with descendant selector, not direct child. Frozen + grid layout work correctly together; sticky positioning verified at runtime (position=sticky, left=0px).",
+    "Tasks/Routines/CashFlow mobile pattern: `min-w-[920|800|1100px] md:min-w-0` ensures the grid keeps its desktop column widths on mobile while wrapping div .mm-table-wrap scrolls horizontally. Verified scrollWidth equals min-w exactly (920/800/1100). 14-cell sticky column count on Tasks confirms ALL rows (including the entry-row #new) get the frozen treatment — consistent and correct.",
+    "index.css .mm-frozen-col: applies position:sticky left:0 only inside .mm-table-wrap with overflow-x-auto, scoped to <768px — confirmed via computed style: position=sticky on mobile, position=static on desktop (so no double-stick). Clean.",
+    "Note: Personal project (default) cannot be deleted (v2.17 guard preserved). reminder + deadline + note + task + routine + transaction all now have project_id stamped on insert if missing — fully consistent across 6 collections."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_v218.py",
+    "/app/test_reports/pytest/v218_results.xml",
+    "/app/test_reports/iteration_16.json"
+  ],
+  "success_rate": {
+    "backend": "100% (8/8 v218 pytest in 2.51s; 13/13 v217 regression still green)",
+    "frontend": "100% — Reports Inbox default tab + 23 activity rows w/ project badges + Reminders compact table header + mobile frozen first column with sticky positioning on Tasks/Routines/CashFlow all confirmed (scrollWidth matches spec: 920/800/1100)"
+  },
+  "test_credentials": "karan@mindmatters.local / changeme123",
+  "seed_data_creation": "Backend test_v218.py creates and cleans TEST_v218_* reminder/deadline/note fixtures. Frontend test created and cleaned up a 'TEST_v218_ui_reminder' via API. Task seed 'TEST_v218_activity_seed' from backend test remains in Karan's Personal project (low signal name, safe to leave). Comment 'TEST_v218 comment activity' persists on a real task.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "v2.18 fully green. Key selectors for next agent: Reports — data-testid='reports-inbox' (root container), 'inbox-activity' (activity card), 'inbox-attention' (attention card), 'activity-<kind>' where kind ∈ {comment, task_created, routine_created, transaction_created}, 'activity-project-badge' (color chip + project name). Reminders — data-testid='reminders-table-header' (column row), 'reminder-row' (each data row). Mobile-table CSS — wrapper class '.mm-table-wrap' (sets overflow-x-auto on mobile), '.mm-frozen-col' (sticky-left-0 inside the wrap on mobile). On Tasks/Routines/CashFlow the inner grid div carries `min-w-[920|800|1100px] md:min-w-0` so desktop is unchanged. Note: Reminders header is conditionally rendered — needs ≥1 reminder to show, so seed a reminder before asserting. The /api/comments endpoint is namespaced under project at /api/projects/{pid}/comments (NOT a top-level /api/comments). Activity feed limit defaults to 30; per-collection half-cap is max(5, limit//2). Login does NOT redirect to /dashboard — lands at / after login.",
+  "rca of the issue": "N/A — no failures."
+}
