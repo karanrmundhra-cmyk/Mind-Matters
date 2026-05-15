@@ -17,6 +17,18 @@ with the R.K.M. brand logo. AI-first input on every page (type → confirm → d
 - **Frontend**: React + Tailwind + Shadcn UI. Cormorant Garamond (serif), Outfit
   (display), Inter (body). Pure black + rich gold (#C9A961 / #E4C98C).
 
+### v2.19 — Inline commenting on rows (2026-02)
+- New `CommentDrawer` slide-in panel + comment-bubble icon (`MessageSquare`)
+  on every Tasks / Routines / Cash-Flow row when a project is selected.
+- Backend `GET /api/comments/counts?project_id=&resource_type=` returns
+  `{resource_id: count}` for badge rendering in a single round-trip.
+- Drawer supports: Ctrl/Cmd+Enter to send, hover-trash to delete (own or
+  admin), Escape / backdrop / X to close, auto-focus on open, live badge
+  increment after add. Comments posted via the drawer flow straight into
+  the Reports → Inbox activity feed.
+- **Tests**: 8/8 v2.19 pytest + 21/21 regression (v2.17+v2.18) green per
+  `/app/test_reports/iteration_17.json`.
+
 ### v2.18 — Activity feed · Reminders compact · Mobile frozen col (2026-02)
 - **Activity feed in Inbox**: new `GET /api/activity?limit=N` returns chronological
   events {comment, task_created, routine_created, transaction_created} across
