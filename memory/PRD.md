@@ -17,6 +17,36 @@ with the R.K.M. brand logo. AI-first input on every page (type → confirm → d
 - **Frontend**: React + Tailwind + Shadcn UI. Cormorant Garamond (serif), Outfit
   (display), Inter (body). Pure black + rich gold (#C9A961 / #E4C98C).
 
+### v2.17 — Multi-project sharing · Strict seed · 3-level subtasks (2026-02)
+- **Item 47 — Strict seed**: legacy demo signatures (Coffee Shop, Welcome reminder,
+  Quarterly Review, Shopping List, Brinda call-about-repair, Self 20-min-walk) are
+  purged on startup. `you@mindmatters.local` unattached demo user's data is wiped
+  entirely. `seed_first_login` is now `_seed_strict_starter`: exactly 2 tasks
+  (Rahul Courier, Amit Invoice follow-up) + 2 routines (Uptime, Hydrate & Tea) +
+  2 cash-flow rows (Zomato, Brinda); notes/reminders/deadlines stay empty.
+  `reset/seed` calls the same helper. Idempotent — only runs if all three starter
+  collections are empty for the user.
+- **Item 46 — Multi-project + sharing**: new `projects`, `project_members`,
+  `comments` collections. Every data row now carries a `project_id`. Auto-create
+  a "Personal" default project per user + back-fill `project_id` on startup.
+  Endpoints: `GET/POST/PATCH/DELETE /api/projects`, `GET/POST/PATCH/DELETE
+  /api/projects/{id}/members`, `POST /api/projects/{id}/share`,
+  `GET/POST /api/projects/{id}/comments`, `DELETE /api/comments/{id}`. Roles:
+  admin (full) | editor (CRUD) | commenter (read + comment) | viewer (read).
+  Frontend: `ProjectProvider` context (`/lib/projects.js`) + `ProjectSelector`
+  dropdown in AppShell top-right + `ShareDialog` modal. Axios interceptor
+  injects `project_id` query/body on `/tasks /routines /transactions /notes
+  /reminders /deadlines`. Pages re-fetch on `mm:project-changed` via
+  `useProjectReload` hook.
+- **Item 16 — 3-level subtasks**: new `/lib/nestRows.js` interleaves rows by
+  `parent_id` with a `_depth` (0/1/2) flag. Tasks/Routines/CashFlow all use
+  `depthPaddingClass(depth)` → `pl-10` (depth 1) / `pl-20` (depth 2). The
+  "+subtask" button (`onSubtask`) is hidden on depth-2 rows so users can't go
+  past 3 visible levels. Server already supports unlimited nesting via
+  `parent_id`; only the UX is capped.
+- **Tests**: 13/13 v2.17 pytest pass (test_v217.py, 4.29s); 100% frontend
+  flows green per `/app/test_reports/iteration_15.json`.
+
 ### v2.15 — Finish-line batch on deferred P1 items (2026-02)
 - **Sync dot tooltip** now shows "X ago" — green="Synced · 14s ago",
   yellow="2 changes queued · last sync 30s ago", red="Reconnecting · last
