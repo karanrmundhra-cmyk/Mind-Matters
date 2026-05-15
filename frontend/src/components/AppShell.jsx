@@ -175,17 +175,15 @@ export default function AppShell() {
               </span>
             )}
           </button>
+          <button
+            onClick={toggleCollapse}
+            title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+            data-testid="sidebar-collapse-toggle"
+            className="p-2 rounded-lg text-[#B7A98A]/65 hover:text-[#E4C98C] hover:bg-[rgba(201,169,97,0.06)] transition"
+          >
+            {collapsed ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
+          </button>
         </div>
-
-        {/* Collapse toggle */}
-        <button
-          onClick={toggleCollapse}
-          title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-          data-testid="sidebar-collapse-toggle"
-          className="mt-3 flex items-center justify-center w-full p-2 rounded-lg text-[#B7A98A]/55 hover:text-[#E4C98C] hover:bg-[rgba(201,169,97,0.06)] transition"
-        >
-          {collapsed ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
-        </button>
 
         <div className={`mt-3 flex ${collapsed ? "flex-col items-center gap-3" : "items-center justify-between gap-2"} pt-3 border-t border-[rgba(201,169,97,0.12)]`}>
           {!collapsed && (

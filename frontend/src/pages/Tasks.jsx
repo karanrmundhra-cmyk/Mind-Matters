@@ -45,7 +45,7 @@ export default function Tasks() {
     name: "",
     task: "",
     details: "",
-    status: "Pending",
+    status: "",
   });
 
   const isDone = (t) => t.status === "Completed" || t.status === "Done";
@@ -320,6 +320,26 @@ export default function Tasks() {
             <span className="mm-chip" data-testid="tasks-status-chip">
               {pendingCount} pending
             </span>
+            {tasks.some(isDone) && (
+              <button
+                onClick={async () => {
+                  const n = tasks.filter(isDone).length;
+                  if (!window.confirm(`Delete ${n} completed task${n !== 1 ? "s" : ""}?`)) return;
+                  try {
+                    const { data } = await api.delete("/tasks/completed");
+                    toast.success(`Deleted ${data.deleted} completed`);
+                    await load();
+                  } catch (e) {
+                    toast.error(e?.response?.data?.detail || "Failed");
+                  }
+                }}
+                className="mm-btn-ghost text-xs flex items-center gap-1.5 text-[#B7A98A]/75 hover:text-red-300"
+                data-testid="tasks-bulk-delete-completed"
+                title="Bulk delete all completed tasks"
+              >
+                Clear done
+              </button>
+            )}
             <button
               onClick={() => setBulkOpen(true)}
               className="mm-btn-ghost text-xs flex items-center gap-1.5"
@@ -337,7 +357,7 @@ export default function Tasks() {
 
       <AiAddBar
         kind="task"
-        placeholder="e.g. follow up brinda on bar unit #Personal"
+        placeholder="e.g. #Work Call Brinda for revising the invoice"
         columns={TASK_COLUMNS}
         quickTags={groups}
         quickTagPrefix="Group: "
@@ -525,7 +545,7 @@ export default function Tasks() {
                 defaultValue={t.task}
                 onBlur={(e) => patch(t.id, { task: e.target.value })}
                 onKeyDown={advanceOnEnter}
-                className="mm-input-ghost text-xs !py-1.5"
+                className={`mm-input-ghost text-xs !py-1.5 ${isDone(t) ? "line-through opacity-55" : ""}`}
                 data-testid="task-edit-title"
               />
               <input

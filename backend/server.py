@@ -619,6 +619,16 @@ async def update_task(task_id: str, body: Dict[str, Any], user=Depends(get_curre
     return Task(**res)
 
 
+@api.delete("/tasks/completed")
+async def delete_completed_tasks(user=Depends(get_current_user)):
+    """Bulk-delete all Done/Completed tasks for this user (v2.22 Item 17)."""
+    res = await db.tasks.delete_many(
+        {"user_id": user["id"], "status": {"$in": ["Done", "Completed"]}},
+    )
+    await _compact_sr("tasks", user["id"])
+    return {"deleted": res.deleted_count}
+
+
 @api.delete("/tasks/{task_id}")
 async def delete_task(task_id: str, user=Depends(get_current_user)):
     # Cascade: also delete subtasks pointing to this task as parent
@@ -758,6 +768,16 @@ async def update_routine(rid: str, body: Dict[str, Any], user=Depends(get_curren
     if not res:
         raise HTTPException(404, "Routine not found")
     return Routine(**res)
+
+
+@api.delete("/routines/completed")
+async def delete_completed_routines(user=Depends(get_current_user)):
+    """Bulk-delete all Done/Completed routines for this user (v2.22 Item 17)."""
+    res = await db.routines.delete_many(
+        {"user_id": user["id"], "status": {"$in": ["Done", "Completed"]}},
+    )
+    await _compact_sr("routines", user["id"])
+    return {"deleted": res.deleted_count}
 
 
 @api.delete("/routines/{rid}")

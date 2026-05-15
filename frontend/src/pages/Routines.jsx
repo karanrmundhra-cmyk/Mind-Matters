@@ -44,7 +44,7 @@ export default function Routines() {
     name: "",
     activity: "",
     details: "",
-    frequency: "Daily",
+    frequency: "",
   });
 
   const load = async () => {
@@ -211,6 +211,26 @@ export default function Routines() {
             <span className="mm-chip mm-chip-gold" data-testid="routine-today-percent">
               {summary?.percent_today ?? 0}% today
             </span>
+            {routines.some((r) => r.status === "Done" || r.status === "Completed") && (
+              <button
+                onClick={async () => {
+                  const n = routines.filter((r) => r.status === "Done" || r.status === "Completed").length;
+                  if (!window.confirm(`Delete ${n} completed routine${n !== 1 ? "s" : ""}?`)) return;
+                  try {
+                    const { data } = await api.delete("/routines/completed");
+                    toast.success(`Deleted ${data.deleted} completed`);
+                    await load();
+                  } catch (e) {
+                    toast.error(e?.response?.data?.detail || "Failed");
+                  }
+                }}
+                className="mm-btn-ghost text-xs flex items-center gap-1.5 text-[#B7A98A]/75 hover:text-red-300"
+                data-testid="routines-bulk-delete-completed"
+                title="Bulk delete all completed routines"
+              >
+                Clear done
+              </button>
+            )}
             <button
               onClick={() => setBulkOpen(true)}
               className="mm-btn-ghost text-xs flex items-center gap-1.5"
@@ -390,7 +410,7 @@ export default function Routines() {
                 </div>
                 <input list="routine-groups" defaultValue={r.group || ""} onBlur={(e) => patch(r.id, { group: e.target.value })} onKeyDown={advanceOnEnter} placeholder="—" className="mm-input-ghost text-xs" />
                 <input list="routine-names" defaultValue={r.name || ""} onBlur={(e) => patch(r.id, { name: e.target.value })} onKeyDown={advanceOnEnter} placeholder="—" className="mm-input-ghost text-xs" />
-                <input list="routine-activities" defaultValue={r.activity} onBlur={(e) => patch(r.id, { activity: e.target.value })} onKeyDown={advanceOnEnter} className="mm-input-ghost text-xs" />
+                <input list="routine-activities" defaultValue={r.activity} onBlur={(e) => patch(r.id, { activity: e.target.value })} onKeyDown={advanceOnEnter} className={`mm-input-ghost text-xs ${(r.status === "Done" || r.status === "Completed") ? "line-through opacity-55" : ""}`} />
                 <input list="routine-details" defaultValue={r.details || ""} onBlur={(e) => patch(r.id, { details: e.target.value })} onKeyDown={advanceOnEnter} placeholder="—" className="mm-input-ghost text-xs" />
                 <select
                   value={freqs.includes(r.frequency) ? r.frequency : (r.frequency || "Daily")}

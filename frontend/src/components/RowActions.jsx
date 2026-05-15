@@ -36,21 +36,21 @@ export default function RowActions({
 }) {
   const tid = (name) => (rowId ? `${kind}-${name}-${rowId}` : `${kind}-${name}`);
   return (
-    <div className="flex items-center gap-1 justify-self-end">
-      {draggable && (
+    <div className="grid grid-cols-3 gap-x-1 gap-y-0.5 justify-self-end items-center w-[84px]">
+      {draggable ? (
         <span
           draggable
           onDragStart={onDragStart}
           onDragOver={onDragOver}
           onDrop={onDrop}
           onDragEnd={onDragEnd}
-          className="text-[#B7A98A]/40 hover:text-[#E4C98C] cursor-grab active:cursor-grabbing px-0.5"
+          className="text-[#B7A98A]/40 hover:text-[#E4C98C] cursor-grab active:cursor-grabbing p-1 flex items-center justify-center"
           title="Drag to reorder"
           data-testid={tid("drag")}
         >
           <GripVertical size={13} />
         </span>
-      )}
+      ) : <span />}
       {onUp && (
         <button
           type="button"

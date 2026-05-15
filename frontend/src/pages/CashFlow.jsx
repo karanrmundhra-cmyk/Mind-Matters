@@ -19,7 +19,7 @@ import { todayISO } from "@/lib/format";
 const fmtINR = (n) =>
   new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 }).format(n || 0);
 
-const CATEGORIES = ["income", "expense", "asset", "liability", "loan_given", "loan_taken"];
+const CATEGORIES = ["Income", "Expense", "Asset", "Liability", "Loan Given", "Loan Taken"];
 const CAT_LABEL = {
   income: "Income",
   expense: "Expense",
@@ -341,7 +341,7 @@ export default function CashFlow() {
               data-testid="stmt-upload-btn"
               title="Upload a .csv / .xlsx / .pdf statement or list"
             >
-              <Upload size={12} /> {stmtBusy ? "Reading…" : "Upload"}
+              <Upload size={12} /> {stmtBusy ? "Reading…" : "Import"}
             </button>
             <ExportButton module="cashflow" />
           </div>
@@ -364,7 +364,7 @@ export default function CashFlow() {
 
       <AiAddBar
         kind="expense"
-        placeholder="e.g. insurance from Bajaj for Karan 5 lakhs #Family"
+        placeholder="e.g. #Company Paid Brinda loan at 9% pa for 50000 rupees"
         columns={TX_COLUMNS}
         quickTags={groups}
         quickTagPrefix="Group: "

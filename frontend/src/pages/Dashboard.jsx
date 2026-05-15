@@ -330,7 +330,7 @@ export default function Dashboard() {
                   setNewsCategory(e.target.value);
                   localStorage.setItem("mm_news_category", e.target.value);
                 }}
-                className="mm-input-ghost text-[10px] !py-1"
+                className="mm-input-ghost text-[10px] !py-1 font-sans"
                 data-testid="news-category"
               >
                 <option value="all">All</option>
@@ -343,7 +343,7 @@ export default function Dashboard() {
             <button
               type="button"
               onClick={() => setEditingRss((v) => !v)}
-              className="text-[10px] mm-text-gold/70 hover:mm-text-gold-bright transition uppercase tracking-wider"
+              className="text-[10px] mm-text-gold/70 hover:mm-text-gold-bright transition uppercase tracking-wider font-sans"
               data-testid="news-rss-toggle"
               title="Set a custom RSS feed URL"
             >

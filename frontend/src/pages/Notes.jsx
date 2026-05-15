@@ -23,8 +23,7 @@ const NOTE_COLUMNS = [
 export default function Notes() {
   const [notes, setNotes] = useState([]);
   const [filterTag, setFilterTag] = useState("");
-  const [filterTag, setFilterTag] = useState("");
-  const [tab, setTab] = useState("all"); // all | vault | decisions
+  const [tab, setTab] = useState("all"); // all | vault
   const [vaultUnlocked, setVaultUnlocked] = useState(
     sessionStorage.getItem("mm_vault_unlocked") === "1",
   );
@@ -38,7 +37,6 @@ export default function Notes() {
 
   const load = async () => {
     const params = {};
-    if (q) params.q = q;
     if (filterTag) params.tag = filterTag;
     const { data } = await api.get("/notes", { params });
     setNotes(data);
@@ -52,7 +50,7 @@ export default function Notes() {
   useEffect(() => {
     load();
     // eslint-disable-next-line
-  }, [q, filterTag]);
+  }, [filterTag]);
   useProjectReload(load);
 
   useEffect(() => {

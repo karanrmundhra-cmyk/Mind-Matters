@@ -24,17 +24,33 @@
 html.light {
   --mm-bg: #FFFFFF;
   --mm-bg-2: #F5F5F0;
-  --mm-surface: rgba(0, 0, 0, 0.025);
-  --mm-surface-2: rgba(0, 0, 0, 0.05);
-  --mm-border: rgba(184, 149, 46, 0.22);
-  --mm-border-2: rgba(184, 149, 46, 0.4);
-  --mm-text: #1A1A1A;
-  --mm-muted: #6B6350;
-  --mm-muted-2: #9A9080;
-  --mm-gold: #B8952E;
-  --mm-gold-bright: #A07D20;
-  --mm-gold-soft: #D4B96A;
-  --mm-gold-glow: rgba(184, 149, 46, 0.18);
+  --mm-surface: rgba(0, 0, 0, 0.045);
+  --mm-surface-2: rgba(0, 0, 0, 0.08);
+  --mm-border: rgba(139, 122, 46, 0.35);
+  --mm-border-2: rgba(139, 122, 46, 0.55);
+  --mm-text: #0F0F0F;
+  --mm-muted: #4A4233;
+  --mm-muted-2: #7A6F5C;
+  --mm-gold: #8B7A2E;
+  --mm-gold-bright: #6E5F1E;
+  --mm-gold-soft: #B89544;
+  --mm-gold-glow: rgba(139, 122, 46, 0.22);
+}
+
+/* Light mode: kill the gold-on-gold ghosting in inputs and ghost buttons */
+html.light .mm-input,
+html.light .mm-input-ghost {
+  color: #1A1A1A;
+}
+html.light .mm-input::placeholder,
+html.light .mm-input-ghost::placeholder {
+  color: rgba(74, 66, 51, 0.6);
+}
+html.light [class*="text-[#B7A98A]"] {
+  color: #4A4233 !important;
+}
+html.light [class*="text-[#E4C98C]"] {
+  color: #6E5F1E !important;
 }
 
 /* Focus mode: hide non-essential nav so user sees only Dashboard + Tasks. */
