@@ -1,0 +1,37 @@
+{
+  "summary": "v2.16 polish-batch — ALL 8 spec items GREEN. Backend 5/5 pytest (test_v216.py, 1.70s): routine subtask (POST /api/routines with parent_id round-trips and appears in list with parent_id intact); transaction subtask (POST /api/transactions with parent_id round-trips); attachment endpoints POST /api/{tasks,routines,transactions}/{id}/attachments all return 200 for multipart file upload. Frontend (desktop 1920): TASKS page — drag-drop paperclip LIVE TEST: dispatched real DragEvent('drop') with File via DataTransfer onto data-testid='task-attach-{id}', uploadRowAttachment fired, 'Attached' toast appeared (visible in screenshot), attachment count badge incremented to 2. ROUTINES — routine-row=1, routine-subtask-{id} button (ListPlus icon) on parent row, clicking opens window.prompt 'New sub-routine under \"…\":', accepts title, POSTs to /api/routines with parent_id, child renders as routine-subtask-row WITH pl-10 indent ✓. CASHFLOW — tx-row=3, tx-subtask-{id} button on each parent, clicking prompts TWICE (#1 'Split \"…\" into a line item — describe:', #2 'Line item amount (₹)?'), splitBill POSTs, child renders as tx-subtask-row WITH pl-10 indent ✓. Regression v2.15: quick-nav-grid has 7 children ✓, news-widget present ✓, dock-sync title='Synced · just now' ✓.",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_v216.py",
+    "/app/test_reports/pytest/v216_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "RowActions.jsx (lines 78-91) — onDragOver / onDragLeave / onDrop wiring on the paperclip button is clean. Visual ring-2 gold highlight on dragover + classList.remove on dragleave/drop is the right UX. NIT: el.ondragover (DOM property) will always read null for React-attached handlers because React uses synthetic events via addEventListener; any future test relying on inline-property inspection should use a live DragEvent dispatch (as this iteration's test does) instead.",
+    "api.js uploadRowAttachment(module, rowId, file) — Single-purpose helper, FormData + multipart/form-data header, returns server response. Clean. Module parameter is the URL segment ('tasks' | 'routines' | 'transactions') — slightly leaky abstraction (caller must know backend path) but acceptable for v2.16 scope.",
+    "Routines.jsx createSubroutine + CashFlow.jsx splitBill — Both correctly inherit relevant fields from parent (group/frequency for routines; direction/category/date/currency for transactions) and pass parent_id. splitBill's parseFloat guard rejects NaN amounts with toast.error. Good.",
+    "Visible-memo interleave pattern — Tasks/Routines/CashFlow all now use the same '_isSubtask flag + pl-10' approach. Suggest a /src/lib/nestRows.js shared helper before v2.17 — current trio is 3 near-identical reducers.",
+    "Backend Task model field is `task` (not `title`) — non-obvious; test_v216.py initially failed with 422 'task field required' until corrected. Worth noting in API docs / spec sheet so future tests/import flows don't trip on it.",
+    "Routine and Transaction PATCH/POST already had parent_id wired in v2.15 (line 173 + 246 of server.py), so v2.16 was purely a frontend wiring exercise — no backend changes needed and tests confirm round-trip persistence."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_v216.py",
+    "/app/test_reports/pytest/v216_results.xml",
+    "/app/test_reports/iteration_14.json"
+  ],
+  "success_rate": {
+    "backend": "100% (5/5 v216 pytest in 1.70s)",
+    "frontend": "100% — 8/8 spec items confirmed including LIVE drag-drop end-to-end with Attached toast + count badge increment"
+  },
+  "test_credentials": "karan@mindmatters.local / changeme123",
+  "seed_data_creation": "Created + cleaned up within test fixtures: TEST_v216_parent_routine + sub-routine; TEST_v216_bill + TEST_v216_line_item transactions; TEST_v216_task; TEST_v216_r routine; TEST_v216_tx transaction. UI test also created via dialogs: TEST_v216_subroutine_ui (routine child) + TEST_v216_split (₹123.45 line item) — these will remain in user's data unless cleaned manually.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "v2.16 is fully green. Three patterns now exist for the same 'parent → child nested row' UX: Tasks (createSubtask + task-subtask-row), Routines (createSubroutine + routine-subtask-row), CashFlow (splitBill + tx-subtask-row). All three use pl-10 indent + visible-memo interleave + ListPlus icon button with data-testid pattern '{kind}-subtask-{id}' on parents only. Backend uses parent_id field on Routine/Transaction/Task models. Attachment drag-drop: RowActions paperclip button has React onDragOver/onDragLeave/onDrop handlers; uploadRowAttachment(module, rowId, file) in /src/lib/api.js does the multipart POST. To test live drag-drop in headless Playwright, dispatch real DragEvent('drop') with a File via DataTransfer (see iteration_14 script lines 50-65) — el.ondragover property check is misleading for React synthetic events. Test file: /app/backend/tests/test_v216.py (5 tests, 1.70s). NOTE for future tests: backend Task model uses field name `task` not `title`.",
+  "rca of the issue": "N/A — no failures. All v2.16 features (drag-drop attach, routine subtask, cashflow split-bill, visible nesting) work end-to-end with backend persistence verified."
+}

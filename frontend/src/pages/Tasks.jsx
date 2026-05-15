@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { api } from "@/lib/api";
+import { api, uploadRowAttachment } from "@/lib/api";
 import { Card, SectionTitle, EmptyState } from "@/components/Primitives";
 import AiAddBar from "@/components/AiAddBar";
 import BulkAddDialog from "@/components/BulkAddDialog";
@@ -605,6 +605,14 @@ export default function Tasks() {
                 onDown={idx < visible.length - 1 ? () => move(t.id, 1) : undefined}
                 onReminder={() => openReminderFor(t)}
                 onAttach={() => setAttachFor(t)}
+                onAttachFile={async (f) => {
+                  if (f.size > 10 * 1024 * 1024) { toast.error("Max 10MB"); return; }
+                  try {
+                    await uploadRowAttachment("tasks", t.id, f);
+                    toast.success("Attached");
+                    await load();
+                  } catch (e) { toast.error(e?.response?.data?.detail || "Upload failed"); }
+                }}
                 attachmentCount={(t.attachments || []).length}
                 onSubtask={t._isSubtask ? undefined : () => createSubtask(t)}
                 onFlag={() => patch(t.id, { flagged: !t.flagged })}

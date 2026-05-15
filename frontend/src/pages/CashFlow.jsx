@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState, useRef } from "react";
-import { api } from "@/lib/api";
+import { api, uploadRowAttachment } from "@/lib/api";
 import { Card, SectionTitle, EmptyState, Stat } from "@/components/Primitives";
 import AiAddBar from "@/components/AiAddBar";
 import GroupTabs from "@/components/GroupTabs";
@@ -141,24 +141,68 @@ export default function CashFlow() {
   };
 
   const txt = (a, b) => (!b ? true : String(a || "").toLowerCase().includes(b.toLowerCase()));
-  const visible = useMemo(
-    () =>
-      rows.filter((r) => {
-        if (activeGroup && (r.group || "") !== activeGroup) return false;
-        const cat = r.category || (r.direction === "in" ? "income" : "expense");
-        if (filters.category && cat !== filters.category) return false;
-        if (filters.sr && String(r.sr_no || "") !== filters.sr) return false;
-        if (!txt(r.date, filters.date)) return false;
-        if (!txt(r.group, filters.group)) return false;
-        if (!txt(r.vendor || r.name || r.company, filters.name)) return false;
-        if (!txt(r.details || r.notes, filters.details)) return false;
-        if (filters.amount && String(r.amount || "").includes(filters.amount) === false) return false;
-        if (!txt(r.mode || r.remarks, filters.remarks)) return false;
-        if (!txt(r.head || r.expense_head, filters.head)) return false;
-        return true;
-      }),
-    [rows, activeGroup, filters],
-  );
+  const visible = useMemo(() => {
+    const matches = (r) => {
+      if (activeGroup && (r.group || "") !== activeGroup) return false;
+      const cat = r.category || (r.direction === "in" ? "income" : "expense");
+      if (filters.category && cat !== filters.category) return false;
+      if (filters.sr && String(r.sr_no || "") !== filters.sr) return false;
+      if (!txt(r.date, filters.date)) return false;
+      if (!txt(r.group, filters.group)) return false;
+      if (!txt(r.vendor || r.name || r.company, filters.name)) return false;
+      if (!txt(r.details || r.notes, filters.details)) return false;
+      if (filters.amount && String(r.amount || "").includes(filters.amount) === false) return false;
+      if (!txt(r.mode || r.remarks, filters.remarks)) return false;
+      if (!txt(r.head || r.expense_head, filters.head)) return false;
+      return true;
+    };
+    const childrenByParent = new Map();
+    rows.forEach((r) => {
+      if (r.parent_id) {
+        if (!childrenByParent.has(r.parent_id)) childrenByParent.set(r.parent_id, []);
+        childrenByParent.get(r.parent_id).push(r);
+      }
+    });
+    const flagged = [];
+    const normal = [];
+    rows.forEach((r) => {
+      if (r.parent_id) return;
+      if (!matches(r)) return;
+      (r.flagged ? flagged : normal).push(r);
+    });
+    const out = [];
+    [...flagged, ...normal].forEach((r) => {
+      out.push(r);
+      (childrenByParent.get(r.id) || []).filter(matches).forEach((k) =>
+        out.push({ ...k, _isSubtask: true }),
+      );
+    });
+    return out;
+  }, [rows, activeGroup, filters]);
+
+  const splitBill = async (parent) => {
+    const label = window.prompt(`Split "${parent.vendor || parent.details || "this entry"}" into a line item — describe:`, "");
+    if (!label || !label.trim()) return;
+    const amtStr = window.prompt("Line item amount (₹)?", "");
+    const amt = Number(amtStr);
+    if (!amt || isNaN(amt)) { toast.error("Need a numeric amount"); return; }
+    try {
+      await api.post("/transactions", {
+        date: parent.date || new Date().toISOString().slice(0, 10),
+        amount: amt,
+        vendor: label.trim(),
+        details: parent.details || "",
+        category: parent.category || "expense",
+        mode: parent.mode || "",
+        head: parent.head || parent.expense_head || "",
+        currency: parent.currency || "INR",
+        group: parent.group || "",
+        parent_id: parent.id,
+      });
+      await load();
+      toast.success("Line item added");
+    } catch { toast.error("Could not split"); }
+  };
 
   const totals = useMemo(() => {
     if (convertedTotals) return convertedTotals;
@@ -449,8 +493,8 @@ export default function CashFlow() {
               nodes.push(
               <div
                 key={t.id}
-                className={`grid grid-cols-2 ${GRID} gap-3 px-4 py-2.5 border-b border-[rgba(201,169,97,0.08)] hover:bg-[rgba(201,169,97,0.04)] items-center ${draggingId === t.id ? "opacity-40" : ""}`}
-                data-testid="tx-row"
+                className={`grid grid-cols-2 ${GRID} gap-3 px-4 py-2.5 border-b border-[rgba(201,169,97,0.08)] hover:bg-[rgba(201,169,97,0.04)] items-center ${draggingId === t.id ? "opacity-40" : ""} ${t._isSubtask ? "pl-10 bg-[rgba(201,169,97,0.015)]" : ""}`}
+                data-testid={t._isSubtask ? "tx-subtask-row" : "tx-row"}
                 data-row="data"
               >
                 <input
@@ -526,7 +570,13 @@ export default function CashFlow() {
                   onDown={idx < visible.length - 1 ? () => move(t.id, 1) : undefined}
                   onReminder={() => openReminderFor(t)}
                   onAttach={() => setAttachFor(t)}
+                  onAttachFile={async (f) => {
+                    if (f.size > 10 * 1024 * 1024) { toast.error("Max 10MB"); return; }
+                    try { await uploadRowAttachment("transactions", t.id, f); toast.success("Attached"); await load(); }
+                    catch (e) { toast.error(e?.response?.data?.detail || "Upload failed"); }
+                  }}
                   attachmentCount={(t.attachments || []).length}
+                  onSubtask={t._isSubtask ? undefined : () => splitBill(t)}
                   onFlag={() => patch(t.id, { flagged: !t.flagged })}
                   flagged={!!t.flagged}
                   onDelete={() => remove(t.id)}

@@ -24,3 +24,13 @@ api.interceptors.response.use(
 // Side-effect: attaches offline-queue interceptor + boots drain loop.
 // Imported here so every app load gets it without each page wiring it up.
 import("./syncQueue");
+
+/** Quick attachment upload helper used by row drag-drop in RowActions. */
+export async function uploadRowAttachment(module, rowId, file) {
+  const fd = new FormData();
+  fd.append("file", file);
+  const { data } = await api.post(`/${module}/${rowId}/attachments`, fd, {
+    headers: { "Content-Type": "multipart/form-data" },
+  });
+  return data;
+}

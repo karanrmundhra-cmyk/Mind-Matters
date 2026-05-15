@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { api } from "@/lib/api";
+import { api, uploadRowAttachment } from "@/lib/api";
 import { Card, SectionTitle, EmptyState } from "@/components/Primitives";
 import AiAddBar from "@/components/AiAddBar";
 import BulkAddDialog from "@/components/BulkAddDialog";
@@ -101,20 +101,57 @@ export default function Routines() {
     }
   };
 
-  const visible = useMemo(
-    () =>
-      routines.filter((r) => {
-        if (activeGroup && r.group !== activeGroup) return false;
-        if (filters.sr && String(r.sr_no || "") !== filters.sr) return false;
-        if (!textMatch(r.group, filters.group)) return false;
-        if (!textMatch(r.name, filters.name)) return false;
-        if (!textMatch(r.activity, filters.activity)) return false;
-        if (!textMatch(r.details, filters.details)) return false;
-        if (!textMatch(r.frequency, filters.frequency)) return false;
-        return true;
-      }),
-    [routines, activeGroup, filters],
-  );
+  const visible = useMemo(() => {
+    const matches = (r) => {
+      if (activeGroup && r.group !== activeGroup) return false;
+      if (filters.sr && String(r.sr_no || "") !== filters.sr) return false;
+      if (!textMatch(r.group, filters.group)) return false;
+      if (!textMatch(r.name, filters.name)) return false;
+      if (!textMatch(r.activity, filters.activity)) return false;
+      if (!textMatch(r.details, filters.details)) return false;
+      if (!textMatch(r.frequency, filters.frequency)) return false;
+      return true;
+    };
+    const childrenByParent = new Map();
+    routines.forEach((r) => {
+      if (r.parent_id) {
+        if (!childrenByParent.has(r.parent_id)) childrenByParent.set(r.parent_id, []);
+        childrenByParent.get(r.parent_id).push(r);
+      }
+    });
+    const flaggedParents = [];
+    const normalParents = [];
+    routines.forEach((r) => {
+      if (r.parent_id) return;
+      if (!matches(r)) return;
+      (r.flagged ? flaggedParents : normalParents).push(r);
+    });
+    const out = [];
+    [...flaggedParents, ...normalParents].forEach((r) => {
+      out.push(r);
+      (childrenByParent.get(r.id) || []).filter(matches).forEach((k) =>
+        out.push({ ...k, _isSubtask: true }),
+      );
+    });
+    return out;
+  }, [routines, activeGroup, filters]);
+
+  const createSubroutine = async (parent) => {
+    const title = window.prompt(`New sub-routine under "${parent.activity || "(routine)"}":`, "");
+    if (!title || !title.trim()) return;
+    try {
+      await api.post("/routines", {
+        group: parent.group || activeGroup || "General",
+        name: parent.name || "",
+        activity: title.trim(),
+        details: "",
+        frequency: parent.frequency || "Daily",
+        parent_id: parent.id,
+      });
+      await load();
+      toast.success("Sub-routine added");
+    } catch { toast.error("Could not add"); }
+  };
 
   const insertOne = async (row) => {
     await api.post("/routines", {
@@ -323,8 +360,8 @@ export default function Routines() {
                 key={r.id}
                 className={`grid grid-cols-2 ${GRID} gap-3 px-4 py-2.5 border-b border-[rgba(201,169,97,0.08)] hover:bg-[rgba(201,169,97,0.04)] items-center ${
                   draggingId === r.id ? "opacity-40" : ""
-                }`}
-                data-testid="routine-row"
+                } ${r._isSubtask ? "pl-10 bg-[rgba(201,169,97,0.015)]" : ""}`}
+                data-testid={r._isSubtask ? "routine-subtask-row" : "routine-row"}
                 data-row="data"
               >
                 <div className="flex items-center gap-2">
@@ -399,7 +436,13 @@ export default function Routines() {
                     onDown={idx < visible.length - 1 ? () => move(r.id, 1) : undefined}
                     onReminder={() => openReminderFor(r)}
                     onAttach={() => setAttachFor(r)}
+                    onAttachFile={async (f) => {
+                      if (f.size > 10 * 1024 * 1024) { toast.error("Max 10MB"); return; }
+                      try { await uploadRowAttachment("routines", r.id, f); toast.success("Attached"); await load(); }
+                      catch (e) { toast.error(e?.response?.data?.detail || "Upload failed"); }
+                    }}
                     attachmentCount={(r.attachments || []).length}
+                    onSubtask={r._isSubtask ? undefined : () => createSubroutine(r)}
                     onFlag={() => patch(r.id, { flagged: !r.flagged })}
                     flagged={!!r.flagged}
                     onDelete={() => remove(r.id)}

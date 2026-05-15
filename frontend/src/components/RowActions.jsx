@@ -26,6 +26,7 @@ export default function RowActions({
   onDragEnd,
   draggable = false,
   onAttach,
+  onAttachFile,
   attachmentCount = 0,
   onSubtask,
   onFlag,
@@ -74,8 +75,22 @@ export default function RowActions({
         <button
           type="button"
           onClick={onAttach}
-          className="text-[#B7A98A]/55 hover:text-[#E4C98C] transition p-1 relative"
-          title={attachmentCount ? `${attachmentCount} attachment${attachmentCount !== 1 ? "s" : ""}` : "Add attachment"}
+          onDragOver={(e) => {
+            if (!onAttach) return;
+            e.preventDefault();
+            e.currentTarget.classList.add("ring-2", "ring-[#C9A961]");
+          }}
+          onDragLeave={(e) =>
+            e.currentTarget.classList.remove("ring-2", "ring-[#C9A961]")
+          }
+          onDrop={(e) => {
+            e.preventDefault();
+            e.currentTarget.classList.remove("ring-2", "ring-[#C9A961]");
+            const f = e.dataTransfer?.files?.[0];
+            if (f && onAttachFile) onAttachFile(f);
+          }}
+          className="text-[#B7A98A]/55 hover:text-[#E4C98C] transition p-1 relative rounded"
+          title={attachmentCount ? `${attachmentCount} attachment${attachmentCount !== 1 ? "s" : ""} · drop to add` : "Add attachment (drop a file or click)"}
           data-testid={tid("attach")}
         >
           <Paperclip size={13} />
