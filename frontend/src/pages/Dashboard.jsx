@@ -40,15 +40,22 @@ export default function Dashboard() {
   const [newsCategory, setNewsCategory] = useState(
     localStorage.getItem("mm_news_category") || "all",
   );
+  const [customRss, setCustomRss] = useState(
+    localStorage.getItem("mm_news_custom_url") || "",
+  );
+  const [editingRss, setEditingRss] = useState(false);
 
   const load = async () => {
+    const newsUrl = customRss
+      ? `/news?custom_url=${encodeURIComponent(customRss)}`
+      : `/news?category=${encodeURIComponent(newsCategory)}`;
     const [w, q, a, d, ls, nw] = await Promise.all([
       api.get("/weather"),
       api.get("/quote/today"),
       api.get("/affirmations/today"),
       api.get("/deadlines"),
       api.get("/cashflow/loan-summary").catch(() => ({ data: null })),
-      api.get(`/news?category=${encodeURIComponent(newsCategory)}`).catch(() => ({ data: null })),
+      api.get(newsUrl).catch(() => ({ data: null })),
     ]);
     setWeather(w.data);
     setQuote(q.data);
@@ -60,7 +67,7 @@ export default function Dashboard() {
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [newsCategory]);
+  }, [newsCategory, customRss]);
   useProjectReload(load);
 
   const savePersonalAffirmation = async (text) => {
@@ -299,27 +306,82 @@ export default function Dashboard() {
 
       {/* News widget */}
       <Card className="p-5 sm:p-6 mm-focus-hide" data-testid="news-widget">
-        <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center justify-between mb-3 gap-2">
           <div className="flex items-center gap-2 text-[10px] uppercase tracking-[0.3em] text-[#B7A98A]/65">
             <Newspaper size={12} className="mm-text-gold" />
             Today's News
+            {news?.source === "custom" && (
+              <span className="text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-[rgba(122,184,255,0.12)] text-[#7AB8FF] border border-[rgba(122,184,255,0.25)]">
+                Custom
+              </span>
+            )}
           </div>
-          <select
-            value={newsCategory}
-            onChange={(e) => {
-              setNewsCategory(e.target.value);
-              localStorage.setItem("mm_news_category", e.target.value);
-            }}
-            className="mm-input-ghost text-[10px] !py-1"
-            data-testid="news-category"
-          >
-            <option value="all">All</option>
-            <option value="business">Business</option>
-            <option value="tech">Tech</option>
-            <option value="india">India</option>
-            <option value="world">World</option>
-          </select>
+          <div className="flex items-center gap-2">
+            {!customRss && (
+              <select
+                value={newsCategory}
+                onChange={(e) => {
+                  setNewsCategory(e.target.value);
+                  localStorage.setItem("mm_news_category", e.target.value);
+                }}
+                className="mm-input-ghost text-[10px] !py-1"
+                data-testid="news-category"
+              >
+                <option value="all">All</option>
+                <option value="business">Business</option>
+                <option value="tech">Tech</option>
+                <option value="india">India</option>
+                <option value="world">World</option>
+              </select>
+            )}
+            <button
+              type="button"
+              onClick={() => setEditingRss((v) => !v)}
+              className="text-[10px] mm-text-gold/70 hover:mm-text-gold-bright transition uppercase tracking-wider"
+              data-testid="news-rss-toggle"
+              title="Set a custom RSS feed URL"
+            >
+              {customRss ? "Edit feed" : "Custom RSS"}
+            </button>
+          </div>
         </div>
+        {editingRss && (
+          <div className="mb-3 flex gap-2" data-testid="news-rss-editor">
+            <input
+              type="url"
+              placeholder="https://example.com/feed.xml"
+              value={customRss}
+              onChange={(e) => setCustomRss(e.target.value)}
+              className="mm-input text-xs flex-1"
+              data-testid="news-rss-input"
+            />
+            <button
+              onClick={() => {
+                localStorage.setItem("mm_news_custom_url", customRss);
+                setEditingRss(false);
+                toast.success(customRss ? "Custom feed saved" : "Reverted to default feed");
+              }}
+              className="mm-btn-primary text-xs px-3"
+              data-testid="news-rss-save"
+            >
+              Save
+            </button>
+            {customRss && (
+              <button
+                onClick={() => {
+                  setCustomRss("");
+                  localStorage.removeItem("mm_news_custom_url");
+                  setEditingRss(false);
+                  toast.success("Reset to default");
+                }}
+                className="text-xs text-[#B7A98A]/65 hover:text-[#E4C98C] transition px-2"
+                data-testid="news-rss-reset"
+              >
+                Reset
+              </button>
+            )}
+          </div>
+        )}
         {!news ? (
           <div className="text-xs text-[#B7A98A]/50">Loading…</div>
         ) : news.items.length === 0 ? (

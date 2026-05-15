@@ -1,0 +1,56 @@
+{
+  "summary": "v2.20 testing — 12/13 backend pytest GREEN + frontend largely GREEN. Backend: GET /api/projects/{pid}/mentionable returns [owner+members] with telegram_linked bool (Karan=true), membership-gated (random pid → 404, no token → 401). POST /api/projects/{pid}/comments with body containing @karan returns 200 (mention notify is fire-and-forget, never blocks); resource_type='note' accepted by backend. CommentDrawer reused for resource_type='note' works. Frontend (1920×1080 Playwright via REACT_APP_BACKEND_URL): typing '@K' in comment-input via page.keyboard.type triggers data-testid='mention-popover' with one data-testid='mention-option-<uid>' for Karan; popover shows 'TG' chip (telegram_linked); clicking option inserts '@Karan ' into textarea and closes popover; Send posts the comment and renders the @Karan handle inside a gold-highlighted span (mm-text-gold-bright + bg-[rgba(201,169,97,0.12)]) — verified via classlist check. Notes page: after selecting a note in a project, the note header shows data-testid='note-comment' icon → opens CommentDrawer with 'THREAD <noteTitle>'. Dashboard news widget: data-testid='news-rss-toggle' shows 'Custom RSS' label; clicking opens data-testid='news-rss-editor' with data-testid='news-rss-input' + Save/Reset; Save persists to localStorage.mm_news_custom_url (verified read-back = the entered URL). CRITICAL BACKEND BUG: /api/news endpoint signature does NOT declare custom_url param and references undefined `src_label` — every request silently NameErrors into the fallback branch, returning source='fallback' even for default category/all and ignoring any custom_url query param entirely. As a result, /api/news?custom_url=… cannot ever return source='custom' and the 'Custom' chip badge on the Dashboard news widget never appears. v2.19 regression: tasks/routines/cashflow comment buttons + drawer open + Ctrl+Enter send still work (17 task-comment buttons rendered, drawer opened from Tasks).",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "/api/news?custom_url=<URL>",
+        "issue": "Two-part bug. (1) The function signature `async def news_today(category: str = 'all', user=Depends(...))` at server.py line 3183 does NOT declare a `custom_url` query parameter, so the backend silently ignores it. (2) Line 3212 returns `'source': src_label` but `src_label` is never assigned anywhere in the function — this raises NameError on every successful RSS fetch, which the broad `except Exception` swallows and returns the fallback payload (`source='fallback'`). Net effect: /api/news ALWAYS returns source='fallback' (even for the default category) and the v2.20 custom_url feature is non-functional. Frontend correctly sends `/news?custom_url=…` from Dashboard.jsx (line 50), saves the URL to localStorage.mm_news_custom_url, but the widget can never display source='custom' because the backend never returns it.",
+        "priority": "CRITICAL"
+      }
+    ],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {
+        "flow": "Dashboard news widget 'Custom' chip badge",
+        "issue": "The Dashboard.jsx checks `news.source === 'custom'` to render the Custom chip, but because the backend bug above prevents 'source' from ever being 'custom' (always 'fallback' or 'google-news'), the chip never appears. This is a downstream symptom of the backend bug — fixing the backend will resolve it.",
+        "affected_selectors": ["news-rss-toggle", "news-rss-editor", "news-rss-input"]
+      }
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_v220.py",
+    "/app/test_reports/pytest/v220_results.xml"
+  ],
+  "action_items": [
+    "Fix /api/news in /app/backend/server.py (lines 3182-3216): (a) add `custom_url: Optional[str] = None` to the function signature, (b) when custom_url is provided AND starts with 'http://' or 'https://', set `url = custom_url` and `src_label = 'custom'`, (c) for default/category branch set `src_label = 'google-news'`, (d) include `src_label` initialization BEFORE the try-block (e.g. `src_label = 'custom' if custom_url... else 'google-news'`) so the return statement at line 3212 never NameErrors.",
+    "Recommend: also update the fallback branch to preserve the same src_label semantics — i.e. if a custom_url was supplied but the fetch failed, returning source='fallback' is still informative; the current fallback is fine as-is once src_label is correctly defined."
+  ],
+  "critical_code_review_comments": [
+    "server.py /api/news (3182-3216): TWO bugs — missing `custom_url` query parameter in function signature AND undefined `src_label` variable referenced in the success return. The PRD/task spec explicitly mentioned this endpoint accepts custom_url. Both bugs are in the same ~30-line function and a single fix resolves both. Suggest: `async def news_today(category: str = 'all', custom_url: Optional[str] = None, user=Depends(...))`; then `if custom_url and custom_url.startswith(('http://','https://')): url, src_label = custom_url, 'custom'` else `url, src_label = feeds.get(category, feeds['all']), 'google-news'`.",
+    "server.py _extract_mentions (2404-2408) and _notify_mentions (2411-2451): clean implementation. The regex `@([\\w][\\w.\\-]{0,40})` correctly limits handle length and the set comprehension dedupes case-insensitively. _notify_mentions is properly fire-and-forget (try/except around tg_send, swallows on failure, never propagates). Membership union (owner_id + accepted members) is correct. Could optionally skip self-mentions (a user @-mentioning themselves) but harmless either way.",
+    "server.py /api/projects/{pid}/mentionable (2372-2401): correctly membership-gated (403 for non-member). The owner + accepted members merge is fine. One small nit: if a member has no first_name AND no email, the fallback string 'user' is returned — this means a mention popover row could be ambiguous. Low-priority since real users always have one of those.",
+    "CommentDrawer.jsx renderBodyWithMentions (7-31): clean regex with a leading whitespace-or-start guard `(^|\\s)@…` so email-like substrings (e.g. `user@example.com`) are NOT mistakenly highlighted. Good.",
+    "CommentDrawer.jsx insertMention (138-150): correct — `before` includes the `@` because mention.start = caret − query.length is the position AFTER the `@` character. The insertion `@Karan ` is verified visually in the textarea and the popover closes after click. Setting selection-range after the inserted text is good UX.",
+    "Dashboard.jsx (43-70): `localStorage.getItem('mm_news_custom_url')` is read at mount and passed via custom_url query param to /api/news. Persist + restore works. Currently `useEffect` depends on [newsCategory, customRss] which means both changes refetch — correct.",
+    "Notes.jsx (447-456): note-comment button is correctly gated by `projectId &&` AND only renders when a note is `selected` (inside the selected-note panel). Test agents should ensure (a) a project is selected in the top selector and (b) at least one note exists and is clicked, before asserting on data-testid='note-comment'."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_v220.py",
+    "/app/test_reports/pytest/v220_results.xml",
+    "/app/test_reports/iteration_18.json"
+  ],
+  "success_rate": {
+    "backend": "92% (12/13 v220 pytest pass; the 1 failure is the genuine /api/news custom_url bug)",
+    "frontend": "100% on shipped features — mention popover + mention-option + TG chip + @-insertion + gold-highlight render + Notes note-comment wiring + news-rss-toggle/editor/input + localStorage persist all working. The only frontend gap (Custom chip badge missing) is downstream of the backend /api/news bug, not a frontend defect."
+  },
+  "test_credentials": "karan@mindmatters.local / changeme123",
+  "seed_data_creation": "test_v220.py posts and immediately deletes 4 TEST_v220 comments under Karan's Personal project (resource_type=note). UI test created a 'TEST_v220_note' note (id captured + deleted via DELETE /api/notes/{id} at end of run). One mention comment '@Karan hello' was posted via UI but not cleaned (id not captured); recommend running `curl -X DELETE` cleanup if needed, but it's harmless — only 1 comment on a project-anchored note thread.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "v2.20 verdict: 3 of 4 features shipped clean (mention autocomplete + Telegram notify wiring + Notes-page comment thread). The 4th feature (News custom RSS URL) has correct frontend code (localStorage persist + UI controls all present and functioning) but the backend endpoint is non-functional due to two compounding bugs: missing custom_url param + undefined src_label causing every request to fall through to the fallback branch. Once main agent fixes /api/news (3182-3216), re-run test_v220.py::TestNewsCustomUrl::test_custom_url_returns_source_custom to confirm green; the Dashboard 'Custom' chip should then auto-appear once source='custom' starts flowing. Useful testids: mention-popover, mention-option-<uid>, comment-input, comment-send, note-comment, news-rss-toggle, news-rss-editor, news-rss-input. For mention autocomplete tests, MUST use page.keyboard.type(...,delay=80) — page.fill() does NOT trigger the onChange-based mention detection because it sets value programmatically without firing the keystroke handlers reliably. Notes page note-comment button requires (a) a project selected in top-right selector AND (b) a note clicked in the sidebar list to populate `selected` state. Backend regression (v2.19 comments + v2.18 activity) still green.",
+  "rca of the issue": "ROOT CAUSE of /api/news custom_url failure: In /app/backend/server.py around line 3182, the v2.20 changes ostensibly added custom_url support to the /api/news endpoint, but two pieces of the change were left incomplete: (1) the function parameter `custom_url: Optional[str] = None` was never added to the signature, so FastAPI ignores any `?custom_url=…` query string entirely; (2) the success-path return statement at line 3212 references a local variable `src_label` that is never assigned anywhere in the function body. On every successful RSS fetch, Python raises NameError immediately on the return, which is caught by the broad `except Exception` block and falls through to the static fallback payload. Even the default /api/news?category=tech call returns source='fallback' for this reason — confirmed via curl and pytest. REPRODUCTION: `curl -H 'Authorization: Bearer <token>' '<backend>/api/news'` → `{'source': 'fallback', ...}` even though google-news RSS is reachable from the container. MITIGATION: see action_items[0]."
+}

@@ -5,12 +5,13 @@ import AiAddBar from "@/components/AiAddBar";
 import BulkAddDialog from "@/components/BulkAddDialog";
 import ExportButton from "@/components/ExportButton";
 import {
-  Plus, Search, Pin, PinOff, Trash2, Tag as TagIcon, Image as ImageIcon, Upload, BellRing,
+  Plus, Search, Pin, PinOff, Trash2, Tag as TagIcon, Image as ImageIcon, Upload, BellRing, MessageSquare,
 } from "lucide-react";
 import { toast } from "sonner";
 import ReminderDialog from "@/components/ReminderDialog";
+import CommentDrawer from "@/components/CommentDrawer";
 import { capWords } from "@/lib/format";
-import { useProjectReload } from "@/lib/projects";
+import { useProjectReload, useProjects } from "@/lib/projects";
 
 const TAG_OPTIONS = []; // No presets — user creates their own via "+ Custom" chip
 
@@ -31,6 +32,8 @@ export default function Notes() {
   const [images, setImages] = useState([]);
   const [bulkOpen, setBulkOpen] = useState(false);
   const [reminderFor, setReminderFor] = useState(null);
+  const [commentFor, setCommentFor] = useState(null);
+  const { currentId: projectId } = useProjects();
   const imgRef = useRef(null);
 
   const load = async () => {
@@ -441,6 +444,16 @@ export default function Notes() {
                 >
                   <BellRing size={16} />
                 </button>
+                {projectId && (
+                  <button
+                    onClick={() => setCommentFor(selected)}
+                    className="text-[#B7A98A]/65 hover:text-[#E4C98C] transition"
+                    title="Open comment thread"
+                    data-testid="note-comment"
+                  >
+                    <MessageSquare size={16} />
+                  </button>
+                )}
                 <button
                   onClick={() => remove(selected.id)}
                   className="text-[#B7A98A]/65 hover:text-[#E4C98C] transition"
@@ -523,6 +536,15 @@ export default function Notes() {
         open={!!reminderFor}
         onClose={() => setReminderFor(null)}
         defaults={reminderFor || {}}
+      />
+
+      <CommentDrawer
+        open={!!commentFor}
+        onClose={() => setCommentFor(null)}
+        projectId={commentFor?.project_id || projectId}
+        resourceType="note"
+        resourceId={commentFor?.id}
+        resourceLabel={commentFor?.title || (commentFor?.body || "").slice(0, 60)}
       />
     </div>
   );

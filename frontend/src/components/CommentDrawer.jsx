@@ -1,7 +1,34 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
-import { X, MessageSquare, Send, Trash2 } from "lucide-react";
+import { X, MessageSquare, Send, Trash2, AtSign } from "lucide-react";
+
+/** Highlight @handles in a comment body. Returns an array of strings + spans. */
+function renderBodyWithMentions(text) {
+  if (!text) return null;
+  const parts = [];
+  const re = /(^|\s)(@[\w][\w.\-]{0,40})/g;
+  let last = 0;
+  let m;
+  let i = 0;
+  while ((m = re.exec(text)) !== null) {
+    const lead = m[1];
+    const handle = m[2];
+    const idx = m.index + lead.length;
+    if (idx > last) parts.push(text.slice(last, idx));
+    parts.push(
+      <span
+        key={`m-${i++}`}
+        className="mm-text-gold-bright font-medium bg-[rgba(201,169,97,0.12)] rounded px-0.5"
+      >
+        {handle}
+      </span>,
+    );
+    last = idx + handle.length;
+  }
+  if (last < text.length) parts.push(text.slice(last));
+  return parts;
+}
 
 /**
  * CommentDrawer — right-side slide-in thread for a single row.
@@ -28,6 +55,8 @@ export default function CommentDrawer({
   const [body, setBody] = useState("");
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [mentionables, setMentionables] = useState([]);
+  const [mention, setMention] = useState(null); // {start, query} or null
   const taRef = useRef(null);
 
   const load = useCallback(async () => {
@@ -51,10 +80,16 @@ export default function CommentDrawer({
   useEffect(() => {
     if (open) {
       setBody("");
+      setMention(null);
       load();
       setTimeout(() => taRef.current?.focus(), 80);
+      if (projectId) {
+        api.get(`/projects/${projectId}/mentionable`)
+          .then(({ data }) => setMentionables(data || []))
+          .catch(() => setMentionables([]));
+      }
     }
-  }, [open, load]);
+  }, [open, load, projectId]);
 
   useEffect(() => {
     if (!open) return;
@@ -98,6 +133,20 @@ export default function CommentDrawer({
     } catch (e) {
       toast.error(e?.response?.data?.detail || "Could not delete");
     }
+  };
+
+  const insertMention = (name) => {
+    if (!mention) return;
+    const before = body.slice(0, mention.start);
+    const after = body.slice(mention.start + mention.query.length);
+    const next = `${before}${name} ${after}`;
+    setBody(next);
+    setMention(null);
+    setTimeout(() => {
+      taRef.current?.focus();
+      const pos = before.length + name.length + 1;
+      taRef.current?.setSelectionRange(pos, pos);
+    }, 0);
   };
 
   const formatTime = (iso) => {
@@ -178,27 +227,89 @@ export default function CommentDrawer({
                   </button>
                 </div>
                 <div className="text-[12.5px] mm-text-gold/95 whitespace-pre-wrap mt-1 leading-relaxed">
-                  {c.body}
+                  {renderBodyWithMentions(c.body)}
                 </div>
               </div>
             ))
           )}
         </div>
 
-        <footer className="px-5 py-3 border-t border-[rgba(201,169,97,0.15)] bg-[rgba(0,0,0,0.4)]">
+        <footer className="px-5 py-3 border-t border-[rgba(201,169,97,0.15)] bg-[rgba(0,0,0,0.4)] relative">
+          {mention && (
+            (() => {
+              const q = mention.query.toLowerCase();
+              const matches = mentionables.filter(
+                (m) =>
+                  m.name.toLowerCase().includes(q) ||
+                  m.email.toLowerCase().startsWith(q),
+              ).slice(0, 6);
+              if (matches.length === 0) return null;
+              return (
+                <div
+                  className="absolute bottom-full left-5 right-5 mb-1 mm-glass border border-[rgba(201,169,97,0.3)] rounded-lg shadow-xl overflow-hidden"
+                  data-testid="mention-popover"
+                >
+                  <div className="px-3 py-1.5 text-[10px] uppercase tracking-[0.3em] mm-text-gold/70 flex items-center gap-1.5 border-b border-[rgba(201,169,97,0.15)]">
+                    <AtSign size={10} /> Mention member
+                  </div>
+                  {matches.map((m) => (
+                    <button
+                      key={m.user_id}
+                      type="button"
+                      onClick={() => insertMention(m.name)}
+                      className="w-full text-left px-3 py-2 hover:bg-[rgba(201,169,97,0.1)] transition flex items-center gap-2"
+                      data-testid={`mention-option-${m.user_id}`}
+                    >
+                      <span className="text-xs mm-text-gold-bright flex-1 truncate">
+                        @{m.name}
+                      </span>
+                      <span className="text-[10px] text-[#B7A98A]/55 truncate max-w-[140px]">
+                        {m.email}
+                      </span>
+                      {m.telegram_linked && (
+                        <span
+                          className="text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-[rgba(122,184,255,0.12)] text-[#7AB8FF] border border-[rgba(122,184,255,0.25)]"
+                          title="Telegram-linked — will be pinged on mention"
+                        >
+                          TG
+                        </span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              );
+            })()
+          )}
           <div className="flex gap-2 items-end">
             <textarea
               ref={taRef}
               value={body}
-              onChange={(e) => setBody(e.target.value)}
+              onChange={(e) => {
+                const v = e.target.value;
+                setBody(v);
+                // Detect "@word" before the caret to trigger autocomplete.
+                const caret = e.target.selectionStart || v.length;
+                const before = v.slice(0, caret);
+                const m = before.match(/(?:^|\s)@([\w][\w.\-]{0,40})$/);
+                if (m) {
+                  setMention({ start: caret - m[1].length, query: m[1] });
+                } else {
+                  setMention(null);
+                }
+              }}
               onKeyDown={(e) => {
+                if (e.key === "Escape" && mention) {
+                  setMention(null);
+                  e.stopPropagation();
+                  return;
+                }
                 if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
                   e.preventDefault();
                   add();
                 }
               }}
               rows={2}
-              placeholder="Write a comment… ⌘/Ctrl+Enter to send"
+              placeholder="Write a comment… use @name to mention. ⌘/Ctrl+Enter to send"
               className="mm-input text-xs flex-1 resize-none"
               data-testid="comment-input"
             />

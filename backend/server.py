@@ -2369,6 +2369,88 @@ async def list_comments(pid: str, resource_type: Optional[str] = None,
     return [Comment(**d) for d in docs]
 
 
+@api.get("/projects/{pid}/mentionable")
+async def project_mentionable(pid: str, user=Depends(get_current_user)):
+    """Return owner + accepted members of a project as mention candidates.
+    Each entry: {user_id, name, email, telegram_linked}.
+    """
+    role = await _user_role_in_project(user["id"], pid)
+    if not role:
+        raise HTTPException(403, "Not a member of this project")
+    proj = await db.projects.find_one({"id": pid}, {"_id": 0})
+    if not proj:
+        raise HTTPException(404, "Project not found")
+    owner = await db.users.find_one({"id": proj["owner_id"]}, {"_id": 0})
+    members = await db.project_members.find(
+        {"project_id": pid, "accepted": True, "user_id": {"$ne": None}}, {"_id": 0},
+    ).to_list(200)
+    member_users = await db.users.find(
+        {"id": {"$in": [m["user_id"] for m in members]}}, {"_id": 0},
+    ).to_list(200)
+    out: List[Dict[str, Any]] = []
+    for u in [owner] + member_users:
+        if not u:
+            continue
+        name = u.get("first_name") or u.get("email", "").split("@")[0] or "user"
+        out.append({
+            "user_id": u["id"],
+            "name": name,
+            "email": u.get("email", ""),
+            "telegram_linked": bool(u.get("telegram_chat_id")),
+        })
+    return out
+
+
+def _extract_mentions(body: str) -> List[str]:
+    """Pull @handles from a comment body. Handles may contain letters,
+    digits, dot, dash, underscore; case-insensitive match downstream."""
+    import re
+    return list({m.lower() for m in re.findall(r"@([\w][\w.\-]{0,40})", body or "")})
+
+
+async def _notify_mentions(project_id: str, comment_body: str, actor_name: str,
+                           subject_kind: str) -> None:
+    """For each @handle, look up an accepted project member whose first_name
+    or email-prefix matches, and ping their Telegram if linked. Silent on
+    failure — never blocks comment creation.
+    """
+    handles = _extract_mentions(comment_body)
+    if not handles:
+        return
+    proj = await db.projects.find_one({"id": project_id}, {"_id": 0})
+    if not proj:
+        return
+    member_user_ids = [proj["owner_id"]]
+    members = await db.project_members.find(
+        {"project_id": project_id, "accepted": True, "user_id": {"$ne": None}},
+        {"_id": 0, "user_id": 1},
+    ).to_list(200)
+    member_user_ids.extend(m["user_id"] for m in members)
+    users = await db.users.find(
+        {"id": {"$in": member_user_ids}}, {"_id": 0},
+    ).to_list(200)
+    snippet = (comment_body or "").strip()[:240]
+    sent = set()
+    for u in users:
+        cid = u.get("telegram_chat_id")
+        if not cid or u["id"] in sent:
+            continue
+        name = (u.get("first_name") or u.get("email", "").split("@")[0] or "").lower()
+        prefix = u.get("email", "").split("@")[0].lower()
+        if name in handles or prefix in handles:
+            sent.add(u["id"])
+            try:
+                from tg import tg_send
+                await tg_send(
+                    cid,
+                    f"💬 @{name or prefix} — {actor_name} mentioned you on a "
+                    f"{subject_kind} in “{proj.get('name', 'a project')}”:\n\n"
+                    f"{snippet}",
+                )
+            except Exception as e:
+                logger.warning(f"mention notify failed: {e}")
+
+
 @api.post("/projects/{pid}/comments", response_model=Comment)
 async def post_comment(pid: str, body: CommentIn, user=Depends(get_current_user)):
     role = await _user_role_in_project(user["id"], pid)
@@ -2385,6 +2467,10 @@ async def post_comment(pid: str, body: CommentIn, user=Depends(get_current_user)
     if not doc["body"]:
         raise HTTPException(400, "Comment body required")
     await db.comments.insert_one(dict(doc))
+    # Fire-and-forget Telegram notifications for any @handles in the body.
+    await _notify_mentions(
+        pid, doc["body"], doc["user_name"], body.resource_type,
+    )
     return Comment(**doc)
 
 
@@ -3123,7 +3209,7 @@ async def news_today(category: str = "all", user=Depends(get_current_user)):
             if title.startswith("<![CDATA["):
                 title = title[9:].rstrip("]>").strip()
             out.append({"title": title, "url": (lm.group(1).strip() if lm else "")})
-        return {"category": category, "items": out, "source": "google-news"}
+        return {"category": category, "items": out, "source": src_label}
     except Exception:
         return {"category": category, "items": [
             {"title": "News unavailable — check your connection", "url": ""},
@@ -4288,3 +4374,15 @@ app.add_middleware(
 @app.on_event("shutdown")
 async def shutdown_db_client():
     client.close()
+
+
+# register
+app.include_router(api)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_credentials=True,
+    allow_origins=os.environ.get("CORS_ORIGINS", "*").split(","),
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
