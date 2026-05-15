@@ -6,11 +6,12 @@ import BulkAddDialog from "@/components/BulkAddDialog";
 import GroupTabs from "@/components/GroupTabs";
 import RowActions from "@/components/RowActions";
 import ReminderDialog from "@/components/ReminderDialog";
+import CommentDrawer from "@/components/CommentDrawer";
 import FilterHeader from "@/components/FilterHeader";
 import ExportButton from "@/components/ExportButton";
 import AttachmentsDialog from "@/components/AttachmentsDialog";
 import { useReorder } from "@/lib/useReorder";
-import { useProjectReload } from "@/lib/projects";
+import { useProjectReload, useProjects } from "@/lib/projects";
 import { nestRows, depthPaddingClass } from "@/lib/nestRows";
 import { Plus, Flame, Check, Upload } from "lucide-react";
 import { toast } from "sonner";
@@ -34,6 +35,9 @@ export default function Routines() {
   const [bulkOpen, setBulkOpen] = useState(false);
   const [reminderFor, setReminderFor] = useState(null);
   const [attachFor, setAttachFor] = useState(null);
+  const [commentFor, setCommentFor] = useState(null);
+  const [commentCounts, setCommentCounts] = useState({});
+  const { currentId: projectId } = useProjects();
   const [filters, setFilters] = useState({ sr: "", group: "", name: "", activity: "", details: "", frequency: "" });
   const [draft, setDraft] = useState({
     group: "",
@@ -47,6 +51,14 @@ export default function Routines() {
     const [r, s] = await Promise.all([api.get("/routines"), api.get("/routines/summary")]);
     setRoutines(r.data);
     setSummary(s.data);
+    if (projectId) {
+      try {
+        const { data: counts } = await api.get(
+          `/comments/counts?project_id=${projectId}&resource_type=routine`,
+        );
+        setCommentCounts(counts || {});
+      } catch { /* */ }
+    }
   };
   useEffect(() => {
     load();
@@ -429,6 +441,8 @@ export default function Routines() {
                     onSubtask={(r._depth || 0) >= 2 ? undefined : () => createSubroutine(r)}
                     onFlag={() => patch(r.id, { flagged: !r.flagged })}
                     flagged={!!r.flagged}
+                    onComment={projectId ? () => setCommentFor(r) : undefined}
+                    commentCount={commentCounts[r.id] || 0}
                     onDelete={() => remove(r.id)}
                   />
                 </div>

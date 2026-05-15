@@ -1,5 +1,5 @@
 import React from "react";
-import { ArrowUp, ArrowDown, BellRing, Trash2, GripVertical, Paperclip, ListPlus, Flag } from "lucide-react";
+import { ArrowUp, ArrowDown, BellRing, Trash2, GripVertical, Paperclip, ListPlus, Flag, MessageSquare } from "lucide-react";
 
 /**
  * RowActions — shared row-right-edge action cluster.
@@ -31,6 +31,8 @@ export default function RowActions({
   onSubtask,
   onFlag,
   flagged = false,
+  onComment,
+  commentCount = 0,
 }) {
   const tid = (name) => (rowId ? `${kind}-${name}-${rowId}` : `${kind}-${name}`);
   return (
@@ -139,6 +141,25 @@ export default function RowActions({
           data-testid={tid("reminder")}
         >
           <BellRing size={13} />
+        </button>
+      )}
+      {onComment && (
+        <button
+          type="button"
+          onClick={onComment}
+          className="text-[#B7A98A]/55 hover:text-[#E4C98C] transition p-1 relative"
+          title={commentCount ? `${commentCount} comment${commentCount !== 1 ? "s" : ""} · click to open thread` : "Add comment"}
+          data-testid={tid("comment")}
+        >
+          <MessageSquare size={13} />
+          {commentCount > 0 && (
+            <span
+              className="absolute -top-0.5 -right-0.5 text-[8px] font-semibold mm-text-gold-bright bg-black border border-[#C9A961] rounded-full w-3 h-3 flex items-center justify-center leading-none"
+              data-testid={tid("comment-count")}
+            >
+              {commentCount}
+            </span>
+          )}
         </button>
       )}
       <button

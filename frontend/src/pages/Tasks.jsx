@@ -6,10 +6,11 @@ import BulkAddDialog from "@/components/BulkAddDialog";
 import GroupTabs from "@/components/GroupTabs";
 import RowActions from "@/components/RowActions";
 import ReminderDialog from "@/components/ReminderDialog";
+import CommentDrawer from "@/components/CommentDrawer";
 import FilterHeader from "@/components/FilterHeader";
 import ExportButton from "@/components/ExportButton";
 import { useReorder } from "@/lib/useReorder";
-import { useProjectReload } from "@/lib/projects";
+import { useProjectReload, useProjects } from "@/lib/projects";
 import { nestRows, depthPaddingClass } from "@/lib/nestRows";
 import { Plus, Upload, Check } from "lucide-react";
 import { toast } from "sonner";
@@ -34,6 +35,9 @@ export default function Tasks() {
   const [bulkOpen, setBulkOpen] = useState(false);
   const [reminderFor, setReminderFor] = useState(null); // {row} or null
   const [attachFor, setAttachFor] = useState(null); // task object or null
+  const [commentFor, setCommentFor] = useState(null); // task object or null
+  const [commentCounts, setCommentCounts] = useState({});
+  const { currentId: projectId } = useProjects();
   const [filters, setFilters] = useState({ sr: "", date: "", group: "", name: "", task: "", details: "", status: "" });
   const [draft, setDraft] = useState({
     date: todayISO(),
@@ -60,6 +64,14 @@ export default function Tasks() {
   const load = async () => {
     const { data } = await api.get("/tasks");
     setTasks(sortByDoneAndSr(data));
+    if (projectId) {
+      try {
+        const { data: counts } = await api.get(
+          `/comments/counts?project_id=${projectId}&resource_type=task`,
+        );
+        setCommentCounts(counts || {});
+      } catch { /* ignore */ }
+    }
   };
   useEffect(() => {
     load();
@@ -586,6 +598,8 @@ export default function Tasks() {
                 onSubtask={(t._depth || 0) >= 2 ? undefined : () => createSubtask(t)}
                 onFlag={() => patch(t.id, { flagged: !t.flagged })}
                 flagged={!!t.flagged}
+                onComment={projectId ? () => setCommentFor(t) : undefined}
+                commentCount={commentCounts[t.id] || 0}
                 onDelete={() => remove(t.id)}
               />
             </div>
@@ -611,6 +625,16 @@ export default function Tasks() {
         open={!!reminderFor}
         onClose={() => setReminderFor(null)}
         defaults={reminderFor || {}}
+      />
+
+      <CommentDrawer
+        open={!!commentFor}
+        onClose={() => setCommentFor(null)}
+        projectId={commentFor?.project_id || projectId}
+        resourceType="task"
+        resourceId={commentFor?.id}
+        resourceLabel={commentFor?.task || commentFor?.name}
+        onCountChange={(n) => commentFor && setCommentCounts((m) => ({ ...m, [commentFor.id]: n }))}
       />
 
       {/* Attachments dialog — opens when paperclip is clicked */}

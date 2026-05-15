@@ -2400,6 +2400,30 @@ async def delete_comment(cid: str, user=Depends(get_current_user)):
     return {"ok": True}
 
 
+@api.get("/comments/counts")
+async def comment_counts(
+    project_id: str,
+    resource_type: str,
+    user=Depends(get_current_user),
+):
+    """Return {resource_id: count} for every row of a given resource_type
+    in the given project. Used to render comment-bubble badges on Tasks /
+    Routines / CashFlow rows in one round-trip.
+    """
+    role = await _user_role_in_project(user["id"], project_id)
+    if not role:
+        return {}
+    pipe = [
+        {"$match": {"project_id": project_id, "resource_type": resource_type}},
+        {"$group": {"_id": "$resource_id", "count": {"$sum": 1}}},
+    ]
+    out: Dict[str, int] = {}
+    async for d in db.comments.aggregate(pipe):
+        out[d["_id"]] = d["count"]
+    return out
+
+
+
 # ───────────────────── Activity feed (v2.18) ─────────────────────
 @api.get("/activity")
 async def activity_feed(limit: int = 30, user=Depends(get_current_user)):

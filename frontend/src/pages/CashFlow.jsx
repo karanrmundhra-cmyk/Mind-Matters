@@ -5,11 +5,12 @@ import AiAddBar from "@/components/AiAddBar";
 import GroupTabs from "@/components/GroupTabs";
 import RowActions from "@/components/RowActions";
 import ReminderDialog from "@/components/ReminderDialog";
+import CommentDrawer from "@/components/CommentDrawer";
 import FilterHeader from "@/components/FilterHeader";
 import ExportButton from "@/components/ExportButton";
 import AttachmentsDialog from "@/components/AttachmentsDialog";
 import { useReorder } from "@/lib/useReorder";
-import { useProjectReload } from "@/lib/projects";
+import { useProjectReload, useProjects } from "@/lib/projects";
 import { nestRows, depthPaddingClass } from "@/lib/nestRows";
 import { Plus, Upload, Check, X } from "lucide-react";
 import { toast } from "sonner";
@@ -50,6 +51,9 @@ export default function CashFlow() {
   const [stmtBusy, setStmtBusy] = useState(false);
   const [reminderFor, setReminderFor] = useState(null);
   const [attachFor, setAttachFor] = useState(null);
+  const [commentFor, setCommentFor] = useState(null);
+  const [commentCounts, setCommentCounts] = useState({});
+  const { currentId: projectId } = useProjects();
   const stmtRef = useRef(null);
   const [filters, setFilters] = useState({
     sr: "", date: "", group: "", name: "", details: "", amount: "",
@@ -563,6 +567,8 @@ export default function CashFlow() {
                   onSubtask={(t._depth || 0) >= 2 ? undefined : () => splitBill(t)}
                   onFlag={() => patch(t.id, { flagged: !t.flagged })}
                   flagged={!!t.flagged}
+                  onComment={projectId ? () => setCommentFor(t) : undefined}
+                  commentCount={commentCounts[t.id] || 0}
                   onDelete={() => remove(t.id)}
                 />
               </div>
@@ -672,6 +678,16 @@ export default function CashFlow() {
       </datalist>
 
       <ReminderDialog open={!!reminderFor} onClose={() => setReminderFor(null)} defaults={reminderFor || {}} />
+
+      <CommentDrawer
+        open={!!commentFor}
+        onClose={() => setCommentFor(null)}
+        projectId={commentFor?.project_id || projectId}
+        resourceType="transaction"
+        resourceId={commentFor?.id}
+        resourceLabel={commentFor?.vendor || commentFor?.name || commentFor?.details}
+        onCountChange={(n) => commentFor && setCommentCounts((m) => ({ ...m, [commentFor.id]: n }))}
+      />
 
       <AttachmentsDialog
         open={!!attachFor}
