@@ -17,7 +17,46 @@ with the R.K.M. brand logo. AI-first input on every page (type → confirm → d
 - **Frontend**: React + Tailwind + Shadcn UI. Cormorant Garamond (serif), Outfit
   (display), Inter (body). Pure black + rich gold (#C9A961 / #E4C98C).
 
+### v2.18 — Activity feed · Reminders compact · Mobile frozen col (2026-02)
+- **Activity feed in Inbox**: new `GET /api/activity?limit=N` returns chronological
+  events {comment, task_created, routine_created, transaction_created} across
+  every project the user can see. Reports → Inbox is now the default tab and
+  renders the feed with project color chips + time-ago + actor names.
+- **Reminders compact table**: Upcoming card now has a proper column header row
+  (#, Title, When, Recurrence, Notes, Source) matching Tasks/Routines style.
+  `mm-frozen-col` applied to the `#` cell.
+- **Mobile frozen first column** (Item 20): Tasks/Routines/CashFlow use a
+  mobile-first GRID with `mm-table-wrap` overflow-x-auto wrapper + sticky
+  first cell. Inner rows carry `min-w-[920|800|1100px] md:min-w-0`. Both
+  `Reminder` and `Deadline` response models now expose `project_id`.
+- **Tests**: 8/8 v2.18 pytest pass + 100% frontend per
+  `/app/test_reports/iteration_16.json`. v2.17 regression green.
+
 ### v2.17 — Multi-project sharing · Strict seed · 3-level subtasks (2026-02)
+- **Activity feed in Inbox**: new `GET /api/activity?limit=N` returns chronological
+  events {comment, task_created, routine_created, transaction_created} across
+  every project the user can see, with `project_id`, `project_name`,
+  `project_color`, `actor_id`, `actor_name`, `subject_kind`, `subject_id`,
+  `body`, `created_at`. Reports → Inbox is now the default tab and renders the
+  feed at the top with project color chips + time-ago + actor names. Below it
+  the legacy "Needs attention" card surfaces non-info patterns + recent
+  timeline events.
+- **Reminders compact table**: Upcoming card now has a proper column header row
+  (#, Title, When, Recurrence, Notes, Source) matching Tasks/Routines style.
+  Group sub-header tightened to 1.5-line padding. `mm-frozen-col` applied to
+  the `#` cell so the leftmost stays put when scrolled on mobile.
+- **Mobile frozen first column** (Item 20): Tasks/Routines/CashFlow now use a
+  mobile-first GRID (`grid-cols-[56px_…] md:grid-cols-[60px_…]`). Each Card
+  wraps in `mm-table-wrap` (overflow-x-auto on mobile only). Inner rows carry
+  `min-w-[920|800|1100px] md:min-w-0` so the table preserves desktop column
+  widths and scrolls horizontally on phones. The first cell of every row has
+  `mm-frozen-col` (`position: sticky; left: 0`) so users always see the SR /
+  checkbox column. Both `Reminder` and `Deadline` response models now expose
+  `project_id` (was being silently stripped before).
+- **Tests**: 8/8 v2.18 pytest pass + 100% frontend per
+  `/app/test_reports/iteration_16.json`. v2.17 regression remains green.
+
+
 - **Item 47 — Strict seed**: legacy demo signatures (Coffee Shop, Welcome reminder,
   Quarterly Review, Shopping List, Brinda call-about-repair, Self 20-min-walk) are
   purged on startup. `you@mindmatters.local` unattached demo user's data is wiped
