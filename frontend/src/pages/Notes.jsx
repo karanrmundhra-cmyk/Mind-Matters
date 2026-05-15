@@ -5,7 +5,7 @@ import AiAddBar from "@/components/AiAddBar";
 import BulkAddDialog from "@/components/BulkAddDialog";
 import ExportButton from "@/components/ExportButton";
 import {
-  Plus, Search, Pin, PinOff, Trash2, Tag as TagIcon, Image as ImageIcon, Upload, BellRing, MessageSquare,
+  Plus, Pin, PinOff, Trash2, Tag as TagIcon, Image as ImageIcon, Upload, BellRing, MessageSquare,
 } from "lucide-react";
 import { toast } from "sonner";
 import ReminderDialog from "@/components/ReminderDialog";
@@ -22,7 +22,7 @@ const NOTE_COLUMNS = [
 
 export default function Notes() {
   const [notes, setNotes] = useState([]);
-  const [q, setQ] = useState("");
+  const [filterTag, setFilterTag] = useState("");
   const [filterTag, setFilterTag] = useState("");
   const [tab, setTab] = useState("all"); // all | vault | decisions
   const [vaultUnlocked, setVaultUnlocked] = useState(

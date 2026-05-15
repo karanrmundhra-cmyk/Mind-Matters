@@ -187,11 +187,11 @@ export default function AppShell() {
           {collapsed ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
         </button>
 
-        <div className={`mt-3 flex flex-col gap-3 pt-3 border-t border-[rgba(201,169,97,0.12)] ${collapsed ? "items-center" : ""}`}>
+        <div className={`mt-3 flex ${collapsed ? "flex-col items-center gap-3" : "items-center justify-between gap-2"} pt-3 border-t border-[rgba(201,169,97,0.12)]`}>
           {!collapsed && (
-            <div className="text-xs">
-              <div className="text-[#E4C98C]">{user?.first_name}</div>
-              <div className="text-[#B7A98A]/55">{user?.email}</div>
+            <div className="text-xs min-w-0 flex-1">
+              <div className="text-[#E4C98C] truncate">{user?.first_name}</div>
+              <div className="text-[#B7A98A]/55 truncate">{user?.email}</div>
             </div>
           )}
           <button
@@ -200,7 +200,7 @@ export default function AppShell() {
               logout();
               navigate("/login");
             }}
-            className={`p-2 rounded-lg text-[#B7A98A]/55 hover:text-[#E4C98C] hover:bg-[rgba(201,169,97,0.06)] transition ${collapsed ? "" : "self-end"}`}
+            className="p-2 rounded-lg text-[#B7A98A]/55 hover:text-[#E4C98C] hover:bg-[rgba(201,169,97,0.06)] transition shrink-0"
             title="Sign out"
           >
             <LogOut size={16} strokeWidth={1.5} />
