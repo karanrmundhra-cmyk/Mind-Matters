@@ -28,7 +28,7 @@ class SyncDB extends Dexie {
 const db = new SyncDB();
 
 const listeners = new Set();
-let state = { status: "green", pending: 0 };
+let state = { status: "green", pending: 0, lastSyncAt: Date.now() };
 let draining = false;
 
 const emit = () => listeners.forEach((fn) => { try { fn(state); } catch { /* ignore */ } });
@@ -41,9 +41,13 @@ const computeStatus = (pending) => {
   return "red"; // offline + queued
 };
 
-const refresh = async () => {
+const refresh = async (touchSync = false) => {
   const pending = await db.queue.count();
-  state = { status: computeStatus(pending), pending };
+  state = {
+    status: computeStatus(pending),
+    pending,
+    lastSyncAt: touchSync || pending === 0 ? Date.now() : state.lastSyncAt,
+  };
   emit();
 };
 
@@ -91,7 +95,7 @@ export async function drainQueue() {
         });
         await db.queue.delete(next.id);
         flushed += 1;
-        await refresh();
+        await refresh(true);
       } catch (err) {
         const isNet = !err.response;
         if (isNet) {

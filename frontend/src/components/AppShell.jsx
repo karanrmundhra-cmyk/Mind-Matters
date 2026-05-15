@@ -21,6 +21,17 @@ import {
   ChevronRight,
 } from "lucide-react";
 import { subscribeSync } from "@/lib/syncQueue";
+
+function humanAgo(ts) {
+  if (!ts) return "just now";
+  const secs = Math.max(0, Math.floor((Date.now() - ts) / 1000));
+  if (secs < 5) return "just now";
+  if (secs < 60) return `${secs}s ago`;
+  const mins = Math.floor(secs / 60);
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  return `${hrs}h ago`;
+}
 import Logo from "@/components/Logo";
 import AiChat from "@/components/AiChat";
 import QuickAdd from "@/components/QuickAdd";
@@ -144,10 +155,10 @@ export default function AppShell() {
           <button
             title={
               sync.status === "green"
-                ? "Synced"
+                ? `Synced · ${humanAgo(sync.lastSyncAt)}`
                 : sync.pending
-                  ? `${sync.pending} change${sync.pending !== 1 ? "s" : ""} syncing`
-                  : "Reconnecting"
+                  ? `${sync.pending} change${sync.pending !== 1 ? "s" : ""} queued · last sync ${humanAgo(sync.lastSyncAt)}`
+                  : `Reconnecting · last sync ${humanAgo(sync.lastSyncAt)}`
             }
             data-testid="dock-sync"
             data-sync-status={sync.status}

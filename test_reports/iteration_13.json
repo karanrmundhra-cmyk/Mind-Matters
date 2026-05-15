@@ -1,0 +1,59 @@
+{
+  "summary": "v2.15 — finish-line batch. Backend 9/9 pytest GREEN (/api/fx/rates returns {base,rates,fetched_at} with INR+USD+EUR+GBP+JPY+AED+CAD+AUD fallback when exchangerate.host unreachable; /api/cashflow/totals?base=INR returns {base:'INR', totals:{income,expense,asset,liability,loan_given,loan_taken}} all numeric; creating a USD 100 expense bumps totals.expense by ~₹8600 verifying FX conversion math; POST /api/parse/bulk {kind:'reminder', text:'remind to hit brinda at 3pm tomorrow'} returns rows whose first row title is verb-led 'Call Brinda' — slang 'hit' correctly translated; PATCH /api/routines/{id} {flagged:true} persists; PATCH /api/transactions/{id} {flagged:true} persists; POST /api/reminders accepts notes+recurrence and round-trips them). Frontend (desktop 1400px): sync dot tooltip via humanAgo helper reads 'Synced · just now' on fresh login (verified just-now branch of helper; format will switch to '<n>s ago / <n>m ago / <n>h ago' as time passes — same data-testid='dock-sync' title attribute); BulkAddDialog opens on Tasks and renders 'Import up to 50 entries at a time.' (text PRESENT and correct) BUT the modal testid is 'bulk-add-modal' / 'bulk-add-backdrop' — the spec-requested 'bulk-add-dialog' testid is NOT present (minor alias missing); /reminders page has reminder-source-context count = 0 (old bulky block removed ✓) and reminder-source-badge is wired in code (Reminders.jsx:103) — 0 visible badges in current seed because no reminder has source_page='tasks'|'cashflow'; on /routines clicking routine-attach-{id} opens attach-dialog with attach-input file input ✓; routine-flag-{id} button rendered ✓; on /cash-flow 3 tx rows each show tx-attach-{id} + tx-flag-{id}, clicking attach opens shared AttachmentsDialog ✓. Regression v2.14: quick-nav-grid has 7 children ✓, news-widget present ✓, sidebar-collapse-toggle flips data-collapsed 0→1 ✓, reminders-tab-calendar present ✓, notes-tab-decisions absent ✓.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "BulkAddDialog",
+        "issue": "Spec requests data-testid='bulk-add-dialog' but the actual modal uses data-testid='bulk-add-modal' (backdrop is 'bulk-add-backdrop'). The 'up to 50 entries' message + truncation feature WORKS correctly — only the testid name is missing/aliased. Suggest adding data-testid='bulk-add-dialog' on the modal (line 120 of BulkAddDialog.jsx) for spec-conformance.",
+        "selector": "[data-testid='bulk-add-dialog']",
+        "priority": "LOW"
+      }
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {
+        "screen": "AppShell sync tooltip",
+        "issues": [
+          "humanAgo() returns 'just now' for any timestamp <5s old. On a freshly-logged-in tab the tooltip therefore reads 'Synced · just now' rather than the literal pattern 'Synced · <n>s ago' from the spec example. This is by design — the helper does have the s/m/h-ago branches and they kick in correctly once 5s elapse — but a tester reading the spec verbatim ('Synced · 14s ago') may flag it. Either keep as-is (recommended) or special-case 5s→'5s ago' if the literal pattern is required."
+        ]
+      }
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_v215.py",
+    "/app/test_reports/pytest/v215_results.xml"
+  ],
+  "action_items": [
+    "(LOW) Add data-testid='bulk-add-dialog' alias on the BulkAddDialog modal element (currently only 'bulk-add-modal' / 'bulk-add-backdrop' exist) so spec-driven tests querying 'bulk-add-dialog' resolve.",
+    "(INFO only — no fix needed) Reminders created from Tasks/CashFlow will render the new reminder-source-badge; current seed has no such rows so badge count is 0. Main agent or seed script can create one to visually verify (POST /api/reminders with source_page='tasks' or 'cashflow' then load /reminders → Reminders tab)."
+  ],
+  "critical_code_review_comments": [
+    "server.py _fetch_fx_rates — 6-hour cache + 4s urlopen timeout + static-fallback table is exactly the right shape for an external FX API that can be flaky from a pod. Inversion math (rate_to_base = 1/data.rates[code]) is correct because exchangerate.host returns rates FROM the base. One nit: fallback table for non-INR base does v/b which is approximate (cross-rates via INR pivot) — acceptable for summary tiles, but a comment noting the approximation would help future readers.",
+    "server.py /api/cashflow/totals — Adds 'loan_given' and 'loan_taken' to the totals dict so the new categories surface in the UI. Falls back to direction-based category inference for legacy rows missing 'category'. Rounding via round() at the end keeps wire size small. Good.",
+    "SCHEMA_BY_KIND['reminder'] — Explicit verb-led title instruction with slang dictionary ('hit'→'Call', 'ping'→'Message') is well-targeted and verified working in test_reminder_parse_verb_led. notes + recurrence fields cleanly separate concerns.",
+    "syncQueue.js — touchSync=true on successful drain is the right semantic: lastSyncAt should only advance when we actually heard from the server, not just when the queue gets refreshed locally. State shape extension is backward compatible.",
+    "AppShell humanAgo — In-line helper is fine, but the same helper exists/will exist elsewhere (cashflow upcoming-payments uses 'X days', tasks may want similar). Consider a /src/lib/time.js shared module before v2.16.",
+    "AttachmentsDialog (shared) — DRY win: Routines + CashFlow now share the same dialog. Tasks intentionally keeps its bespoke task-attach-dialog. Good migration path — once parity is verified, Tasks can switch later without UX regression.",
+    "RowActions paperclip rendering 2 testids — On Routines the queryselector ^=routine-attach- matches both 'routine-attach-{id}' (the button) and 'routine-attach-count-{id}' (the badge). Both legitimate. Tests should use [data-testid='routine-attach-{id}'] (exact) to avoid double counting.",
+    "BulkAddDialog 50-cap — Slice over-50 + toast is the right UX (don't error, just truncate + inform). Message 'Import up to 50 entries at a time.' is appropriately calm. Missing only the spec testid alias (action item above)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_v215.py",
+    "/app/test_reports/pytest/v215_results.xml",
+    "/app/test_reports/iteration_13.json"
+  ],
+  "success_rate": {
+    "backend": "100% (9/9 v215 pytest in 4.38s)",
+    "frontend": "~92% — 11/12 spec items confirmed. The 1 partial: bulk-add-dialog testid alias missing (text content + behavior correct)."
+  },
+  "test_credentials": "karan@mindmatters.local / changeme123 (login → redirects to '/' not '/dashboard'; both routes render AppShell)",
+  "seed_data_creation": "Created + deleted within tests: TEST_v215_FX USD-100 transaction (verified delta +₹8600), TEST_v215 routine (flag patch), TEST_v215_flag transaction (flag patch), TEST_v215 Call Sample reminder (notes+recurrence). All cleaned up via DELETE in finally blocks.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "v2.15 finish-line batch is green. Key wins shipped & verified: (1) /api/fx/rates fallback table includes 8 currencies even when exchangerate.host is unreachable from pod — never 5xxs. (2) /api/cashflow/totals does USD→INR conversion correctly (USD 100 → ~₹8600 with fallback rate 86). (3) Reminder LLM parse now returns verb-led titles, slang 'hit'→'Call' translated. (4) Routines + CashFlow now share AttachmentsDialog (DRY) and both have priority flag (flagged:bool persists via PATCH). (5) BulkAddDialog truncates to 50 entries with clear UX message. (6) Sync dot tooltip uses humanAgo helper — pattern 'Synced · <n>s/m/h ago' (with 'just now' for <5s). (7) Reminders UpcomingRow replaced bulky source_context block with inline reminder-source-badge. ONLY OPEN ITEM: 'bulk-add-dialog' testid alias missing — main agent should add one line: data-testid='bulk-add-dialog' alongside the existing 'bulk-add-modal' (or just rename). reminder-source-badge code is wired correctly; need a reminder with source_page='tasks'|'cashflow' in the user's data to see one render. Test file: /app/backend/tests/test_v215.py (9 tests, 4.38s).",
+  "rca of the issue": "N/A — no critical failures. Single LOW priority cosmetic: BulkAddDialog modal element has testid 'bulk-add-modal' not the spec-requested 'bulk-add-dialog'. Reproduction: open Tasks → click 'Import' → query [data-testid='bulk-add-dialog'] returns null while [data-testid='bulk-add-modal'] returns the open modal containing 'Import up to 50 entries at a time.' Fix: add data-testid='bulk-add-dialog' (or replace 'bulk-add-modal' with 'bulk-add-dialog') at /app/frontend/src/components/BulkAddDialog.jsx line 120."
+}

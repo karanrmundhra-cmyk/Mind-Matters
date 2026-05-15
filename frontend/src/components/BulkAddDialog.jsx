@@ -40,8 +40,13 @@ export default function BulkAddDialog({ open, onClose, kind, onConfirm, describe
     setBusy(true);
     try {
       const { data } = await api.post("/parse/bulk", { kind, text });
-      setRows(data.rows || []);
-      if (!data.rows?.length) toast.error("Could not parse");
+      let parsed = data.rows || [];
+      if (parsed.length > 50) {
+        toast.info(`Processing first 50 of ${parsed.length} entries.`);
+        parsed = parsed.slice(0, 50);
+      }
+      setRows(parsed);
+      if (!parsed.length) toast.error("Could not parse");
     } catch {
       toast.error("AI failed");
     } finally {
@@ -59,8 +64,13 @@ export default function BulkAddDialog({ open, onClose, kind, onConfirm, describe
       const { data } = await api.post("/parse/bulk-file", fd, {
         headers: { "Content-Type": "multipart/form-data" },
       });
-      setRows(data.rows || []);
-      if (!data.rows?.length) toast.error("Could not parse file");
+      let parsed = data.rows || [];
+      if (parsed.length > 50) {
+        toast.info(`Processing first 50 of ${parsed.length} entries.`);
+        parsed = parsed.slice(0, 50);
+      }
+      setRows(parsed);
+      if (!parsed.length) toast.error("Could not parse file");
     } catch (e) {
       toast.error(e?.response?.data?.detail || "Upload failed");
     } finally {
@@ -124,6 +134,7 @@ export default function BulkAddDialog({ open, onClose, kind, onConfirm, describe
         {rows.length === 0 ? (
           <>
             <div className="text-xs text-[#B7A98A]/65 mb-3">
+              Import up to <span className="mm-text-gold-bright">50 entries</span> at a time.
               Paste rows below (any format — Excel paste, CSV, plain English, one per line),
               upload a spreadsheet, or <span className="mm-text-gold">drag & drop</span> a file
               anywhere on this box.

@@ -60,14 +60,13 @@ function renderGroupedUpcoming(upcoming, helpers) {
 }
 
 function UpcomingRow({ r, patch, remove, downloadIcs, toLocal, toUTC }) {
-  const ctx = r.source_context || {};
-  const ctxFields = Object.entries(ctx).filter(([, v]) => v !== null && v !== undefined && v !== "");
+  const srcLabel = SOURCE_LABEL[r.source_page] || (r.source_page ? `From ${r.source_page}` : "");
   return (
     <div
-      className="px-5 py-3 border-b border-[rgba(201,169,97,0.08)]"
+      className="px-5 py-2 border-b border-[rgba(201,169,97,0.08)] hover:bg-[rgba(201,169,97,0.03)] transition"
       data-testid="reminder-row"
     >
-      <div className="grid grid-cols-1 md:grid-cols-[1.4fr_200px_140px_1fr_auto_auto] gap-3 items-center">
+      <div className="grid grid-cols-1 md:grid-cols-[1.4fr_180px_120px_1fr_70px_28px_28px] gap-2 items-center">
         <input
           defaultValue={r.title}
           onBlur={(e) => patch(r.id, { title: e.target.value })}
@@ -98,6 +97,15 @@ function UpcomingRow({ r, patch, remove, downloadIcs, toLocal, toUTC }) {
           placeholder="Notes"
           className="mm-input-ghost text-xs"
         />
+        {srcLabel ? (
+          <span
+            className="text-[9px] uppercase tracking-[0.15em] px-2 py-1 rounded border border-[rgba(201,169,97,0.25)] bg-[rgba(201,169,97,0.04)] mm-text-gold/85 text-center"
+            data-testid="reminder-source-badge"
+            title={`Linked to ${srcLabel}`}
+          >
+            {srcLabel.replace("From ", "")}
+          </span>
+        ) : <span />}
         <button
           onClick={() => downloadIcs(r.id)}
           className="text-[#B7A98A]/65 hover:text-[#E4C98C] transition p-1"
@@ -114,19 +122,6 @@ function UpcomingRow({ r, patch, remove, downloadIcs, toLocal, toUTC }) {
           <Trash2 size={14} />
         </button>
       </div>
-      {ctxFields.length > 0 && (
-        <div
-          className="mt-2 ml-1 text-[11px] rounded-md border border-[rgba(201,169,97,0.18)] bg-[rgba(201,169,97,0.03)] px-3 py-1.5 flex flex-wrap gap-x-3 gap-y-0.5"
-          data-testid="reminder-source-context"
-        >
-          {ctxFields.map(([k, v]) => (
-            <span key={k} className="text-[#B7A98A]/70">
-              <span className="text-[#B7A98A]/45 mr-1">{k}:</span>
-              <span className="mm-text-gold-bright">{String(v)}</span>
-            </span>
-          ))}
-        </div>
-      )}
     </div>
   );
 }

@@ -20,6 +20,7 @@ import os
 import io
 import asyncio
 import base64
+import time
 import uuid
 import secrets
 import logging
@@ -2579,6 +2580,77 @@ async def news_today(category: str = "all", user=Depends(get_current_user)):
         ], "source": "fallback"}
 
 
+# ───────────────────── Currency conversion (cash-flow summary tiles) ─────────────────────
+_FX_CACHE: Dict[str, Any] = {"rates": {}, "fetched_at": 0}
+
+
+async def _fetch_fx_rates(base: str = "INR") -> Dict[str, float]:
+    """Return a {currency_code: rate_to_base} map. Cache for 6 hours.
+
+    Uses exchangerate.host (free, no key). Falls back to a static table when
+    the network call fails so summary tiles never go blank.
+    """
+    base = (base or "INR").upper()
+    now = time.time()
+    if (now - _FX_CACHE["fetched_at"]) < 6 * 3600 and base in _FX_CACHE["rates"]:
+        return _FX_CACHE["rates"][base]
+    fallback = {  # ~Feb 2026 indicative rates to INR
+        "INR": 1.0, "USD": 86.0, "EUR": 94.0, "GBP": 110.0,
+        "JPY": 0.57, "AED": 23.4, "CAD": 60.5, "AUD": 56.0,
+    }
+    try:
+        import urllib.request
+        url = f"https://api.exchangerate.host/latest?base={base}"
+        req = urllib.request.Request(url, headers={"User-Agent": "Mind Matters/1.0"})
+        with urllib.request.urlopen(req, timeout=4) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+        # exchangerate.host returns rates FROM base, so to convert FROM `code` to
+        # `base` we invert: rate_to_base = 1 / data.rates[code].
+        rates = {base: 1.0}
+        for code, r in (data.get("rates") or {}).items():
+            try:
+                rates[code] = 1.0 / float(r) if r else 0
+            except Exception:
+                pass
+        if len(rates) < 2:
+            raise ValueError("empty fx response")
+        _FX_CACHE["rates"][base] = rates
+        _FX_CACHE["fetched_at"] = now
+        return rates
+    except Exception:
+        # Translate fallback (INR-based) → arbitrary base
+        if base == "INR":
+            return fallback
+        b = fallback.get(base, 1.0) or 1.0
+        return {c: (v / b) for c, v in fallback.items()}
+
+
+@api.get("/fx/rates")
+async def fx_rates(base: str = "INR", user=Depends(get_current_user)):
+    rates = await _fetch_fx_rates(base)
+    return {"base": base.upper(), "rates": rates, "fetched_at": _FX_CACHE["fetched_at"]}
+
+
+@api.get("/cashflow/totals")
+async def cashflow_totals(base: str = "INR", user=Depends(get_current_user)):
+    """Aggregate transactions into per-category totals converted to `base`."""
+    rates = await _fetch_fx_rates(base.upper())
+    out = {"income": 0.0, "expense": 0.0, "asset": 0.0, "liability": 0.0,
+           "loan_given": 0.0, "loan_taken": 0.0}
+    async for t in db.transactions.find({"user_id": user["id"]}, {"_id": 0}):
+        cat = t.get("category") or ("income" if t.get("direction") == "in" else "expense")
+        if cat not in out:
+            out[cat] = 0.0
+        try:
+            amt = float(t.get("amount") or 0)
+            cur = (t.get("currency") or "INR").upper()
+            rate = rates.get(cur, 1.0)
+            out[cat] += amt * rate
+        except Exception:
+            pass
+    return {"base": base.upper(), "totals": {k: round(v) for k, v in out.items()}}
+
+
 # ───────────────────── Reports + Calendar + Patterns ─────────────────────
 @api.get("/reports/timeline")
 async def reports_timeline(days: int = 30, user=Depends(get_current_user)):
@@ -3363,8 +3435,13 @@ SCHEMA_BY_KIND = {
             "(e.g. 'idea: sunday review', 'note about meeting today') should you produce a "
             "standalone {title, body} note WITHOUT items[].",
     "reminder": (
-        "{title (Title-Case), fire_at_local:'YYYY-MM-DDTHH:MM' (interpret 'tomorrow 9am' etc. relative to today), "
-        "notes, recurrence:'none'|'daily'|'weekly'|'monthly'|'quarterly'|'half-yearly'|'yearly'}"
+        "{title (verb-led action, e.g. 'Call Brinda' not just 'Brinda' — interpret slang: "
+        "'hit X' = 'Call X', 'ping X' = 'Message X'), "
+        "fire_at_local:'YYYY-MM-DDTHH:MM' (interpret 'tomorrow 9am', '3pm', 'monday' etc. "
+        "relative to today; default to 09:00 if time absent; for vague 'evening' use 18:00, "
+        "'morning' 09:00, 'noon' 12:00, 'night' 21:00), "
+        "notes (any extra context beyond the action — venue, why, who — keep brief), "
+        "recurrence:'none'|'daily'|'weekly'|'monthly'|'quarterly'|'half-yearly'|'yearly'}"
     ),
     "deadline": "{title (Title-Case), due_date:'YYYY-MM-DD', notes}",
 }

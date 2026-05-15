@@ -8,6 +8,7 @@ import RowActions from "@/components/RowActions";
 import ReminderDialog from "@/components/ReminderDialog";
 import FilterHeader from "@/components/FilterHeader";
 import ExportButton from "@/components/ExportButton";
+import AttachmentsDialog from "@/components/AttachmentsDialog";
 import { useReorder } from "@/lib/useReorder";
 import { Plus, Flame, Check, Upload } from "lucide-react";
 import { toast } from "sonner";
@@ -30,6 +31,7 @@ export default function Routines() {
   const [activeGroup, setActiveGroup] = useState("");
   const [bulkOpen, setBulkOpen] = useState(false);
   const [reminderFor, setReminderFor] = useState(null);
+  const [attachFor, setAttachFor] = useState(null);
   const [filters, setFilters] = useState({ sr: "", group: "", name: "", activity: "", details: "", frequency: "" });
   const [draft, setDraft] = useState({
     group: "",
@@ -396,6 +398,10 @@ export default function Routines() {
                     onUp={idx > 0 ? () => move(r.id, -1) : undefined}
                     onDown={idx < visible.length - 1 ? () => move(r.id, 1) : undefined}
                     onReminder={() => openReminderFor(r)}
+                    onAttach={() => setAttachFor(r)}
+                    attachmentCount={(r.attachments || []).length}
+                    onFlag={() => patch(r.id, { flagged: !r.flagged })}
+                    flagged={!!r.flagged}
                     onDelete={() => remove(r.id)}
                   />
                 </div>
@@ -416,6 +422,18 @@ export default function Routines() {
       <datalist id="routine-freqs">{freqs.map((f) => <option key={f} value={f} />)}</datalist>
 
       <ReminderDialog open={!!reminderFor} onClose={() => setReminderFor(null)} defaults={reminderFor || {}} />
+
+      <AttachmentsDialog
+        open={!!attachFor}
+        row={attachFor}
+        module="routines"
+        label="Routine"
+        onClose={() => setAttachFor(null)}
+        onChanged={async (updated) => {
+          setAttachFor(updated);
+          await load();
+        }}
+      />
 
       <BulkAddDialog
         open={bulkOpen}

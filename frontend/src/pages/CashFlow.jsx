@@ -7,6 +7,7 @@ import RowActions from "@/components/RowActions";
 import ReminderDialog from "@/components/ReminderDialog";
 import FilterHeader from "@/components/FilterHeader";
 import ExportButton from "@/components/ExportButton";
+import AttachmentsDialog from "@/components/AttachmentsDialog";
 import { useReorder } from "@/lib/useReorder";
 import { Plus, Upload, Check, X } from "lucide-react";
 import { toast } from "sonner";
@@ -40,11 +41,13 @@ const GRID = "md:grid-cols-[60px_140px_110px_1fr_1fr_110px_1fr_110px_120px_140px
 
 export default function CashFlow() {
   const [rows, setRows] = useState([]);
+  const [convertedTotals, setConvertedTotals] = useState(null);
   const [upcoming, setUpcoming] = useState(null);
   const [activeGroup, setActiveGroup] = useState("");
   const [duplicates, setDuplicates] = useState([]);
   const [stmtBusy, setStmtBusy] = useState(false);
   const [reminderFor, setReminderFor] = useState(null);
+  const [attachFor, setAttachFor] = useState(null);
   const stmtRef = useRef(null);
   const [filters, setFilters] = useState({
     sr: "", date: "", group: "", name: "", details: "", amount: "",
@@ -67,6 +70,10 @@ export default function CashFlow() {
     try {
       const u = await api.get("/cashflow/upcoming-payments");
       setUpcoming(u.data);
+    } catch { /* offline-safe */ }
+    try {
+      const c = await api.get("/cashflow/totals?base=INR");
+      setConvertedTotals(c.data.totals);
     } catch { /* offline-safe */ }
   };
   useEffect(() => {
@@ -154,13 +161,14 @@ export default function CashFlow() {
   );
 
   const totals = useMemo(() => {
+    if (convertedTotals) return convertedTotals;
     const t = { income: 0, expense: 0, asset: 0, liability: 0 };
     for (const r of visible) {
       const c = r.category || (r.direction === "in" ? "income" : "expense");
       t[c] = (t[c] || 0) + Number(r.amount || 0);
     }
     return t;
-  }, [visible]);
+  }, [visible, convertedTotals]);
 
   const balance = totals.income - totals.expense + totals.asset - totals.liability;
 
@@ -517,6 +525,10 @@ export default function CashFlow() {
                   onUp={idx > 0 ? () => move(t.id, -1) : undefined}
                   onDown={idx < visible.length - 1 ? () => move(t.id, 1) : undefined}
                   onReminder={() => openReminderFor(t)}
+                  onAttach={() => setAttachFor(t)}
+                  attachmentCount={(t.attachments || []).length}
+                  onFlag={() => patch(t.id, { flagged: !t.flagged })}
+                  flagged={!!t.flagged}
                   onDelete={() => remove(t.id)}
                 />
               </div>
@@ -625,6 +637,18 @@ export default function CashFlow() {
       </datalist>
 
       <ReminderDialog open={!!reminderFor} onClose={() => setReminderFor(null)} defaults={reminderFor || {}} />
+
+      <AttachmentsDialog
+        open={!!attachFor}
+        row={attachFor}
+        module="transactions"
+        label="Entry"
+        onClose={() => setAttachFor(null)}
+        onChanged={async (updated) => {
+          setAttachFor(updated);
+          await load();
+        }}
+      />
     </div>
   );
 }
