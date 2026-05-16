@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { api, uploadRowAttachment } from "@/lib/api";
 import { Card, SectionTitle, EmptyState } from "@/components/Primitives";
 import AiAddBar from "@/components/AiAddBar";
@@ -117,19 +117,26 @@ export default function Routines() {
     }
   };
 
-  const visible = useMemo(() => {
-    const matches = (r) => {
-      if (activeGroup && r.group !== activeGroup) return false;
-      if (filters.sr && String(r.sr_no || "") !== filters.sr) return false;
-      if (!textMatch(r.group, filters.group)) return false;
-      if (!textMatch(r.name, filters.name)) return false;
-      if (!textMatch(r.activity, filters.activity)) return false;
-      if (!textMatch(r.details, filters.details)) return false;
-      if (!textMatch(r.frequency, filters.frequency)) return false;
-      return true;
-    };
-    return nestRows(routines, { matches, maxDepth: 2 });
-  }, [routines, activeGroup, filters]);
+  const routineMatches = useCallback((r) => {
+    if (activeGroup && r.group !== activeGroup) return false;
+    if (filters.sr && String(r.sr_no || "") !== filters.sr) return false;
+    if (!textMatch(r.group, filters.group)) return false;
+    if (!textMatch(r.name, filters.name)) return false;
+    if (!textMatch(r.activity, filters.activity)) return false;
+    if (!textMatch(r.details, filters.details)) return false;
+    if (!textMatch(r.frequency, filters.frequency)) return false;
+    return true;
+  }, [activeGroup, filters]);
+
+  const visible = useMemo(
+    () => nestRows(routines, { matches: routineMatches, maxDepth: 2 }),
+    [routines, routineMatches],
+  );
+
+  const filteredIds = useMemo(
+    () => routines.filter(routineMatches).map((r) => r.id),
+    [routines, routineMatches],
+  );
 
   const createSubroutine = async (parent) => {
     const title = window.prompt(`New sub-routine under "${parent.activity || "(routine)"}":`, "");
@@ -244,7 +251,7 @@ export default function Routines() {
             </button>
             <ExportButton
               module="routines"
-              filteredIds={visible.map((r) => r.id)}
+              filteredIds={filteredIds}
               totalCount={routines.length}
             />
           </div>

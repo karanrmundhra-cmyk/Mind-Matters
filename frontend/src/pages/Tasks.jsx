@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, uploadRowAttachment } from "@/lib/api";
 import { Card, SectionTitle, EmptyState } from "@/components/Primitives";
 import AiAddBar from "@/components/AiAddBar";
@@ -114,20 +114,29 @@ export default function Tasks() {
 
   const textMatch = (a, b) => (!b ? true : String(a || "").toLowerCase().includes(b.toLowerCase()));
 
-  const visible = useMemo(() => {
-    const matches = (t) => {
-      if (activeGroup && t.group !== activeGroup) return false;
-      if (filters.sr && String(t.sr_no) !== filters.sr) return false;
-      if (!textMatch(t.date, filters.date)) return false;
-      if (!textMatch(t.group, filters.group)) return false;
-      if (!textMatch(t.name, filters.name)) return false;
-      if (!textMatch(t.task, filters.task)) return false;
-      if (!textMatch(t.details, filters.details)) return false;
-      if (filters.status && t.status !== filters.status) return false;
-      return true;
-    };
-    return nestRows(tasks, { matches, maxDepth: 2 });
-  }, [tasks, activeGroup, filters]);
+  const taskMatches = useCallback((t) => {
+    if (activeGroup && t.group !== activeGroup) return false;
+    if (filters.sr && String(t.sr_no) !== filters.sr) return false;
+    if (!textMatch(t.date, filters.date)) return false;
+    if (!textMatch(t.group, filters.group)) return false;
+    if (!textMatch(t.name, filters.name)) return false;
+    if (!textMatch(t.task, filters.task)) return false;
+    if (!textMatch(t.details, filters.details)) return false;
+    if (filters.status && t.status !== filters.status) return false;
+    return true;
+  }, [activeGroup, filters]);
+
+  const visible = useMemo(
+    () => nestRows(tasks, { matches: taskMatches, maxDepth: 2 }),
+    [tasks, taskMatches],
+  );
+
+  // Flat IDs (no parent-context padding) — used by ExportButton so filtered
+  // export counts only rows that strictly match the predicate.
+  const filteredIds = useMemo(
+    () => tasks.filter(taskMatches).map((t) => t.id),
+    [tasks, taskMatches],
+  );
 
   const pendingCount = tasks.filter((t) => t.status === "Pending").length;
 
@@ -319,7 +328,7 @@ export default function Tasks() {
             </button>
             <ExportButton
               module="tasks"
-              filteredIds={visible.map((t) => t.id)}
+              filteredIds={filteredIds}
               totalCount={tasks.length}
             />
           </div>

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState, useRef } from "react";
+import React, { useCallback, useEffect, useMemo, useState, useRef } from "react";
 import { api, uploadRowAttachment } from "@/lib/api";
 import { Card, SectionTitle, EmptyState, Stat } from "@/components/Primitives";
 import AiAddBar from "@/components/AiAddBar";
@@ -149,23 +149,30 @@ export default function CashFlow() {
   };
 
   const txt = (a, b) => (!b ? true : String(a || "").toLowerCase().includes(b.toLowerCase()));
-  const visible = useMemo(() => {
-    const matches = (r) => {
-      if (activeGroup && (r.group || "") !== activeGroup) return false;
-      const cat = r.category || (r.direction === "in" ? "income" : "expense");
-      if (filters.category && cat !== filters.category) return false;
-      if (filters.sr && String(r.sr_no || "") !== filters.sr) return false;
-      if (!txt(r.date, filters.date)) return false;
-      if (!txt(r.group, filters.group)) return false;
-      if (!txt(r.vendor || r.name || r.company, filters.name)) return false;
-      if (!txt(r.details || r.notes, filters.details)) return false;
-      if (filters.amount && String(r.amount || "").includes(filters.amount) === false) return false;
-      if (!txt(r.mode || r.remarks, filters.remarks)) return false;
-      if (!txt(r.head || r.expense_head, filters.head)) return false;
-      return true;
-    };
-    return nestRows(rows, { matches, maxDepth: 2 });
-  }, [rows, activeGroup, filters]);
+  const txMatches = useCallback((r) => {
+    if (activeGroup && (r.group || "") !== activeGroup) return false;
+    const cat = r.category || (r.direction === "in" ? "income" : "expense");
+    if (filters.category && cat !== filters.category) return false;
+    if (filters.sr && String(r.sr_no || "") !== filters.sr) return false;
+    if (!txt(r.date, filters.date)) return false;
+    if (!txt(r.group, filters.group)) return false;
+    if (!txt(r.vendor || r.name || r.company, filters.name)) return false;
+    if (!txt(r.details || r.notes, filters.details)) return false;
+    if (filters.amount && String(r.amount || "").includes(filters.amount) === false) return false;
+    if (!txt(r.mode || r.remarks, filters.remarks)) return false;
+    if (!txt(r.head || r.expense_head, filters.head)) return false;
+    return true;
+  }, [activeGroup, filters]);
+
+  const visible = useMemo(
+    () => nestRows(rows, { matches: txMatches, maxDepth: 2 }),
+    [rows, txMatches],
+  );
+
+  const filteredIds = useMemo(
+    () => rows.filter(txMatches).map((r) => r.id),
+    [rows, txMatches],
+  );
 
   const splitBill = async (parent) => {
     const label = window.prompt(`Split "${parent.vendor || parent.details || "this entry"}" into a line item — describe:`, "");
@@ -349,7 +356,7 @@ export default function CashFlow() {
             </button>
             <ExportButton
               module="cashflow"
-              filteredIds={visible.map((t) => t.id)}
+              filteredIds={filteredIds}
               totalCount={rows.length}
             />
           </div>

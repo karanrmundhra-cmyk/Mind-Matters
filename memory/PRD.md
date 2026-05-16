@@ -17,7 +17,43 @@ with the R.K.M. brand logo. AI-first input on every page (type → confirm → d
 - **Frontend**: React + Tailwind + Shadcn UI. Cormorant Garamond (serif), Outfit
   (display), Inter (body). Pure black + rich gold (#C9A961 / #E4C98C).
 
-### v2.23 — Email-only project invites + landing page (2026-02)
+### v2.24 — Final-polish: file caps + filtered export + inline popovers (2026-02)
+- **Attachment caps (Item 3)**: now 5 MB per file, 10 MB total per row,
+  enforced in `validateAttachment` helper (`/app/frontend/src/lib/attachments.js`)
+  used by AttachmentsDialog + the inline paperclip-drop handlers in
+  Tasks / Routines / CashFlow. Backend mirrors: `POST /api/{module}/{rid}/attachments`
+  + `POST /api/tasks/{id}/attachments` return 413 when limits are crossed.
+  Quota progress bar visible inside the Attachments popover.
+- **Filtered Export (Item 5)**: `GET /api/export/{module}.csv|pdf` now accepts
+  optional `?ids=<comma-list>`. Frontend ExportButton accepts `filteredIds`
+  + `totalCount` props — when a column filter is active and `filteredIds`
+  strictly shrinks the row set, the menu splits into "CSV/PDF (filtered)"
+  vs "CSV/PDF (all)" rows + shows a `N/Total` chip on the button. Filtered
+  ids are computed via the flat predicate (`matches()`) not `nestRows`,
+  so parent rows don't pad the filter count.
+- **Inline popovers instead of centered modals (Item 6)**: new
+  `AnchoredPanel` component (`/app/frontend/src/components/AnchoredPanel.jsx`)
+  positions any content next to a DOM anchor with auto-flip top/bottom
+  and outside-click + Escape dismissal. AttachmentsDialog / ReminderDialog
+  / CommentDrawer all accept an optional `anchor` prop — when set, they
+  render as inline popovers anchored next to the row icon instead of
+  full-screen centered modals. Tasks / Routines / CashFlow pages now pass
+  `e.currentTarget` from the row's paperclip / bell / comment buttons.
+  Tasks page also dropped its custom inline AttachmentsDialog in favour
+  of the shared component. Notes still uses the legacy centered modal
+  (no anchor wired — out of scope for this sprint).
+- **Reminders "Repeat" with date picker (Item 19 from 30-list)**:
+  SENT-section RotateCcw button no longer auto-bumps by recurrence delta.
+  Instead it opens an inline AnchoredPanel with a `datetime-local` picker;
+  Confirm posts `/api/reminders/{id}/resend` with the chosen ISO `fire_at`
+  so the user re-schedules to any specific date.
+- **Routines page**: also gained the previously-missing `<CommentDrawer/>`
+  render — the icon was wired but the drawer wasn't mounted before.
+- **Tests**: 16/16 v2.24 pytest + UI flows GREEN per
+  `/app/test_reports/iteration_23.json`. Filtered-chip regression
+  ("nestRows pads parents" bug) fixed in main agent's follow-up commit.
+
+
 - **Tokenised invites**: `POST /api/projects/{pid}/share` now also mints a
   `secrets.token_urlsafe(18)` invite_token + builds an `invite_url` from the
   new `APP_BASE_URL` env. Re-sharing the same email is idempotent — reuses or
