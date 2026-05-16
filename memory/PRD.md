@@ -1,5 +1,6 @@
 # Mind Matters — Personal Operating System (PRD)
 
+
 ## Product intent
 Premium, AI-powered Personal OS — a single command center for tasks, discipline,
 finances, loans, investments, notes, invoices, and reminders. **Black + Gold** theme
@@ -17,7 +18,47 @@ with the R.K.M. brand logo. AI-first input on every page (type → confirm → d
 - **Frontend**: React + Tailwind + Shadcn UI. Cormorant Garamond (serif), Outfit
   (display), Inter (body). Pure black + rich gold (#C9A961 / #E4C98C).
 
-### v2.24 — Final-polish: file caps + filtered export + inline popovers (2026-02)
+### v2.25 — Project-scoped Sections (Item 8) (2026-02)
+- **Sections** are Todoist-style collapsible row dividers, scoped to
+  `(project_id, module)`. Private projects → sections visible only to the
+  owner. Shared projects → all members see the same sections (same scoping
+  rule as tasks / routines / transactions themselves). Available on
+  Tasks / Routines / CashFlow (not Notes / Reminders).
+- **Backend** (`/app/backend/server.py`): new `sections` collection,
+  `Section` model, full CRUD:
+  - `GET /api/projects/{pid}/sections?module=tasks`
+  - `POST /api/projects/{pid}/sections` (member-write only)
+  - `PATCH /api/sections/{sid}` (rename / position / color)
+  - `POST /api/projects/{pid}/sections/reorder` (positions 1..N)
+  - `DELETE /api/sections/{sid}` (rows stay; their `section_id` is unset)
+  - `section_id?: Optional[str]` added to `Task` / `Routine` /
+    `Transaction` models AND to each PATCH whitelist so the
+    SectionPicker move flow persists correctly.
+- **Frontend**:
+  - `/app/frontend/src/lib/sections.js` — API helpers + localStorage
+    collapse-state (`mm_sections_collapsed_v1`, per-user × per-project ×
+    per-module).
+  - `/app/frontend/src/lib/useSections.js` — hook that owns the section
+    list for one (project, module) tuple and exposes
+    create/rename/remove/move/toggle.
+  - `/app/frontend/src/components/SectionBar.jsx` — the collapsible
+    divider (chevron, inline-rename, ↑/↓ reorder, delete with confirm).
+  - `/app/frontend/src/components/AddSectionButton.jsx` —
+    "+ Add section" pill at the bottom of each table.
+  - `/app/frontend/src/components/SectionPicker.jsx` — AnchoredPanel
+    radio list to move a single row in/out of a section.
+  - `RowActions` gained an optional `onSection` (FolderInput icon).
+  - `Tasks.jsx / Routines.jsx / CashFlow.jsx` group rows by
+    `section_id`; rows without one fall under a "No section" bucket
+    rendered first. Each section bar carries its own row count.
+- **Migration**: legacy free-text `section` field stays as data but is
+  no longer used for grouping. New rows use `section_id`.
+- **Tests**: 13/13 backend pytest GREEN in `/app/test_reports/iteration_25.json`
+  (after main-agent's 1-line PATCH whitelist fix). Frontend smoke confirms
+  end-to-end move-row → reload → row reparents under the new SectionBar
+  with gold-glow on the section icon.
+
+
 - **Attachment caps (Item 3)**: now 5 MB per file, 10 MB total per row,
   enforced in `validateAttachment` helper (`/app/frontend/src/lib/attachments.js`)
   used by AttachmentsDialog + the inline paperclip-drop handlers in
