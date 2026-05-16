@@ -611,8 +611,8 @@ async def bulk_create_tasks(body: List[TaskIn], user=Depends(get_current_user)):
 async def update_task(task_id: str, body: Dict[str, Any], user=Depends(get_current_user)):
     body = {k: v for k, v in body.items()
             if k in {"date", "name", "task", "details", "status", "group", "section",
-                     "order_index", "sr_no", "parent_id", "attachments", "flagged",
-                     "project_id"}}
+                     "section_id", "order_index", "sr_no", "parent_id", "attachments",
+                     "flagged", "project_id"}}
     # Status compatibility: accept "Completed" alongside legacy "Done"
     if body.get("status") == "Completed":
         body["status"] = "Completed"  # keep as-is
@@ -769,8 +769,8 @@ async def bulk_routines(body: List[RoutineIn], user=Depends(get_current_user)):
 async def update_routine(rid: str, body: Dict[str, Any], user=Depends(get_current_user)):
     body = {k: v for k, v in body.items()
             if k in {"group", "name", "activity", "details", "frequency", "priority", "status",
-                     "section", "order_index", "sr_no", "parent_id", "flagged", "attachments",
-                     "project_id"}}
+                     "section", "section_id", "order_index", "sr_no", "parent_id", "flagged",
+                     "attachments", "project_id"}}
     body["updated_at"] = now_iso()
     if "sr_no" in body:
         try:
@@ -1072,7 +1072,7 @@ async def create_transaction(body: TransactionIn, user=Depends(get_current_user)
 async def update_transaction(tid: str, body: Dict[str, Any], user=Depends(get_current_user)):
     allowed = {"date", "amount", "mode", "company", "expense_head", "direction",
                "account", "notes", "name", "vendor", "details", "remarks", "head",
-               "category", "group", "section", "order_index", "sr_no",
+               "category", "group", "section", "section_id", "order_index", "sr_no",
                "interest_rate", "interest_type", "repayment_date", "emi",
                "currency", "parent_id", "flagged", "attachments", "project_id"}
     body = {k: v for k, v in body.items() if k in allowed}

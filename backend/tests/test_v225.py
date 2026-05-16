@@ -314,6 +314,100 @@ class TestPatchTaskSection:
         assert r2.json().get("section_id") in (None, "")
 
 
+# Item 6b — PATCH routine with section_id
+class TestPatchRoutineSection:
+    def test_patch_routine_section_id_set_and_clear(self, karan_headers, project_id):
+        sec = requests.post(
+            f"{BASE_URL}/api/projects/{project_id}/sections",
+            json={"module": "routines", "name": f"TEST_v225_RPATCH_{uuid.uuid4().hex[:6]}"},
+            headers=karan_headers, timeout=15,
+        ).json()
+        # Create a routine
+        rr = requests.post(
+            f"{BASE_URL}/api/routines",
+            json={
+                "name": f"TEST_v225_rout_{uuid.uuid4().hex[:6]}",
+                "task": "ph",
+                "activity": "TEST_v225_activity",
+                "frequency": "Daily",
+                "project_id": project_id,
+            },
+            headers=karan_headers, timeout=15,
+        )
+        assert rr.status_code in (200, 201), rr.text
+        routine = rr.json()
+        # Set section
+        r1 = requests.patch(
+            f"{BASE_URL}/api/routines/{routine['id']}",
+            json={"section_id": sec["id"]},
+            headers=karan_headers, timeout=15,
+        )
+        assert r1.status_code == 200, r1.text
+        assert r1.json().get("section_id") == sec["id"]
+        # GET back to verify persistence
+        listed = requests.get(
+            f"{BASE_URL}/api/routines?project_id={project_id}",
+            headers=karan_headers, timeout=15,
+        ).json()
+        row = next((x for x in listed if x["id"] == routine["id"]), None)
+        assert row is not None and row.get("section_id") == sec["id"]
+        # Clear section
+        r2 = requests.patch(
+            f"{BASE_URL}/api/routines/{routine['id']}",
+            json={"section_id": None},
+            headers=karan_headers, timeout=15,
+        )
+        assert r2.status_code == 200, r2.text
+        assert r2.json().get("section_id") in (None, "")
+
+
+# Item 6c — PATCH transaction with section_id
+class TestPatchTransactionSection:
+    def test_patch_transaction_section_id_set_and_clear(self, karan_headers, project_id):
+        sec = requests.post(
+            f"{BASE_URL}/api/projects/{project_id}/sections",
+            json={"module": "transactions", "name": f"TEST_v225_TPATCH_{uuid.uuid4().hex[:6]}"},
+            headers=karan_headers, timeout=15,
+        ).json()
+        # Create a transaction
+        tx = requests.post(
+            f"{BASE_URL}/api/transactions",
+            json={
+                "name": f"TEST_v225_tx_{uuid.uuid4().hex[:6]}",
+                "amount": 10.50,
+                "type": "Expense",
+                "date": "2026-01-15",
+                "project_id": project_id,
+            },
+            headers=karan_headers, timeout=15,
+        )
+        assert tx.status_code in (200, 201), tx.text
+        txn = tx.json()
+        # Set section
+        r1 = requests.patch(
+            f"{BASE_URL}/api/transactions/{txn['id']}",
+            json={"section_id": sec["id"]},
+            headers=karan_headers, timeout=15,
+        )
+        assert r1.status_code == 200, r1.text
+        assert r1.json().get("section_id") == sec["id"]
+        # GET back to verify persistence
+        listed = requests.get(
+            f"{BASE_URL}/api/transactions?project_id={project_id}",
+            headers=karan_headers, timeout=15,
+        ).json()
+        row = next((x for x in listed if x["id"] == txn["id"]), None)
+        assert row is not None and row.get("section_id") == sec["id"]
+        # Clear section
+        r2 = requests.patch(
+            f"{BASE_URL}/api/transactions/{txn['id']}",
+            json={"section_id": None},
+            headers=karan_headers, timeout=15,
+        )
+        assert r2.status_code == 200, r2.text
+        assert r2.json().get("section_id") in (None, "")
+
+
 # Item 7 — Permissions
 class TestPermissions:
     def test_non_member_get_returns_403(self, viewer_headers, karan_headers):
