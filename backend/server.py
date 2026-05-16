@@ -2328,21 +2328,85 @@ async def share_project(pid: str, body: ShareReq, user=Depends(get_current_user)
         {"project_id": pid, "invited_email": email}, {"_id": 0}
     )
     if existing:
+        token = existing.get("invite_token") or secrets.token_urlsafe(18)
         await db.project_members.update_one(
-            {"id": existing["id"]}, {"$set": {"role": body.role}}
+            {"id": existing["id"]},
+            {"$set": {"role": body.role, "invite_token": token}},
         )
-        return {"ok": True, "updated": True}
+        return {"ok": True, "updated": True, "invite_token": token,
+                "invite_url": _build_invite_url(token)}
+    token = secrets.token_urlsafe(18)
     member = {
         "id": new_id(), "project_id": pid,
         "user_id": invitee["id"] if invitee else None,
         "invited_email": email, "role": body.role,
         "accepted": bool(invitee), "invited_by": user["id"],
+        "invite_token": token,
         "created_at": now_iso(),
     }
     if invitee:
         member["accepted_at"] = now_iso()
     await db.project_members.insert_one(dict(member))
-    return {"ok": True, "member_id": member["id"], "accepted": member["accepted"]}
+    return {"ok": True, "member_id": member["id"], "accepted": member["accepted"],
+            "invite_token": token, "invite_url": _build_invite_url(token)}
+
+
+def _build_invite_url(token: str) -> str:
+    """Build a frontend-friendly absolute URL for an invite token."""
+    base = os.environ.get("APP_BASE_URL") or os.environ.get("PUBLIC_APP_URL") or ""
+    return f"{base.rstrip('/')}/invite/{token}" if base else f"/invite/{token}"
+
+
+@api.get("/invites/{token}")
+async def lookup_invite(token: str):
+    """Public (no-auth) lookup so the invite landing page can show project +
+    inviter context before the user signs in / signs up.
+    """
+    inv = await db.project_members.find_one({"invite_token": token}, {"_id": 0})
+    if not inv:
+        raise HTTPException(404, "Invite not found or has been revoked")
+    proj = await db.projects.find_one(
+        {"id": inv["project_id"]}, {"_id": 0, "id": 1, "name": 1, "color": 1},
+    )
+    inviter = await db.users.find_one(
+        {"id": inv["invited_by"]},
+        {"_id": 0, "first_name": 1, "email": 1},
+    )
+    has_account = bool(await db.users.find_one(
+        {"email": inv["invited_email"]}, {"_id": 0, "id": 1}
+    ))
+    return {
+        "project": proj or {"id": inv["project_id"], "name": "Project", "color": "#C9A961"},
+        "inviter": {
+            "first_name": (inviter or {}).get("first_name", ""),
+            "email": (inviter or {}).get("email", ""),
+        },
+        "role": inv["role"],
+        "invited_email": inv["invited_email"],
+        "accepted": inv.get("accepted", False),
+        "has_account": has_account,
+    }
+
+
+@api.post("/invites/{token}/accept")
+async def accept_invite(token: str, user=Depends(get_current_user)):
+    """Bind the current user to the invite. Email must match (case-insensitive)
+    or the inviter must have used the same email this user signed up with.
+    """
+    inv = await db.project_members.find_one({"invite_token": token}, {"_id": 0})
+    if not inv:
+        raise HTTPException(404, "Invite not found")
+    if (user.get("email") or "").lower() != inv["invited_email"].lower():
+        raise HTTPException(
+            403,
+            f"This invite was sent to {inv['invited_email']} — sign in with that email.",
+        )
+    await db.project_members.update_one(
+        {"id": inv["id"]},
+        {"$set": {"user_id": user["id"], "accepted": True,
+                  "accepted_at": now_iso()}},
+    )
+    return {"ok": True, "project_id": inv["project_id"], "role": inv["role"]}
 
 
 @api.patch("/projects/{pid}/members/{mid}")

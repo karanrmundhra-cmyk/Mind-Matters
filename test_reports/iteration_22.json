@@ -1,0 +1,42 @@
+{
+  "summary": "v2.23 — Email-only project invites + invite landing page. Backend: 12/12 pytest PASS (test_v223.py). POST /projects/{pid}/share returns invite_token + invite_url (built from APP_BASE_URL); re-sharing same email is idempotent (reuses token, updates role); GET /api/invites/{token} is PUBLIC (no Authorization header) and returns {project,inviter,role,invited_email,accepted,has_account}; bogus token -> 404 'Invite not found or has been revoked'; POST /api/invites/{token}/accept requires auth, succeeds when user.email matches invited_email (case-insensitive), returns 403 with helpful 'sign in with that email' message on mismatch, 404 on bogus token. has_account=true correctly flipped when invitee already has an account. Frontend (Karan -> fresh invitee email via UI): /invite/<token> renders [data-testid='invite-landing'] with project chip, role badge='Editor', inviter line 'Karan invited <email> as', locked readonly email, signup-default tabs (Create account / I have an account). Bogus token route renders [data-testid='invite-error'] card with 'Go to sign-in' link. Signup flow: fill firstname+password(8+), submit -> /api/auth/signup -> auto /api/invites/{token}/accept -> navigate / + 'Joined Personal' toast; backend lookup confirms accepted=true. Already-accepted view: anonymous re-visit shows 'This invite has already been accepted.' + 'Open Mind Matters' link. v2.22 regression smoke green (tasks/projects/routines lists 200). All v2.23 spec items verified.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_v223.py",
+    "/app/test_reports/pytest/v223_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py 2354-2357 _build_invite_url: gracefully falls back to relative '/invite/<token>' if APP_BASE_URL is unset. Good.",
+    "server.py 2326-2351 share_project: idempotent flow reuses invite_token if present; if existing row is missing invite_token (legacy data, pre-v2.23), a new token is minted via secrets.token_urlsafe(18) and persisted via $set. Solid.",
+    "server.py 2391-2409 accept_invite: case-insensitive email match (`.lower()` on both sides). Returns 403 with the exact invited_email and 'sign in with that email' guidance — matches spec. Updates user_id + accepted + accepted_at atomically.",
+    "server.py 2360-2388 lookup_invite: PUBLIC (no Depends(get_current_user)), excludes _id; gracefully handles missing project/inviter rows by returning placeholders. Good for the auth-less landing page.",
+    "server.py 2399: equality check uses raw `.lower()` only; no email-normalisation (e.g. plus-tagging is preserved). Aligned with `share_project` (which also uses .strip().lower()) so consistent. OK.",
+    "Invite.jsx 50-58: useEffect that auto-accepts when already-logged-in user's email matches invited_email — note: there is no early-return after `acceptCurrent()`, and the effect re-runs if `user` or `invite` reference changes, but `acceptCurrent` flips `accepted` via the lookup state only after navigation; in practice navigate('/') unmounts the page so the re-entry is harmless. No bug observed in testing.",
+    "Invite.jsx 60-87 submit: signup uses firstName falling back to email-local-part (`invite.invited_email.split('@')[0]`) which is a nice UX touch when first-name is left blank. Password min 8 enforced both via toast and HTML minLength. Good.",
+    "ShareDialog.jsx 57-62: invite_url is normalised to current origin via regex strip of any 'https?://host' prefix — robust if APP_BASE_URL differs from the user's actual host. Solid."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_v223.py",
+    "/app/test_reports/pytest/v223_results.xml",
+    "/app/test_reports/iteration_22.json"
+  ],
+  "success_rate": {
+    "backend": "100% (12/12 v2.23 — share returns invite_token+url, idempotent re-share, public lookup, bogus 404, has_account flag, accept-match success, accept-mismatch 403, accept-unauth 401, accept-bogus 404, plus regression smoke tasks/projects/routines)",
+    "frontend": "100% (4/4 UI flows — landing render, bogus error card, signup auto-accept-and-navigate, already-accepted view)"
+  },
+  "test_credentials": "karan@mindmatters.local / changeme123",
+  "seed_data_creation": "Created several throwaway invitee users during testing: uitest_<ts>_<rand>@test.local (UI signup flow), acceptor_<rand>@test.local, other_<rand>@test.local, hasacct_<rand>@test.local, target_<rand>@test.local, unauth_<rand>@test.local plus an invitee_<ts>_<rand>@test.local. Each created a row in users + project_members (some accepted=true, some pending). Harmless; all use the @test.local TLD so they're trivially identifiable. Karan's 'Personal' project now has ~10 additional project_member rows.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "v2.23 email-only invites are 100% green on backend AND frontend. Test file /app/backend/tests/test_v223.py is reusable as regression. The auto-accept-by-email-in-_user_accessible_project_ids logic (preserved from v2.22 per agent_to_agent_context_note) was NOT explicitly retested here but is implicitly exercised by test_accept_with_matching_email_succeeds (the invitee can list the project after accept). If you need to test that signup with the invited email WITHOUT visiting /invite/<token> still auto-claims, add a test that POSTs /auth/signup with the invited email then immediately GETs /projects and asserts the project appears. Also note: db pollution from this iteration's invitee_/uitest_/acceptor_/other_/target_/unauth_/hasacct_ users — consider a one-shot cleanup if needed.",
+  "rca of the issue": "No bug to RCA. All v2.23 spec items verified end-to-end."
+}

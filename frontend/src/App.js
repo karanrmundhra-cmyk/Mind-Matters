@@ -17,6 +17,7 @@ import Notes from "@/pages/Notes";
 import Reminders from "@/pages/Reminders";
 import Reports from "@/pages/Reports";
 import Settings from "@/pages/Settings";
+import Invite from "@/pages/Invite";
 
 function RequireAuth({ children }) {
   const { user, loading } = useAuth();
@@ -36,6 +37,7 @@ function Root() {
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
+      <Route path="/invite/:token" element={<Invite />} />
       <Route
         path="/"
         element={

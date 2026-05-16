@@ -50,8 +50,23 @@ export default function ShareDialog({ project, onClose }) {
     }
     setBusy(true);
     try {
-      await api.post(`/projects/${project.id}/share`, { email: email.trim(), role });
-      toast.success(`Invited ${email.trim()}`);
+      const { data } = await api.post(`/projects/${project.id}/share`, {
+        email: email.trim(),
+        role,
+      });
+      const link = data.invite_url
+        ? `${window.location.origin}${data.invite_url.startsWith("/") ? "" : "/"}${data.invite_url.replace(/^https?:\/\/[^/]+/, "")}`
+        : null;
+      if (link) {
+        try {
+          await navigator.clipboard.writeText(link);
+          toast.success(`Invited ${email.trim()} — invite link copied!`);
+        } catch {
+          toast.success(`Invited ${email.trim()}`);
+        }
+      } else {
+        toast.success(`Invited ${email.trim()}`);
+      }
       setEmail("");
       await load();
       await reload();
