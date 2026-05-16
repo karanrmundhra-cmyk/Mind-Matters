@@ -469,9 +469,9 @@ export default function Tasks() {
               grouped[sid].push(t);
             });
             const order = ["_none", ...sect.sections.map((s) => s.id)];
-            // Hide the "_none" header when sections aren't being used at all
-            // (preserves the legacy flat look until the user creates one).
-            const showNoneHeader = sect.sections.length > 0 && grouped._none.length > 0;
+            // Always show the "No section" bar when at least one section exists
+            // so users can drag rows back out of sections via DnD.
+            const showNoneHeader = sect.sections.length > 0;
             const nodes = [];
             let runningIdx = 0;
             const renderRow = (t, idx) => {

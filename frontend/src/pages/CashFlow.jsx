@@ -488,8 +488,8 @@ export default function CashFlow() {
           <EmptyState title="No entries" hint="Use AI bar, manual row, or upload a statement." />
         ) : (
           (() => {
-            // Sort visible rows into section buckets so we render them grouped,
-            // emitting a SectionBar each time we cross a section boundary.
+            // Group rows by section_id (empty sections still emit a SectionBar
+            // so users can drag rows INTO them).
             const sectionIds = new Set(sect.sections.map((s) => s.id));
             const buckets = { _none: [] };
             sect.sections.forEach((s) => { buckets[s.id] = []; });
@@ -498,68 +498,12 @@ export default function CashFlow() {
               buckets[sid].push(r);
             });
             const order = ["_none", ...sect.sections.map((s) => s.id)];
-            const showNoneHeader = sect.sections.length > 0 && buckets._none.length > 0;
-            // Flattened render order so the per-row idx still tracks visible position.
-            const flatOrdered = [];
-            order.forEach((sid) => {
-              const rs = buckets[sid] || [];
-              rs.forEach((r) => flatOrdered.push({ row: r, sid }));
-            });
+            // Always show No section bar when any section exists (so DnD back is possible).
+            const showNoneHeader = sect.sections.length > 0;
 
             const nodes = [];
-            let lastSid = null;
-            flatOrdered.forEach(({ row: t, sid }, idx) => {
-              // Emit a section header when entering a new bucket.
-              if (sid !== lastSid) {
-                if (sid === "_none") {
-                  if (showNoneHeader) {
-                    const collapsed = sect.isCollapsed("none");
-                    nodes.push(
-                      <SectionBar
-                        key="sec-none"
-                        name="No section"
-                        count={buckets._none.length}
-                        collapsed={collapsed}
-                        onToggle={() => sect.toggleCollapsed("none")}
-                        onDropRow={() => moveRowToSection(null)}
-                        testIdPrefix="tx-section"
-                        sectionKey="none"
-                      />,
-                    );
-                  }
-                } else {
-                  const s = sect.sections.find((x) => x.id === sid);
-                  if (s) {
-                    const collapsed = sect.isCollapsed(sid);
-                    const secIdx = sect.sections.findIndex((x) => x.id === sid);
-                    nodes.push(
-                      <SectionBar
-                        key={`sec-${sid}`}
-                        name={s.name}
-                        count={buckets[sid].length}
-                        collapsed={collapsed}
-                        onToggle={() => sect.toggleCollapsed(sid)}
-                        onRename={(next) => sect.rename(sid, next)}
-                        onDelete={() => {
-                          if (window.confirm(`Delete section "${s.name}"? Entries stay but lose their section.`)) {
-                            sect.remove(sid);
-                          }
-                        }}
-                        onUp={secIdx > 0 ? () => sect.move(sid, -1) : undefined}
-                        onDown={secIdx < sect.sections.length - 1 ? () => sect.move(sid, 1) : undefined}
-                        onDropRow={() => moveRowToSection(sid)}
-                        testIdPrefix="tx-section"
-                        sectionKey={sid}
-                      />,
-                    );
-                  }
-                }
-                lastSid = sid;
-              }
-              // Skip rendering rows under a collapsed section.
-              const sectionKey = sid === "_none" ? "none" : sid;
-              const collapsedHere = (sid === "_none" ? showNoneHeader : true) && sect.isCollapsed(sectionKey);
-              if (collapsedHere) return;
+            let runningIdx = 0;
+            const renderRow = (t, idx) => {
               const cat = t.category || (t.direction === "in" ? "income" : "expense");
               const inSection = !!(t.section_id && sectionIds.has(t.section_id));
               nodes.push(
@@ -641,7 +585,7 @@ export default function CashFlow() {
                   onDrop={onDrop(t.id)}
                   onDragEnd={onDragEnd}
                   onUp={idx > 0 ? () => move(t.id, -1) : undefined}
-                  onDown={idx < flatOrdered.length - 1 ? () => move(t.id, 1) : undefined}
+                  onDown={idx < visible.length - 1 ? () => move(t.id, 1) : undefined}
                   onReminder={(e) => openReminderFor(t, e.currentTarget)}
                   onAttach={(e) => setAttachFor({ row: t, anchor: e.currentTarget })}
                   onAttachFile={async (f) => {
@@ -662,7 +606,7 @@ export default function CashFlow() {
                 />
               </div>
               );
-              // Inline loan-details strip for liability/asset rows: interest_rate · repayment_date · EMI
+              // Inline loan-details strip for liability/asset rows.
               const showLoan = (cat === "liability" || cat === "asset")
                 || t.interest_rate != null || t.repayment_date || t.emi != null;
               if (showLoan) {
@@ -745,6 +689,56 @@ export default function CashFlow() {
                     </div>
                   </div>
                 );
+              }
+            };
+
+            order.forEach((sid) => {
+              const rowsInSec = buckets[sid] || [];
+              if (sid === "_none") {
+                if (showNoneHeader) {
+                  const collapsed = sect.isCollapsed("none");
+                  nodes.push(
+                    <SectionBar
+                      key="sec-none"
+                      name="No section"
+                      count={rowsInSec.length}
+                      collapsed={collapsed}
+                      onToggle={() => sect.toggleCollapsed("none")}
+                      onDropRow={() => moveRowToSection(null)}
+                      testIdPrefix="tx-section"
+                      sectionKey="none"
+                    />,
+                  );
+                  if (collapsed) return;
+                }
+                rowsInSec.forEach((t) => { renderRow(t, runningIdx); runningIdx++; });
+              } else {
+                const s = sect.sections.find((x) => x.id === sid);
+                if (!s) return;
+                const collapsed = sect.isCollapsed(sid);
+                const secIdx = sect.sections.findIndex((x) => x.id === sid);
+                nodes.push(
+                  <SectionBar
+                    key={`sec-${sid}`}
+                    name={s.name}
+                    count={rowsInSec.length}
+                    collapsed={collapsed}
+                    onToggle={() => sect.toggleCollapsed(sid)}
+                    onRename={(next) => sect.rename(sid, next)}
+                    onDelete={() => {
+                      if (window.confirm(`Delete section "${s.name}"? Entries stay but lose their section.`)) {
+                        sect.remove(sid);
+                      }
+                    }}
+                    onUp={secIdx > 0 ? () => sect.move(sid, -1) : undefined}
+                    onDown={secIdx < sect.sections.length - 1 ? () => sect.move(sid, 1) : undefined}
+                    onDropRow={() => moveRowToSection(sid)}
+                    testIdPrefix="tx-section"
+                    sectionKey={sid}
+                  />,
+                );
+                if (collapsed) return;
+                rowsInSec.forEach((t) => { renderRow(t, runningIdx); runningIdx++; });
               }
             });
             return nodes;

@@ -387,7 +387,7 @@ export default function Routines() {
               grouped[sid].push(r);
             });
             const order = ["_none", ...sect.sections.map((s) => s.id)];
-            const showNoneHeader = sect.sections.length > 0 && grouped._none.length > 0;
+            const showNoneHeader = sect.sections.length > 0;
             const nodes = [];
             let runningIdx = 0;
             const renderRow = (r, idx) => {
