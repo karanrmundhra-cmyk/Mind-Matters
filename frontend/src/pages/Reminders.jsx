@@ -4,6 +4,7 @@ import { Card, SectionTitle, EmptyState } from "@/components/Primitives";
 import AiAddBar from "@/components/AiAddBar";
 import BulkAddDialog from "@/components/BulkAddDialog";
 import ExportButton from "@/components/ExportButton";
+import AnchoredPanel from "@/components/AnchoredPanel";
 import Calendar from "@/pages/Calendar";
 import { BellRing, Plus, Trash2, Download, Check, Clock, Upload, RotateCcw, Link2 } from "lucide-react";
 import { toast } from "sonner";
@@ -198,11 +199,11 @@ export default function Reminders() {
     await load();
   };
 
-  const resend = async (id) => {
+  const resend = async (id, fireAtIso) => {
     try {
-      await api.post(`/reminders/${id}/resend`, {});
+      await api.post(`/reminders/${id}/resend`, fireAtIso ? { fire_at: fireAtIso } : {});
       await load();
-      toast.success("Re-scheduled");
+      toast.success(fireAtIso ? "Re-scheduled for chosen date" : "Re-scheduled");
     } catch (e) {
       toast.error(e?.response?.data?.detail || "Could not resend");
     }
@@ -229,6 +230,8 @@ export default function Reminders() {
 
   const [bulkOpen, setBulkOpen] = useState(false);
   const [activeTab, setActiveTab] = useState("reminders"); // calendar | reminders
+  // Inline date-picker popover state for "Repeat at chosen date" on a Sent reminder.
+  const [rescheduleFor, setRescheduleFor] = useState(null); // { id, anchor, fire_at_local }
   const insertOne = async (row) => {
     let fire_iso = row.fire_at;
     if (!fire_iso && row.fire_at_local) fire_iso = new Date(row.fire_at_local).toISOString();
@@ -433,9 +436,19 @@ export default function Reminders() {
                     {new Date(r.fire_at).toLocaleString()}
                   </div>
                   <button
-                    onClick={() => resend(r.id)}
+                    onClick={(e) => {
+                      const base = new Date(Math.max(Date.now(), new Date(r.fire_at).getTime() || 0) + 24 * 60 * 60 * 1000);
+                      const pad = (n) => String(n).padStart(2, "0");
+                      const local = `${base.getFullYear()}-${pad(base.getMonth() + 1)}-${pad(base.getDate())}T${pad(base.getHours())}:${pad(base.getMinutes())}`;
+                      setRescheduleFor({
+                        id: r.id,
+                        anchor: e.currentTarget,
+                        fire_at_local: local,
+                        title: r.title,
+                      });
+                    }}
                     className="text-[#B7A98A]/65 hover:text-[#E4C98C] transition p-1"
-                    title="Send again with the same setup"
+                    title="Repeat — pick a new date & time"
                     data-testid="reminder-resend"
                   >
                     <RotateCcw size={14} />
@@ -465,6 +478,74 @@ export default function Reminders() {
           await load();
         }}
       />
+
+      <AnchoredPanel
+        open={!!rescheduleFor}
+        anchor={rescheduleFor?.anchor}
+        onClose={() => setRescheduleFor(null)}
+        width={340}
+        maxHeight="auto"
+        testId="reminder-reschedule-popover"
+      >
+        <div className="p-4">
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <div className="text-[10px] uppercase tracking-[0.3em] mm-text-gold">Repeat reminder</div>
+              <div className="mm-font-display text-sm mm-text-gold-bright mt-0.5 truncate max-w-[260px]">
+                {rescheduleFor?.title || "Reminder"}
+              </div>
+            </div>
+            <button
+              onClick={() => setRescheduleFor(null)}
+              className="text-[#B7A98A]/55 hover:text-[#E4C98C] transition"
+              data-testid="reminder-reschedule-close"
+            >
+              ✕
+            </button>
+          </div>
+          <label className="block text-[10px] uppercase tracking-[0.25em] text-[#B7A98A]/60 mb-1.5">
+            New date &amp; time
+          </label>
+          <input
+            type="datetime-local"
+            value={rescheduleFor?.fire_at_local || ""}
+            onChange={(e) =>
+              setRescheduleFor((p) => (p ? { ...p, fire_at_local: e.target.value } : p))
+            }
+            className="mm-input text-sm w-full"
+            data-testid="reminder-reschedule-when"
+          />
+          <p className="text-[10px] text-[#B7A98A]/50 mt-2">
+            Re-schedules this reminder for the chosen date — fires once, then sits in Upcoming.
+          </p>
+          <div className="flex justify-end gap-2 mt-4">
+            <button
+              onClick={() => setRescheduleFor(null)}
+              className="mm-btn-ghost text-xs"
+              data-testid="reminder-reschedule-cancel"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={async () => {
+                if (!rescheduleFor) return;
+                const iso = toUTC(rescheduleFor.fire_at_local);
+                if (!iso) {
+                  toast.error("Pick a date & time first");
+                  return;
+                }
+                const id = rescheduleFor.id;
+                setRescheduleFor(null);
+                await resend(id, iso);
+              }}
+              className="mm-btn-primary text-xs flex items-center gap-1.5"
+              data-testid="reminder-reschedule-confirm"
+            >
+              <Check size={12} /> Repeat at chosen date
+            </button>
+          </div>
+        </div>
+      </AnchoredPanel>
     </div>
   );
 }

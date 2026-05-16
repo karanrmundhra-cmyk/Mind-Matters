@@ -13,6 +13,7 @@ import AttachmentsDialog from "@/components/AttachmentsDialog";
 import { useReorder } from "@/lib/useReorder";
 import { useProjectReload, useProjects } from "@/lib/projects";
 import { nestRows, depthPaddingClass } from "@/lib/nestRows";
+import { validateAttachment } from "@/lib/attachments";
 import { Plus, Flame, Check, Upload } from "lucide-react";
 import { toast } from "sonner";
 
@@ -186,13 +187,16 @@ export default function Routines() {
     await load();
   };
 
-  const openReminderFor = (r) =>
+  const openReminderFor = (r, anchor) =>
     setReminderFor({
-      title: r.activity || "Routine",
-      notes: [r.group && `Group: ${r.group}`, r.name && `Name: ${r.name}`, r.details, `Freq: ${r.frequency}`].filter(Boolean).join(" — "),
-      source_page: "routines",
-      source_context: {
-        group: r.group, name: r.name, activity: r.activity, details: r.details, frequency: r.frequency,
+      anchor,
+      defaults: {
+        title: r.activity || "Routine",
+        notes: [r.group && `Group: ${r.group}`, r.name && `Name: ${r.name}`, r.details, `Freq: ${r.frequency}`].filter(Boolean).join(" — "),
+        source_page: "routines",
+        source_context: {
+          group: r.group, name: r.name, activity: r.activity, details: r.details, frequency: r.frequency,
+        },
       },
     });
 
@@ -238,7 +242,11 @@ export default function Routines() {
             >
               <Upload size={12} /> Import
             </button>
-            <ExportButton module="routines" />
+            <ExportButton
+              module="routines"
+              filteredIds={visible.map((r) => r.id)}
+              totalCount={routines.length}
+            />
           </div>
         }
       />
@@ -450,10 +458,11 @@ export default function Routines() {
                     onDragEnd={onDragEnd}
                     onUp={idx > 0 ? () => move(r.id, -1) : undefined}
                     onDown={idx < visible.length - 1 ? () => move(r.id, 1) : undefined}
-                    onReminder={() => openReminderFor(r)}
-                    onAttach={() => setAttachFor(r)}
+                    onReminder={(e) => openReminderFor(r, e.currentTarget)}
+                    onAttach={(e) => setAttachFor({ row: r, anchor: e.currentTarget })}
                     onAttachFile={async (f) => {
-                      if (f.size > 10 * 1024 * 1024) { toast.error("Max 10MB"); return; }
+                      const err = validateAttachment(f, r.attachments || []);
+                      if (err) { toast.error(err); return; }
                       try { await uploadRowAttachment("routines", r.id, f); toast.success("Attached"); await load(); }
                       catch (e) { toast.error(e?.response?.data?.detail || "Upload failed"); }
                     }}
@@ -461,7 +470,7 @@ export default function Routines() {
                     onSubtask={(r._depth || 0) >= 2 ? undefined : () => createSubroutine(r)}
                     onFlag={() => patch(r.id, { flagged: !r.flagged })}
                     flagged={!!r.flagged}
-                    onComment={(projectId || r.project_id) ? () => setCommentFor(r) : undefined}
+                    onComment={(projectId || r.project_id) ? (e) => setCommentFor({ row: r, anchor: e.currentTarget }) : undefined}
                     commentCount={commentCounts[r.id] || 0}
                     onDelete={() => remove(r.id)}
                   />
@@ -483,16 +492,33 @@ export default function Routines() {
       </datalist>
       <datalist id="routine-freqs">{freqs.map((f) => <option key={f} value={f} />)}</datalist>
 
-      <ReminderDialog open={!!reminderFor} onClose={() => setReminderFor(null)} defaults={reminderFor || {}} />
+      <ReminderDialog
+        open={!!reminderFor}
+        onClose={() => setReminderFor(null)}
+        defaults={reminderFor?.defaults || {}}
+        anchor={reminderFor?.anchor}
+      />
+
+      <CommentDrawer
+        open={!!commentFor}
+        onClose={() => setCommentFor(null)}
+        projectId={commentFor?.row?.project_id || projectId}
+        resourceType="routine"
+        resourceId={commentFor?.row?.id}
+        resourceLabel={commentFor?.row?.activity || commentFor?.row?.name}
+        onCountChange={(n) => commentFor?.row && setCommentCounts((m) => ({ ...m, [commentFor.row.id]: n }))}
+        anchor={commentFor?.anchor}
+      />
 
       <AttachmentsDialog
         open={!!attachFor}
-        row={attachFor}
+        row={attachFor?.row}
         module="routines"
         label="Routine"
         onClose={() => setAttachFor(null)}
+        anchor={attachFor?.anchor}
         onChanged={async (updated) => {
-          setAttachFor(updated);
+          setAttachFor((prev) => (prev ? { ...prev, row: updated } : prev));
           await load();
         }}
       />

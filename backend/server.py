@@ -646,13 +646,13 @@ async def upload_task_attachment(
     file: UploadFile = File(...),
     user=Depends(get_current_user),
 ):
-    """Attach a small file (<4MB) inline to a task as base64 data_url."""
+    """Attach a small file (<5MB) inline to a task as base64 data_url."""
     t = await db.tasks.find_one({"id": task_id, "user_id": user["id"]}, {"_id": 0})
     if not t:
         raise HTTPException(404, "Task not found")
     content = await file.read()
-    if len(content) > 4 * 1024 * 1024:
-        raise HTTPException(413, "Attachment too large (max 4MB)")
+    if len(content) > 5 * 1024 * 1024:
+        raise HTTPException(413, "Attachment too large (max 5MB per file)")
     mime = file.content_type or "application/octet-stream"
     data_url = f"data:{mime};base64,{base64.b64encode(content).decode()}"
     entry = {
@@ -664,10 +664,10 @@ async def upload_task_attachment(
     }
     current = t.get("attachments") or []
     current.append(entry)
-    # Cap total inline attachments at ~8MB to keep document size reasonable
+    # Cap total inline attachments at 10MB per row.
     total = sum(a.get("size", 0) for a in current)
-    if total > 8 * 1024 * 1024:
-        raise HTTPException(413, "Total attachments would exceed 8MB")
+    if total > 10 * 1024 * 1024:
+        raise HTTPException(413, "Row attachment quota exceeded (max 10MB total per row)")
     await db.tasks.update_one(
         {"id": task_id, "user_id": user["id"]},
         {"$set": {"attachments": current, "updated_at": now_iso()}},
@@ -3155,11 +3155,14 @@ async def upload_row_attachment(
     if not row:
         raise HTTPException(404, "Row not found")
     content = await file.read()
-    if len(content) > 10 * 1024 * 1024:
-        raise HTTPException(413, "Attachment too large (max 10MB)")
+    if len(content) > 5 * 1024 * 1024:
+        raise HTTPException(413, "Attachment too large (max 5MB per file)")
     current = row.get("attachments") or []
     if len(current) >= 10:
         raise HTTPException(413, "Max 10 attachments per row")
+    used = sum(int(a.get("size") or 0) for a in current)
+    if used + len(content) > 10 * 1024 * 1024:
+        raise HTTPException(413, "Row attachment quota exceeded (max 10MB total per row)")
     mime = file.content_type or "application/octet-stream"
     data_url = f"data:{mime};base64,{base64.b64encode(content).decode()}"
     entry = {
@@ -3843,22 +3846,40 @@ _EXPORT_DEFS: Dict[str, Dict[str, Any]] = {
 
 
 @api.get("/export/{module}.csv")
-async def export_module_csv(module: str, user=Depends(get_current_user)):
+async def export_module_csv(
+    module: str,
+    ids: Optional[str] = None,
+    user=Depends(get_current_user),
+):
     spec = _EXPORT_DEFS.get(module.lower())
     if not spec:
         raise HTTPException(404, "Unknown module")
-    docs = await db[spec["collection"]].find({"user_id": user["id"]}, {"_id": 0}).to_list(10000)
+    query: Dict[str, Any] = {"user_id": user["id"]}
+    if ids:
+        id_list = [s for s in (ids.split(",") if "," in ids else ids.split()) if s]
+        if id_list:
+            query["id"] = {"$in": id_list}
+    docs = await db[spec["collection"]].find(query, {"_id": 0}).to_list(10000)
     docs.sort(key=lambda d: (d.get("sr_no") or 0, d.get("created_at") or ""))
     rows = [[d.get(f, "") for f in spec["fields"]] for d in docs]
     return _csv_response(f"mind-matters-{module}.csv", spec["headers"], rows)
 
 
 @api.get("/export/{module}.pdf")
-async def export_module_pdf(module: str, user=Depends(get_current_user)):
+async def export_module_pdf(
+    module: str,
+    ids: Optional[str] = None,
+    user=Depends(get_current_user),
+):
     spec = _EXPORT_DEFS.get(module.lower())
     if not spec:
         raise HTTPException(404, "Unknown module")
-    docs = await db[spec["collection"]].find({"user_id": user["id"]}, {"_id": 0}).to_list(10000)
+    query: Dict[str, Any] = {"user_id": user["id"]}
+    if ids:
+        id_list = [s for s in (ids.split(",") if "," in ids else ids.split()) if s]
+        if id_list:
+            query["id"] = {"$in": id_list}
+    docs = await db[spec["collection"]].find(query, {"_id": 0}).to_list(10000)
     docs.sort(key=lambda d: (d.get("sr_no") or 0, d.get("created_at") or ""))
     rows = [[d.get(f, "") for f in spec["fields"]] for d in docs]
     return _pdf_response(f"mind-matters-{module}.pdf", spec["title"], spec["headers"], rows)

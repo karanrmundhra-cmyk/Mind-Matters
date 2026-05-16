@@ -7,11 +7,13 @@ import GroupTabs from "@/components/GroupTabs";
 import RowActions from "@/components/RowActions";
 import ReminderDialog from "@/components/ReminderDialog";
 import CommentDrawer from "@/components/CommentDrawer";
+import AttachmentsDialog from "@/components/AttachmentsDialog";
 import FilterHeader from "@/components/FilterHeader";
 import ExportButton from "@/components/ExportButton";
 import { useReorder } from "@/lib/useReorder";
 import { useProjectReload, useProjects } from "@/lib/projects";
 import { nestRows, depthPaddingClass } from "@/lib/nestRows";
+import { validateAttachment } from "@/lib/attachments";
 import { Plus, Upload, Check } from "lucide-react";
 import { toast } from "sonner";
 import { todayISO } from "@/lib/format";
@@ -239,55 +241,23 @@ export default function Tasks() {
     await load();
   };
 
-  const openReminderFor = (t) =>
+  const openReminderFor = (t, anchor) =>
     setReminderFor({
-      title: t.task || "Task",
-      notes: [t.name && `To: ${t.name}`, t.details].filter(Boolean).join(" — "),
-      source_page: "tasks",
-      source_context: {
-        sr_no: t.sr_no, date: t.date, group: t.group, to: t.name,
-        task: t.task, details: t.details, status: t.status,
+      anchor,
+      defaults: {
+        title: t.task || "Task",
+        notes: [t.name && `To: ${t.name}`, t.details].filter(Boolean).join(" — "),
+        source_page: "tasks",
+        source_context: {
+          sr_no: t.sr_no, date: t.date, group: t.group, to: t.name,
+          task: t.task, details: t.details, status: t.status,
+        },
       },
     });
 
   const newGroupPrompt = () => {
     const g = window.prompt("New group name (e.g. Personal, Work, Brinda)?", "");
     if (g && g.trim()) setActiveGroup(g.trim());
-  };
-
-  const uploadAttachment = async (taskId, file) => {
-    if (!file) return;
-    if (file.size > 4 * 1024 * 1024) {
-      toast.error("File too large (max 4MB)");
-      return;
-    }
-    const fd = new FormData();
-    fd.append("file", file);
-    try {
-      await api.post(`/tasks/${taskId}/attachments`, fd, {
-        headers: { "Content-Type": "multipart/form-data" },
-      });
-      toast.success("Attachment added");
-      await load();
-      // Refresh the open dialog with the updated task
-      const fresh = await api.get("/tasks");
-      const updated = fresh.data.find((x) => x.id === taskId);
-      if (updated) setAttachFor(updated);
-    } catch (e) {
-      toast.error(e?.response?.data?.detail || "Upload failed");
-    }
-  };
-
-  const deleteAttachment = async (taskId, attId) => {
-    try {
-      await api.delete(`/tasks/${taskId}/attachments/${attId}`);
-      await load();
-      const fresh = await api.get("/tasks");
-      const updated = fresh.data.find((x) => x.id === taskId);
-      if (updated) setAttachFor(updated);
-    } catch {
-      toast.error("Could not delete");
-    }
   };
 
   const createSubtask = async (parentTask) => {
@@ -347,7 +317,11 @@ export default function Tasks() {
             >
               <Upload size={12} /> Import
             </button>
-            <ExportButton module="tasks" />
+            <ExportButton
+              module="tasks"
+              filteredIds={visible.map((t) => t.id)}
+              totalCount={tasks.length}
+            />
           </div>
         }
       />
@@ -604,10 +578,11 @@ export default function Tasks() {
                 onDragEnd={onDragEnd}
                 onUp={idx > 0 ? () => move(t.id, -1) : undefined}
                 onDown={idx < visible.length - 1 ? () => move(t.id, 1) : undefined}
-                onReminder={() => openReminderFor(t)}
-                onAttach={() => setAttachFor(t)}
+                onReminder={(e) => openReminderFor(t, e.currentTarget)}
+                onAttach={(e) => setAttachFor({ row: t, anchor: e.currentTarget })}
                 onAttachFile={async (f) => {
-                  if (f.size > 10 * 1024 * 1024) { toast.error("Max 10MB"); return; }
+                  const err = validateAttachment(f, t.attachments || []);
+                  if (err) { toast.error(err); return; }
                   try {
                     await uploadRowAttachment("tasks", t.id, f);
                     toast.success("Attached");
@@ -618,7 +593,7 @@ export default function Tasks() {
                 onSubtask={(t._depth || 0) >= 2 ? undefined : () => createSubtask(t)}
                 onFlag={() => patch(t.id, { flagged: !t.flagged })}
                 flagged={!!t.flagged}
-                onComment={(projectId || t.project_id) ? () => setCommentFor(t) : undefined}
+                onComment={(projectId || t.project_id) ? (e) => setCommentFor({ row: t, anchor: e.currentTarget }) : undefined}
                 commentCount={commentCounts[t.id] || 0}
                 onDelete={() => remove(t.id)}
               />
@@ -644,89 +619,33 @@ export default function Tasks() {
       <ReminderDialog
         open={!!reminderFor}
         onClose={() => setReminderFor(null)}
-        defaults={reminderFor || {}}
+        defaults={reminderFor?.defaults || {}}
+        anchor={reminderFor?.anchor}
       />
 
       <CommentDrawer
         open={!!commentFor}
         onClose={() => setCommentFor(null)}
-        projectId={commentFor?.project_id || projectId}
+        projectId={commentFor?.row?.project_id || projectId}
         resourceType="task"
-        resourceId={commentFor?.id}
-        resourceLabel={commentFor?.task || commentFor?.name}
-        onCountChange={(n) => commentFor && setCommentCounts((m) => ({ ...m, [commentFor.id]: n }))}
+        resourceId={commentFor?.row?.id}
+        resourceLabel={commentFor?.row?.task || commentFor?.row?.name}
+        onCountChange={(n) => commentFor?.row && setCommentCounts((m) => ({ ...m, [commentFor.row.id]: n }))}
+        anchor={commentFor?.anchor}
       />
 
-      {/* Attachments dialog — opens when paperclip is clicked */}
-      {attachFor && (
-        <div
-          className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4"
-          onClick={() => setAttachFor(null)}
-          data-testid="task-attach-dialog"
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            className="w-full max-w-md mm-glass rounded-2xl border border-[rgba(201,169,97,0.25)] p-5"
-          >
-            <div className="flex items-start justify-between mb-3">
-              <div>
-                <div className="text-[10px] uppercase tracking-[0.3em] mm-text-gold">
-                  Attachments
-                </div>
-                <div className="mm-font-display text-base mm-text-gold-bright mt-1 truncate max-w-[280px]">
-                  {attachFor.task || "(task)"}
-                </div>
-              </div>
-              <button
-                onClick={() => setAttachFor(null)}
-                className="text-[#B7A98A]/55 hover:text-[#E4C98C] transition"
-                data-testid="task-attach-close"
-              >
-                ✕
-              </button>
-            </div>
-            <input
-              type="file"
-              onChange={(e) => uploadAttachment(attachFor.id, e.target.files?.[0])}
-              className="block w-full text-xs text-[#B7A98A]/70 file:mr-3 file:px-3 file:py-1.5 file:rounded-md file:border file:border-[#C9A961]/40 file:bg-[rgba(201,169,97,0.08)] file:text-[#E4C98C] file:cursor-pointer file:text-xs"
-              data-testid="task-attach-input"
-            />
-            <p className="text-[10px] text-[#B7A98A]/45 mt-2">Up to 4MB per file · 8MB total.</p>
-            <div className="mt-4 space-y-2 max-h-[40vh] overflow-y-auto">
-              {(attachFor.attachments || []).length === 0 ? (
-                <div className="text-xs text-[#B7A98A]/50 py-3 text-center">No attachments yet.</div>
-              ) : (
-                (attachFor.attachments || []).map((a) => (
-                  <div
-                    key={a.id}
-                    className="flex items-center justify-between gap-3 rounded-lg border border-[rgba(201,169,97,0.15)] px-3 py-2"
-                    data-testid="task-attach-item"
-                  >
-                    <a
-                      href={a.data_url}
-                      download={a.name}
-                      className="flex-1 min-w-0 text-xs mm-text-gold-bright hover:underline truncate"
-                      title={a.name}
-                    >
-                      {a.name}
-                    </a>
-                    <span className="text-[10px] text-[#B7A98A]/45 shrink-0">
-                      {(a.size / 1024).toFixed(0)} KB
-                    </span>
-                    <button
-                      onClick={() => deleteAttachment(attachFor.id, a.id)}
-                      className="text-[#B7A98A]/55 hover:text-[#E4C98C] transition text-xs"
-                      data-testid="task-attach-delete"
-                    >
-                      ✕
-                    </button>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-        </div>
-      )}
+      <AttachmentsDialog
+        open={!!attachFor}
+        row={attachFor?.row}
+        module="tasks"
+        label="Task"
+        onClose={() => setAttachFor(null)}
+        anchor={attachFor?.anchor}
+        onChanged={async (updated) => {
+          setAttachFor((prev) => (prev ? { ...prev, row: updated } : prev));
+          await load();
+        }}
+      />
 
       <BulkAddDialog
         open={bulkOpen}

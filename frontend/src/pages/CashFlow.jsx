@@ -12,6 +12,7 @@ import AttachmentsDialog from "@/components/AttachmentsDialog";
 import { useReorder } from "@/lib/useReorder";
 import { useProjectReload, useProjects } from "@/lib/projects";
 import { nestRows, depthPaddingClass } from "@/lib/nestRows";
+import { validateAttachment } from "@/lib/attachments";
 import { Plus, Upload, Check, X } from "lucide-react";
 import { toast } from "sonner";
 import { todayISO } from "@/lib/format";
@@ -260,15 +261,18 @@ export default function CashFlow() {
     await load();
   };
 
-  const openReminderFor = (r) =>
+  const openReminderFor = (r, anchor) =>
     setReminderFor({
-      title: `${CAT_LABEL[r.category] || "Cash"}: ${r.name || r.head || "entry"}`,
-      notes: [r.details, r.remarks, fmtINR(r.amount)].filter(Boolean).join(" — "),
-      source_page: "cash-flow",
-      source_context: {
-        sr_no: r.sr_no, date: r.date, group: r.group, name: r.name,
-        details: r.details, amount: r.amount, remarks: r.remarks,
-        head: r.head, category: r.category,
+      anchor,
+      defaults: {
+        title: `${CAT_LABEL[r.category] || "Cash"}: ${r.name || r.head || "entry"}`,
+        notes: [r.details, r.remarks, fmtINR(r.amount)].filter(Boolean).join(" — "),
+        source_page: "cash-flow",
+        source_context: {
+          sr_no: r.sr_no, date: r.date, group: r.group, name: r.name,
+          details: r.details, amount: r.amount, remarks: r.remarks,
+          head: r.head, category: r.category,
+        },
       },
     });
 
@@ -343,7 +347,11 @@ export default function CashFlow() {
             >
               <Upload size={12} /> {stmtBusy ? "Reading…" : "Import"}
             </button>
-            <ExportButton module="cashflow" />
+            <ExportButton
+              module="cashflow"
+              filteredIds={visible.map((t) => t.id)}
+              totalCount={rows.length}
+            />
           </div>
         }
       />
@@ -556,10 +564,11 @@ export default function CashFlow() {
                   onDragEnd={onDragEnd}
                   onUp={idx > 0 ? () => move(t.id, -1) : undefined}
                   onDown={idx < visible.length - 1 ? () => move(t.id, 1) : undefined}
-                  onReminder={() => openReminderFor(t)}
-                  onAttach={() => setAttachFor(t)}
+                  onReminder={(e) => openReminderFor(t, e.currentTarget)}
+                  onAttach={(e) => setAttachFor({ row: t, anchor: e.currentTarget })}
                   onAttachFile={async (f) => {
-                    if (f.size > 10 * 1024 * 1024) { toast.error("Max 10MB"); return; }
+                    const err = validateAttachment(f, t.attachments || []);
+                    if (err) { toast.error(err); return; }
                     try { await uploadRowAttachment("transactions", t.id, f); toast.success("Attached"); await load(); }
                     catch (e) { toast.error(e?.response?.data?.detail || "Upload failed"); }
                   }}
@@ -567,7 +576,7 @@ export default function CashFlow() {
                   onSubtask={(t._depth || 0) >= 2 ? undefined : () => splitBill(t)}
                   onFlag={() => patch(t.id, { flagged: !t.flagged })}
                   flagged={!!t.flagged}
-                  onComment={(projectId || t.project_id) ? () => setCommentFor(t) : undefined}
+                  onComment={(projectId || t.project_id) ? (e) => setCommentFor({ row: t, anchor: e.currentTarget }) : undefined}
                   commentCount={commentCounts[t.id] || 0}
                   onDelete={() => remove(t.id)}
                 />
@@ -677,26 +686,33 @@ export default function CashFlow() {
         {Array.from(new Set([...CATEGORIES, ...rows.map((r) => r.category).filter(Boolean)])).map((c) => <option key={c} value={c} />)}
       </datalist>
 
-      <ReminderDialog open={!!reminderFor} onClose={() => setReminderFor(null)} defaults={reminderFor || {}} />
+      <ReminderDialog
+        open={!!reminderFor}
+        onClose={() => setReminderFor(null)}
+        defaults={reminderFor?.defaults || {}}
+        anchor={reminderFor?.anchor}
+      />
 
       <CommentDrawer
         open={!!commentFor}
         onClose={() => setCommentFor(null)}
-        projectId={commentFor?.project_id || projectId}
+        projectId={commentFor?.row?.project_id || projectId}
         resourceType="transaction"
-        resourceId={commentFor?.id}
-        resourceLabel={commentFor?.vendor || commentFor?.name || commentFor?.details}
-        onCountChange={(n) => commentFor && setCommentCounts((m) => ({ ...m, [commentFor.id]: n }))}
+        resourceId={commentFor?.row?.id}
+        resourceLabel={commentFor?.row?.vendor || commentFor?.row?.name || commentFor?.row?.details}
+        onCountChange={(n) => commentFor?.row && setCommentCounts((m) => ({ ...m, [commentFor.row.id]: n }))}
+        anchor={commentFor?.anchor}
       />
 
       <AttachmentsDialog
         open={!!attachFor}
-        row={attachFor}
+        row={attachFor?.row}
         module="transactions"
         label="Entry"
         onClose={() => setAttachFor(null)}
+        anchor={attachFor?.anchor}
         onChanged={async (updated) => {
-          setAttachFor(updated);
+          setAttachFor((prev) => (prev ? { ...prev, row: updated } : prev));
           await load();
         }}
       />

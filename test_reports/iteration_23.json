@@ -1,0 +1,48 @@
+{
+  "summary": "v2.24 final-polish (attachments 5MB/10MB caps, filtered export ?ids=, inline-popover dialogs, reminders reschedule popover). Backend: 16/16 PASS in test_v224.py — POST /tasks/{id}/attachments accepts <=5MB / rejects >5MB with 413 / enforces 10MB row total with 413; universal POST /{module}/{rid}/attachments mirrors caps on routines & transactions; GET /export/tasks.csv?ids=, /export/tasks.pdf?ids=, /export/cashflow.csv?ids=, /export/routines.csv?ids= return only the rows whose id is in the list (verified row counts); PDF body starts with %PDF; POST /reminders/{rid}/resend with {fire_at: iso} creates a NEW reminder (different id) with sent=false and fire_at preserved; regression smoke (auth/me + list tasks/routines/transactions/projects) green. Frontend (Karan account): clicking paperclip on a task row renders [data-testid='attach-dialog'] as an INLINE POPOVER (no fixed.inset-0 ancestor); the hint 'Max 5 MB per file · 10 MB total per row' is visible; [data-testid='attach-quota'] progress bar present. Bell icon renders [data-testid='reminder-dialog'] as INLINE POPOVER (no full-screen backdrop). Export button without filter shows simple CSV/PDF menu (export-tasks-csv + export-tasks-pdf; no filter-chip; no -filtered testids). On /reminders, the SENT row RotateCcw button [data-testid='reminder-resend'] opens [data-testid='reminder-reschedule-popover'] containing reminder-reschedule-when datetime input and reminder-reschedule-confirm button; picking a date+time and clicking Confirm fires POST /reminders/{id}/resend with the chosen iso (toast 'Re-scheduled for chosen date' observed).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "ExportButton on Tasks (filtered menu)",
+        "issue": "When a column filter (e.g. filter-task='beta') is applied and the visible table shrinks from 22 → 17 rendered rows, the Export menu STILL shows only CSV/PDF (no filter-chip, no *-filtered options). Root cause: `visible` is built via nestRows which keeps PARENT rows even when only a descendant matches, so visible.map(t=>t.id).length === tasks.length and ExportButton's `isFiltered = filteredArr.length < total` stays false. Spec says the filtered menu should appear whenever a column filter is active. Fix: either compute filteredIds from the flat predicate (matches(t)) bypassing nestRows, OR derive isFiltered from `Object.values(filters).some(Boolean) || !!activeGroup`.",
+        "selector": "[data-testid='export-tasks-filter-chip'] / [data-testid='export-tasks-csv-filtered']",
+        "priority": "MEDIUM"
+      }
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_v224.py",
+    "/app/test_reports/pytest/v224_results.xml"
+  ],
+  "action_items": [
+    "(MEDIUM) ExportButton filtered-menu trigger logic: visible (which keeps parents via nestRows) does not shrink, so the chip + -filtered options never appear even when a column filter is active. Compute filteredIds from the flat `matches()` predicate, or pass an explicit `isFiltered` flag derived from `filters` state."
+  ],
+  "critical_code_review_comments": [
+    "server.py 643-674 (POST /tasks/{id}/attachments): correct 5MB/file and 10MB/row enforcement with 413; uses base64 data_url storage which doubles size on disk (~1.33x base64 overhead) — fine since cap is by raw bytes pre-encoding.",
+    "server.py 3144-3180 universal endpoint: identical caps, plus a max-10-files-per-row guard. Both endpoints' 413 message includes '5MB' / '10MB' which the frontend can parse.",
+    "server.py 3848-3885 export-with-ids: id_list parsed via split-on-comma-OR-whitespace; empty list short-circuits to ALL rows (so /export/tasks.csv?ids= empty is equivalent to /export/tasks.csv — intentional). MongoDB query uses $in with user_id scope. Good.",
+    "server.py 2970-2994 reminder_resend: when fire_at supplied, used as-is (no validation that iso is parseable); when missing, falls back to original + recurrence days. Consider validating the iso to fail fast on garbage input.",
+    "AnchoredPanel.jsx: tracks anchor position on scroll/resize, closes on outside click. Solid foundation; no fixed.inset-0 ancestor confirmed in DOM walk during test.",
+    "ExportButton.jsx 33-35 isFiltered: requires filteredArr.length < total — assumes the caller passes a TRULY filtered subset, which Tasks.jsx does NOT (visible includes parent ancestors of matched rows). See action item.",
+    "Reminders.jsx 482-548 reschedule popover: correctly uses AnchoredPanel + datetime-local input; toUTC conversion + POST /reminders/{id}/resend with fire_at; success toast observed.",
+    "attachments.js (frontend helper): validateAttachment is called BEFORE upload on drag-drop in RowActions; combined with server-side 5MB/10MB guard gives layered enforcement. Good."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_v224.py",
+    "/app/test_reports/pytest/v224_results.xml",
+    "/app/test_reports/iteration_23.json"
+  ],
+  "success_rate": {
+    "backend": "100% (16/16 v2.24 — attach 5MB cap, attach 10MB quota, universal attach 5MB+10MB, 4 filtered export endpoints + PDF mime, reminder resend with fire_at, 5 smoke endpoints)",
+    "frontend": "~90% (attach-dialog popover ✓, reminder-dialog popover ✓, 5MB/10MB hint ✓, attach-quota ✓, no-filter export menu ✓, reminder-reschedule-popover + confirm flow ✓; filtered export menu trigger logic is buggy — see action item)"
+  },
+  "test_credentials": "karan@mindmatters.local / changeme123",
+  "seed_data_creation": "Created throwaway tasks (TEST_v224_attach_small_*/big_*/quota_*/exp_*), routines (TEST_v224_runi_*/rexp_*), transactions (TEST_v224_tuni_*/cfexp_*), and one reminder (TEST_v224_rem_*). The reminder-reschedule UI flow also POSTed /reminders/<id>/resend with fire_at=2026-06-15T09:30 local, creating one extra reminder row. Most are small (~1–4MB blob in attachments field); harmless but consumes some Mongo storage. Easy to clean with a query for name LIKE 'TEST_v224%'.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Item 5 (filtered export) backend is rock solid — ?ids= filters precisely. But the Tasks.jsx → ExportButton wiring of `filteredIds` uses `visible` from nestRows which keeps parents, so a single-row filter never produces filteredArr.length < total. Tests for Items 3 (5MB/10MB attach caps), 6 (inline popovers — attach/reminder/comment), 19 (reminder reschedule popover) all green. Test file test_v224.py is reusable. No Item 8 / Items 9-10 tested per scope.",
+  "rca of the issue": "Filtered-export chip bug RCA: In /app/frontend/src/pages/Tasks.jsx line 322, `filteredIds={visible.map((t) => t.id)}` is passed to ExportButton. `visible` is computed via nestRows(tasks, { matches, maxDepth: 2 }) which intentionally retains parent rows so the UI can show context for matched descendants. When the user filters by task title (e.g. 'beta'), the rendered <task-row> count drops to 17 but visible.length stays at 22 because nestRows pads with parents. ExportButton's `isFiltered = filteredArr.length < total` evaluates 22 < 22 → false → the simple 2-row menu is shown instead of the spec'd 4-row filtered menu. Fix: change Tasks.jsx to pass `tasks.filter(matches).map(t=>t.id)` (flat predicate-only), or expose a separate boolean `isFiltered={hasActiveFilter}` prop to ExportButton."
+}
