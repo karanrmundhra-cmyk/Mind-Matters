@@ -17,6 +17,29 @@ with the R.K.M. brand logo. AI-first input on every page (type → confirm → d
 - **Frontend**: React + Tailwind + Shadcn UI. Cormorant Garamond (serif), Outfit
   (display), Inter (body). Pure black + rich gold (#C9A961 / #E4C98C).
 
+### v2.23 — Email-only project invites + landing page (2026-02)
+- **Tokenised invites**: `POST /api/projects/{pid}/share` now also mints a
+  `secrets.token_urlsafe(18)` invite_token + builds an `invite_url` from the
+  new `APP_BASE_URL` env. Re-sharing the same email is idempotent — reuses or
+  back-fills the token and updates the role. ShareDialog auto-copies the URL
+  to clipboard on success.
+- **Public landing**: new `GET /api/invites/{token}` returns `{project,
+  inviter, role, invited_email, accepted, has_account}` without auth so the
+  recipient can read the invitation before signing in/up.
+- **Frontend `/invite/:token`**: new `Invite.jsx` page renders the project
+  chip, italic project name, inviter name, role badge (Admin/Editor/Commenter/
+  Viewer with icons + descriptions), signup/signin tabs (defaults to signin
+  when `has_account=true`), locked read-only email, and a single CTA that
+  signs the user up (or in) + auto-claims the invite via
+  `POST /api/invites/{token}/accept`. Already-accepted view + revoked-token
+  error card are both wired.
+- **Auto-accept**: a logged-in user with a matching email automatically
+  accepts on visit. Email-mismatch returns 403 with an instructive message.
+- **`APP_BASE_URL` env**: added to `/app/backend/.env` for absolute invite
+  URLs. Falls back gracefully to a relative `/invite/<token>` if unset.
+- **Tests**: 12/12 v2.23 pytest + 4/4 UI flows GREEN per
+  `/app/test_reports/iteration_22.json`. v2.17-v2.22 regression smoke green.
+
 ### v2.22 — 30-item polish sprint (2026-02)
 - Continuous Phase-1-to-4 sprint per user spec: removed reset-code box,
   logout button moved inline with user name, news widget fonts unified,
