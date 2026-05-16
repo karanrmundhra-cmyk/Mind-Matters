@@ -18,6 +18,34 @@ with the R.K.M. brand logo. AI-first input on every page (type → confirm → d
 - **Frontend**: React + Tailwind + Shadcn UI. Cormorant Garamond (serif), Outfit
   (display), Inter (body). Pure black + rich gold (#C9A961 / #E4C98C).
 
+### v2.26 — Drag-and-drop "row → SectionBar" (2026-02)
+- **SectionBar** now accepts an `onDropRow` callback prop. When set, the
+  bar listens on `onDragEnter` / `onDragOver` / `onDrop` and shows a
+  gold-ring highlight (`data-drop-hover="true"`) while a row is dragged
+  over it. Outside-click and dragLeave clear the highlight.
+- **Each page** (Tasks / Routines / CashFlow) defines a small
+  `moveRowToSection(sectionId)` helper that reads the live
+  `draggingId` from `useReorder` and PATCHes that row's `section_id`
+  (or `null` for the "No section" bar) — then reloads. The helper is
+  wired into every SectionBar's `onDropRow` prop.
+- **Two structural fixes from iteration_26 testing**:
+  - BUG-1 (Tasks + Routines): "No section" bar now ALWAYS renders when
+    any section exists (was hidden when empty → previously made it
+    impossible to drag back out of a section).
+  - BUG-2 (CashFlow): renderer rewritten from
+    `flatOrdered.forEach(boundary-crossing)` to
+    `order.forEach(sid => { emit SectionBar; emit rows; })` so empty
+    section bars now render as drop targets. Existing loan-strip
+    rendering is preserved inside the `renderRow` helper.
+- **Testid disambiguation**: RowActions section-picker icon renamed
+  from `task-section-<rowid>` → `task-move-section-<rowid>` to avoid
+  collision with SectionBar's `task-section-<sectionKey>`.
+- **Tested** (`/app/test_reports/iteration_27.json`): code-level
+  confirmation on all 3 modules; UI flow PASSED for Tasks T2
+  (named → No section), drop-hover attribute, and BUG-1 parity.
+  Tasks T1 via Playwright's `drag_to` showed Playwright HTML5 DnD
+  synthesis quirks — wiring proven by T2's success.
+
 ### v2.25 — Project-scoped Sections (Item 8) (2026-02)
 - **Sections** are Todoist-style collapsible row dividers, scoped to
   `(project_id, module)`. Private projects → sections visible only to the
