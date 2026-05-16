@@ -8,12 +8,16 @@ import RowActions from "@/components/RowActions";
 import ReminderDialog from "@/components/ReminderDialog";
 import CommentDrawer from "@/components/CommentDrawer";
 import AttachmentsDialog from "@/components/AttachmentsDialog";
+import SectionBar from "@/components/SectionBar";
+import AddSectionButton from "@/components/AddSectionButton";
+import SectionPicker from "@/components/SectionPicker";
 import FilterHeader from "@/components/FilterHeader";
 import ExportButton from "@/components/ExportButton";
 import { useReorder } from "@/lib/useReorder";
 import { useProjectReload, useProjects } from "@/lib/projects";
 import { nestRows, depthPaddingClass } from "@/lib/nestRows";
 import { validateAttachment } from "@/lib/attachments";
+import { useSections } from "@/lib/useSections";
 import { Plus, Upload, Check } from "lucide-react";
 import { toast } from "sonner";
 import { todayISO } from "@/lib/format";
@@ -39,7 +43,9 @@ export default function Tasks() {
   const [attachFor, setAttachFor] = useState(null); // task object or null
   const [commentFor, setCommentFor] = useState(null); // task object or null
   const [commentCounts, setCommentCounts] = useState({});
+  const [sectionPickerFor, setSectionPickerFor] = useState(null); // {row, anchor}
   const { currentId: projectId } = useProjects();
+  const sect = useSections(projectId, "tasks");
   const [filters, setFilters] = useState({ sr: "", date: "", group: "", name: "", task: "", details: "", status: "" });
   const [draft, setDraft] = useState({
     date: todayISO(),
@@ -79,6 +85,7 @@ export default function Tasks() {
     load();
   }, []);
   useProjectReload(load);
+  useProjectReload(sect.load);
 
   const { move, onDragStart, onDragOver, onDrop, onDragEnd, draggingId } =
     useReorder("tasks", tasks, setTasks, { onCommit: load });
@@ -438,180 +445,205 @@ export default function Tasks() {
           <EmptyState title="No tasks match" hint="Try a different group or clear filters." />
         ) : (
           (() => {
-            // Inject section-header rows between rows whose `section` differs from the previous.
-            // If no row has any section value, behave as flat list (no headers shown).
-            const anySection = visible.some((t) => (t.section || "").trim());
-            let prevSection = null;
+            // Group by section_id (project-scoped Section docs). Rows with no
+            // matching section_id (or none at all) fall into the "_none" bucket
+            // which renders at the top so newly-created tasks remain visible.
+            const sectionIds = new Set(sect.sections.map((s) => s.id));
+            const grouped = { _none: [] };
+            sect.sections.forEach((s) => { grouped[s.id] = []; });
+            visible.forEach((t) => {
+              const sid = t.section_id && sectionIds.has(t.section_id) ? t.section_id : "_none";
+              grouped[sid].push(t);
+            });
+            const order = ["_none", ...sect.sections.map((s) => s.id)];
+            // Hide the "_none" header when sections aren't being used at all
+            // (preserves the legacy flat look until the user creates one).
+            const showNoneHeader = sect.sections.length > 0 && grouped._none.length > 0;
             const nodes = [];
-            visible.forEach((t, idx) => {
-              if (anySection) {
-                const cur = (t.section || "").trim();
-                if (cur !== prevSection) {
-                  nodes.push(
-                    <div
-                      key={`sec-${idx}-${cur || "none"}`}
-                      className="px-4 py-2 bg-[rgba(201,169,97,0.06)] border-b border-[rgba(201,169,97,0.12)]"
-                      data-testid={`task-section-${cur || "none"}`}
-                    >
-                      <span className="text-[10px] uppercase tracking-[0.3em] mm-text-gold">
-                        {cur ? cur : "No section"}
-                      </span>
-                    </div>,
-                  );
-                  prevSection = cur;
-                }
-              }
-              nodes.push(
-            <div
-              key={t.id}
-              className={`grid ${GRID} gap-3 px-4 py-2.5 border-b border-[rgba(201,169,97,0.08)] hover:bg-[rgba(201,169,97,0.04)] transition items-center min-w-[920px] md:min-w-0 ${
-                draggingId === t.id ? "opacity-40" : ""
-              } ${t._isSubtask ? `${depthPaddingClass(t._depth || 1)} bg-[rgba(201,169,97,0.015)]` : ""}`}
-              data-testid={t._isSubtask ? "task-subtask-row" : "task-row"}
-              data-depth={t._depth || 0}
-              data-row="data"
-            >
-              <div className="flex items-center gap-2 mm-frozen-col px-1">
-                <button
-                  onClick={() => toggleDone(t.id)}
-                  className={`w-5 h-5 rounded-full border flex items-center justify-center transition shrink-0 ${
-                    isDone(t)
-                      ? "bg-gradient-to-br from-[#E4C98C] to-[#C9A961] border-[#C9A961] text-black"
-                      : "border-[rgba(201,169,97,0.35)] hover:border-[#E4C98C]"
-                  }`}
-                  data-testid="task-tick"
-                  title="Mark done"
+            let runningIdx = 0;
+            const renderRow = (t, idx) => {
+              const inSection = !!(t.section_id && sectionIds.has(t.section_id));
+              return (
+                <div
+                  key={t.id}
+                  className={`grid ${GRID} gap-3 px-4 py-2.5 border-b border-[rgba(201,169,97,0.08)] hover:bg-[rgba(201,169,97,0.04)] transition items-center min-w-[920px] md:min-w-0 ${
+                    draggingId === t.id ? "opacity-40" : ""
+                  } ${t._isSubtask ? `${depthPaddingClass(t._depth || 1)} bg-[rgba(201,169,97,0.015)]` : ""}`}
+                  data-testid={t._isSubtask ? "task-subtask-row" : "task-row"}
+                  data-depth={t._depth || 0}
+                  data-section-id={t.section_id || ""}
+                  data-row="data"
                 >
-                  {isDone(t) && <Check size={11} strokeWidth={2.5} />}
-                </button>
-                <input
-                  type="text"
-                  inputMode="numeric"
-                  pattern="[0-9]*"
-                  defaultValue={t.sr_no || ""}
-                  onBlur={(e) => {
-                    const n = parseInt(e.target.value, 10);
-                    if (n && n !== t.sr_no) patch(t.id, { sr_no: n });
-                    else e.target.value = t.sr_no || "";
-                  }}
-                  onKeyDown={advanceOnEnter}
-                  className="mm-input-ghost text-xs !py-1.5 w-12 text-center"
-                  data-testid="task-sr-input"
-                  title="Edit to renumber, or use the up/down arrows on the right"
-                />
-              </div>
-              <input
-                type="date"
-                value={t.date || ""}
-                onChange={(e) => patch(t.id, { date: e.target.value })}
-                onKeyDown={advanceOnEnter}
-                className="mm-input-ghost text-xs !py-1.5"
-              />
-              <input
-                list="task-groups"
-                defaultValue={t.group || ""}
-                onBlur={(e) => patch(t.id, { group: e.target.value })}
-                onKeyDown={advanceOnEnter}
-                placeholder="—"
-                className="mm-input-ghost text-xs !py-1.5"
-              />
-              <input
-                list="task-people"
-                defaultValue={t.name || ""}
-                onBlur={(e) => patch(t.id, { name: e.target.value })}
-                onKeyDown={advanceOnEnter}
-                placeholder="—"
-                className="mm-input-ghost text-xs !py-1.5"
-              />
-              <input
-                list="task-titles"
-                defaultValue={t.task}
-                onBlur={(e) => patch(t.id, { task: e.target.value })}
-                onKeyDown={advanceOnEnter}
-                className={`mm-input-ghost text-xs !py-1.5 ${isDone(t) ? "line-through opacity-55" : ""}`}
-                data-testid="task-edit-title"
-              />
-              <input
-                list="task-details"
-                defaultValue={t.details || ""}
-                onBlur={(e) => patch(t.id, { details: e.target.value })}
-                onKeyDown={advanceOnEnter}
-                placeholder="—"
-                className="mm-input-ghost text-xs !py-1.5"
-              />
-              <select
-                value={statusOptions.includes(t.status) ? t.status : (t.status || "Pending")}
-                onChange={async (e) => {
-                  const v = e.target.value;
-                  if (v === "__custom__") {
-                    const custom = window.prompt("New status name?", "");
-                    if (custom && custom.trim()) await patch(t.id, { status: custom.trim() });
-                    else e.target.value = t.status;
-                    return;
-                  }
-                  // If toggling between Completed and a non-completed value, run the
-                  // same reorder logic as the tick button so Sr numbers update too.
-                  const becomingDone = v === "Completed" || v === "Done";
-                  const wasDone = isDone(t);
-                  if (becomingDone !== wasDone) {
-                    // Drive the status change via toggleDone so the row is renumbered.
-                    // We still need to honour the exact value the user picked when going to Completed/Done.
-                    await api.patch(`/tasks/${t.id}`, { status: v });
-                    const others = tasksRef.current.filter((x) => x.id !== t.id).map((x) => x.id);
-                    const newIds = becomingDone ? [...others, t.id] : [t.id, ...others];
-                    try { await api.post("/tasks/reorder", { ids: newIds }); } catch { /* */ }
-                    await load();
-                  } else {
-                    await patch(t.id, { status: v });
-                  }
-                }}
-                onKeyDown={advanceOnEnter}
-                className="mm-input-ghost text-xs !py-1.5"
-                data-testid="task-status-select"
-              >
-                {!statusOptions.includes(t.status) && t.status && (
-                  <option key={t.status} value={t.status}>{t.status}</option>
-                )}
-                {statusOptions.map((s) => (
-                  <option key={s} value={s}>{s}</option>
-                ))}
-                <option value="__custom__">+ Custom…</option>
-              </select>
-              <RowActions
-                kind="task"
-                rowId={t.id}
-                draggable
-                onDragStart={onDragStart(t.id)}
-                onDragOver={onDragOver(t.id)}
-                onDrop={onDrop(t.id)}
-                onDragEnd={onDragEnd}
-                onUp={idx > 0 ? () => move(t.id, -1) : undefined}
-                onDown={idx < visible.length - 1 ? () => move(t.id, 1) : undefined}
-                onReminder={(e) => openReminderFor(t, e.currentTarget)}
-                onAttach={(e) => setAttachFor({ row: t, anchor: e.currentTarget })}
-                onAttachFile={async (f) => {
-                  const err = validateAttachment(f, t.attachments || []);
-                  if (err) { toast.error(err); return; }
-                  try {
-                    await uploadRowAttachment("tasks", t.id, f);
-                    toast.success("Attached");
-                    await load();
-                  } catch (e) { toast.error(e?.response?.data?.detail || "Upload failed"); }
-                }}
-                attachmentCount={(t.attachments || []).length}
-                onSubtask={(t._depth || 0) >= 2 ? undefined : () => createSubtask(t)}
-                onFlag={() => patch(t.id, { flagged: !t.flagged })}
-                flagged={!!t.flagged}
-                onComment={(projectId || t.project_id) ? (e) => setCommentFor({ row: t, anchor: e.currentTarget }) : undefined}
-                commentCount={commentCounts[t.id] || 0}
-                onDelete={() => remove(t.id)}
-              />
-            </div>
+                  <div className="flex items-center gap-2 mm-frozen-col px-1">
+                    <button
+                      onClick={() => toggleDone(t.id)}
+                      className={`w-5 h-5 rounded-full border flex items-center justify-center transition shrink-0 ${
+                        isDone(t)
+                          ? "bg-gradient-to-br from-[#E4C98C] to-[#C9A961] border-[#C9A961] text-black"
+                          : "border-[rgba(201,169,97,0.35)] hover:border-[#E4C98C]"
+                      }`}
+                      data-testid="task-tick"
+                    >
+                      {isDone(t) && <Check size={12} strokeWidth={2.5} />}
+                    </button>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      pattern="[0-9]*"
+                      defaultValue={t.sr_no || ""}
+                      onBlur={(e) => {
+                        const n = parseInt(e.target.value, 10);
+                        if (n && n !== t.sr_no) patch(t.id, { sr_no: n });
+                        else e.target.value = t.sr_no || "";
+                      }}
+                      onKeyDown={advanceOnEnter}
+                      className="mm-input-ghost text-xs !py-1.5 w-12 text-center"
+                      data-testid="task-sr-input"
+                      title="Edit to renumber, or use the up/down arrows on the right"
+                    />
+                  </div>
+                  <input type="date" defaultValue={t.date || ""} onBlur={(e) => patch(t.id, { date: e.target.value })} onKeyDown={advanceOnEnter} className="mm-input-ghost text-xs !py-1.5" />
+                  <input list="task-groups" defaultValue={t.group || ""} onBlur={(e) => patch(t.id, { group: e.target.value })} onKeyDown={advanceOnEnter} placeholder="—" className="mm-input-ghost text-xs !py-1.5" />
+                  <input list="task-people" defaultValue={t.name || ""} onBlur={(e) => patch(t.id, { name: e.target.value })} onKeyDown={advanceOnEnter} placeholder="—" className="mm-input-ghost text-xs !py-1.5" />
+                  <input
+                    list="task-titles"
+                    defaultValue={t.task || ""}
+                    onBlur={(e) => patch(t.id, { task: e.target.value })}
+                    onKeyDown={advanceOnEnter}
+                    className={`mm-input-ghost text-xs !py-1.5 ${isDone(t) ? "line-through opacity-55" : ""}`}
+                  />
+                  <input
+                    list="task-details"
+                    defaultValue={t.details || ""}
+                    onBlur={(e) => patch(t.id, { details: e.target.value })}
+                    onKeyDown={advanceOnEnter}
+                    placeholder="—"
+                    className="mm-input-ghost text-xs !py-1.5"
+                  />
+                  <select
+                    value={statusOptions.includes(t.status) ? t.status : (t.status || "Pending")}
+                    onChange={async (e) => {
+                      const v = e.target.value;
+                      if (v === "__custom__") {
+                        const custom = window.prompt("New status name?", "");
+                        if (custom && custom.trim()) await patch(t.id, { status: custom.trim() });
+                        else e.target.value = t.status;
+                        return;
+                      }
+                      const becomingDone = v === "Completed" || v === "Done";
+                      const wasDone = isDone(t);
+                      if (becomingDone !== wasDone) {
+                        await api.patch(`/tasks/${t.id}`, { status: v });
+                        const others = tasksRef.current.filter((x) => x.id !== t.id).map((x) => x.id);
+                        const newIds = becomingDone ? [...others, t.id] : [t.id, ...others];
+                        try { await api.post("/tasks/reorder", { ids: newIds }); } catch { /* */ }
+                        await load();
+                      } else {
+                        await patch(t.id, { status: v });
+                      }
+                    }}
+                    onKeyDown={advanceOnEnter}
+                    className="mm-input-ghost text-xs !py-1.5"
+                    data-testid="task-status-select"
+                  >
+                    {!statusOptions.includes(t.status) && t.status && (
+                      <option key={t.status} value={t.status}>{t.status}</option>
+                    )}
+                    {statusOptions.map((s) => (
+                      <option key={s} value={s}>{s}</option>
+                    ))}
+                    <option value="__custom__">+ Custom…</option>
+                  </select>
+                  <RowActions
+                    kind="task"
+                    rowId={t.id}
+                    draggable
+                    onDragStart={onDragStart(t.id)}
+                    onDragOver={onDragOver(t.id)}
+                    onDrop={onDrop(t.id)}
+                    onDragEnd={onDragEnd}
+                    onUp={idx > 0 ? () => move(t.id, -1) : undefined}
+                    onDown={idx < visible.length - 1 ? () => move(t.id, 1) : undefined}
+                    onReminder={(e) => openReminderFor(t, e.currentTarget)}
+                    onAttach={(e) => setAttachFor({ row: t, anchor: e.currentTarget })}
+                    onAttachFile={async (f) => {
+                      const err = validateAttachment(f, t.attachments || []);
+                      if (err) { toast.error(err); return; }
+                      try {
+                        await uploadRowAttachment("tasks", t.id, f);
+                        toast.success("Attached");
+                        await load();
+                      } catch (e) { toast.error(e?.response?.data?.detail || "Upload failed"); }
+                    }}
+                    attachmentCount={(t.attachments || []).length}
+                    onSubtask={(t._depth || 0) >= 2 ? undefined : () => createSubtask(t)}
+                    onFlag={() => patch(t.id, { flagged: !t.flagged })}
+                    flagged={!!t.flagged}
+                    onComment={(projectId || t.project_id) ? (e) => setCommentFor({ row: t, anchor: e.currentTarget }) : undefined}
+                    commentCount={commentCounts[t.id] || 0}
+                    onSection={sect.enabled ? (e) => setSectionPickerFor({ row: t, anchor: e.currentTarget }) : undefined}
+                    inSection={inSection}
+                    onDelete={() => remove(t.id)}
+                  />
+                </div>
               );
+            };
+            order.forEach((sid) => {
+              const rowsInSec = grouped[sid] || [];
+              if (sid === "_none") {
+                if (showNoneHeader) {
+                  const collapsed = sect.isCollapsed("none");
+                  nodes.push(
+                    <SectionBar
+                      key="sec-none"
+                      name="No section"
+                      count={rowsInSec.length}
+                      collapsed={collapsed}
+                      onToggle={() => sect.toggleCollapsed("none")}
+                      testIdPrefix="task-section"
+                      sectionKey="none"
+                    />,
+                  );
+                  if (collapsed) return;
+                }
+                rowsInSec.forEach((t) => { nodes.push(renderRow(t, runningIdx)); runningIdx++; });
+              } else {
+                const s = sect.sections.find((x) => x.id === sid);
+                if (!s) return;
+                const collapsed = sect.isCollapsed(sid);
+                const secIdx = sect.sections.findIndex((x) => x.id === sid);
+                nodes.push(
+                  <SectionBar
+                    key={`sec-${sid}`}
+                    name={s.name}
+                    count={rowsInSec.length}
+                    collapsed={collapsed}
+                    onToggle={() => sect.toggleCollapsed(sid)}
+                    onRename={(next) => sect.rename(sid, next)}
+                    onDelete={() => {
+                      if (window.confirm(`Delete section "${s.name}"? Rows stay but lose their section.`)) {
+                        sect.remove(sid);
+                      }
+                    }}
+                    onUp={secIdx > 0 ? () => sect.move(sid, -1) : undefined}
+                    onDown={secIdx < sect.sections.length - 1 ? () => sect.move(sid, 1) : undefined}
+                    testIdPrefix="task-section"
+                    sectionKey={sid}
+                  />,
+                );
+                if (collapsed) return;
+                rowsInSec.forEach((t) => { nodes.push(renderRow(t, runningIdx)); runningIdx++; });
+              }
             });
             return nodes;
           })()
         )}
+        <AddSectionButton
+          testIdPrefix="task"
+          onCreate={(name) => sect.create(name)}
+          disabled={!sect.enabled}
+          disabledHint="Pick a project to add sections"
+        />
         </div>
       </Card>
 
@@ -653,6 +685,24 @@ export default function Tasks() {
         onChanged={async (updated) => {
           setAttachFor((prev) => (prev ? { ...prev, row: updated } : prev));
           await load();
+        }}
+      />
+
+      <SectionPicker
+        open={!!sectionPickerFor}
+        anchor={sectionPickerFor?.anchor}
+        onClose={() => setSectionPickerFor(null)}
+        sections={sect.sections}
+        currentSectionId={sectionPickerFor?.row?.section_id || null}
+        onPick={async (newSid) => {
+          const row = sectionPickerFor?.row;
+          if (!row) return;
+          try {
+            await api.patch(`/tasks/${row.id}`, { section_id: newSid });
+            await load();
+          } catch (e) {
+            toast.error(e?.response?.data?.detail || "Could not move");
+          }
         }}
       />
 

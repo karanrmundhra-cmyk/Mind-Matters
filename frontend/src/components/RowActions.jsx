@@ -1,5 +1,5 @@
 import React from "react";
-import { ArrowUp, ArrowDown, BellRing, Trash2, GripVertical, Paperclip, ListPlus, Flag, MessageSquare } from "lucide-react";
+import { ArrowUp, ArrowDown, BellRing, Trash2, GripVertical, Paperclip, ListPlus, Flag, MessageSquare, FolderInput } from "lucide-react";
 
 /**
  * RowActions — shared row-right-edge action cluster.
@@ -12,6 +12,8 @@ import { ArrowUp, ArrowDown, BellRing, Trash2, GripVertical, Paperclip, ListPlus
  *   onAttach?, attachmentCount? — paperclip icon (optional)
  *   onSubtask? — "+ subtask" icon (optional; tasks page only)
  *   onFlag?, flagged? — priority flag toggle (gold when flagged)
+ *   onSection? — opens section picker popover (project-scoped sections)
+ *   inSection?: boolean — true when this row is assigned to a section (icon glows)
  */
 export default function RowActions({
   rowId,
@@ -33,6 +35,8 @@ export default function RowActions({
   flagged = false,
   onComment,
   commentCount = 0,
+  onSection,
+  inSection = false,
 }) {
   const tid = (name) => (rowId ? `${kind}-${name}-${rowId}` : `${kind}-${name}`);
   return (
@@ -160,6 +164,21 @@ export default function RowActions({
               {commentCount}
             </span>
           )}
+        </button>
+      )}
+      {onSection && (
+        <button
+          type="button"
+          onClick={onSection}
+          className={`transition p-1 ${
+            inSection
+              ? "mm-text-gold-bright"
+              : "text-[#B7A98A]/45 hover:text-[#E4C98C]"
+          }`}
+          title={inSection ? "Change section" : "Move to a section"}
+          data-testid={tid("section")}
+        >
+          <FolderInput size={13} />
         </button>
       )}
       <button

@@ -10,10 +10,14 @@ import CommentDrawer from "@/components/CommentDrawer";
 import FilterHeader from "@/components/FilterHeader";
 import ExportButton from "@/components/ExportButton";
 import AttachmentsDialog from "@/components/AttachmentsDialog";
+import SectionBar from "@/components/SectionBar";
+import AddSectionButton from "@/components/AddSectionButton";
+import SectionPicker from "@/components/SectionPicker";
 import { useReorder } from "@/lib/useReorder";
 import { useProjectReload, useProjects } from "@/lib/projects";
 import { nestRows, depthPaddingClass } from "@/lib/nestRows";
 import { validateAttachment } from "@/lib/attachments";
+import { useSections } from "@/lib/useSections";
 import { Plus, Flame, Check, Upload } from "lucide-react";
 import { toast } from "sonner";
 
@@ -38,7 +42,9 @@ export default function Routines() {
   const [attachFor, setAttachFor] = useState(null);
   const [commentFor, setCommentFor] = useState(null);
   const [commentCounts, setCommentCounts] = useState({});
+  const [sectionPickerFor, setSectionPickerFor] = useState(null);
   const { currentId: projectId } = useProjects();
+  const sect = useSections(projectId, "routines");
   const [filters, setFilters] = useState({ sr: "", group: "", name: "", activity: "", details: "", frequency: "" });
   const [draft, setDraft] = useState({
     group: "",
@@ -65,6 +71,7 @@ export default function Routines() {
     load();
   }, []);
   useProjectReload(load);
+  useProjectReload(sect.load);
 
   const { move, onDragStart, onDragOver, onDrop, onDragEnd, draggingId } =
     useReorder("routines", routines, setRoutines, { onCommit: load });
@@ -361,133 +368,181 @@ export default function Routines() {
           <EmptyState title={activeGroup ? `No routines in "${activeGroup}"` : "No routines yet"} hint="Add via AI, the row above, or Import." />
         ) : (
           (() => {
-            const anySection = visible.some((r) => (r.section || "").trim());
-            let prevSection = null;
+            const sectionIds = new Set(sect.sections.map((s) => s.id));
+            const grouped = { _none: [] };
+            sect.sections.forEach((s) => { grouped[s.id] = []; });
+            visible.forEach((r) => {
+              const sid = r.section_id && sectionIds.has(r.section_id) ? r.section_id : "_none";
+              grouped[sid].push(r);
+            });
+            const order = ["_none", ...sect.sections.map((s) => s.id)];
+            const showNoneHeader = sect.sections.length > 0 && grouped._none.length > 0;
             const nodes = [];
-            visible.forEach((r, idx) => {
-              if (anySection) {
-                const cur = (r.section || "").trim();
-                if (cur !== prevSection) {
-                  nodes.push(
-                    <div
-                      key={`sec-${idx}-${cur || "none"}`}
-                      className="px-4 py-2 bg-[rgba(201,169,97,0.06)] border-b border-[rgba(201,169,97,0.12)]"
-                      data-testid={`routine-section-${cur || "none"}`}
-                    >
-                      <span className="text-[10px] uppercase tracking-[0.3em] mm-text-gold">
-                        {cur ? cur : "No section"}
-                      </span>
-                    </div>,
-                  );
-                  prevSection = cur;
-                }
-              }
+            let runningIdx = 0;
+            const renderRow = (r, idx) => {
               const info = summary?.per_routine?.[r.id];
               const done = info?.done_today;
               const streak = info?.streak || 0;
-              nodes.push(
-              <div
-                key={r.id}
-                className={`grid ${GRID} gap-3 px-4 py-2.5 border-b border-[rgba(201,169,97,0.08)] hover:bg-[rgba(201,169,97,0.04)] items-center min-w-[800px] md:min-w-0 ${
-                  draggingId === r.id ? "opacity-40" : ""
-                } ${r._isSubtask ? `${depthPaddingClass(r._depth || 1)} bg-[rgba(201,169,97,0.015)]` : ""}`}
-                data-testid={r._isSubtask ? "routine-subtask-row" : "routine-row"}
-                data-depth={r._depth || 0}
-                data-row="data"
-              >
-                <div className="flex items-center gap-2 mm-frozen-col px-1">
-                  <button
-                    onClick={() => toggleToday(r.id, !done)}
-                    className={`w-5 h-5 rounded-full border flex items-center justify-center transition ${
-                      done
-                        ? "bg-gradient-to-br from-[#E4C98C] to-[#C9A961] border-[#C9A961] text-black"
-                        : "border-[rgba(201,169,97,0.35)] hover:border-[#E4C98C]"
-                    }`}
-                    data-testid="routine-tick"
-                  >
-                    {done && <Check size={12} strokeWidth={2.5} />}
-                  </button>
-                  <input
-                    type="text"
-                    inputMode="numeric"
-                    pattern="[0-9]*"
-                    defaultValue={r.sr_no || ""}
-                    onBlur={(e) => {
-                      const n = parseInt(e.target.value, 10);
-                      if (n && n !== r.sr_no) patch(r.id, { sr_no: n });
-                      else e.target.value = r.sr_no || "";
+              const inSection = !!(r.section_id && sectionIds.has(r.section_id));
+              return (
+                <div
+                  key={r.id}
+                  className={`grid ${GRID} gap-3 px-4 py-2.5 border-b border-[rgba(201,169,97,0.08)] hover:bg-[rgba(201,169,97,0.04)] items-center min-w-[800px] md:min-w-0 ${
+                    draggingId === r.id ? "opacity-40" : ""
+                  } ${r._isSubtask ? `${depthPaddingClass(r._depth || 1)} bg-[rgba(201,169,97,0.015)]` : ""}`}
+                  data-testid={r._isSubtask ? "routine-subtask-row" : "routine-row"}
+                  data-depth={r._depth || 0}
+                  data-section-id={r.section_id || ""}
+                  data-row="data"
+                >
+                  <div className="flex items-center gap-2 mm-frozen-col px-1">
+                    <button
+                      onClick={() => toggleToday(r.id, !done)}
+                      className={`w-5 h-5 rounded-full border flex items-center justify-center transition ${
+                        done
+                          ? "bg-gradient-to-br from-[#E4C98C] to-[#C9A961] border-[#C9A961] text-black"
+                          : "border-[rgba(201,169,97,0.35)] hover:border-[#E4C98C]"
+                      }`}
+                      data-testid="routine-tick"
+                    >
+                      {done && <Check size={12} strokeWidth={2.5} />}
+                    </button>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      pattern="[0-9]*"
+                      defaultValue={r.sr_no || ""}
+                      onBlur={(e) => {
+                        const n = parseInt(e.target.value, 10);
+                        if (n && n !== r.sr_no) patch(r.id, { sr_no: n });
+                        else e.target.value = r.sr_no || "";
+                      }}
+                      onKeyDown={advanceOnEnter}
+                      className="mm-input-ghost text-xs !py-1.5 w-12 text-center"
+                      data-testid="routine-sr-input"
+                      title="Edit to renumber, or use the up/down arrows on the right"
+                    />
+                  </div>
+                  <input list="routine-groups" defaultValue={r.group || ""} onBlur={(e) => patch(r.id, { group: e.target.value })} onKeyDown={advanceOnEnter} placeholder="—" className="mm-input-ghost text-xs" />
+                  <input list="routine-names" defaultValue={r.name || ""} onBlur={(e) => patch(r.id, { name: e.target.value })} onKeyDown={advanceOnEnter} placeholder="—" className="mm-input-ghost text-xs" />
+                  <input list="routine-activities" defaultValue={r.activity} onBlur={(e) => patch(r.id, { activity: e.target.value })} onKeyDown={advanceOnEnter} className={`mm-input-ghost text-xs ${(r.status === "Done" || r.status === "Completed") ? "line-through opacity-55" : ""}`} />
+                  <input list="routine-details" defaultValue={r.details || ""} onBlur={(e) => patch(r.id, { details: e.target.value })} onKeyDown={advanceOnEnter} placeholder="—" className="mm-input-ghost text-xs" />
+                  <select
+                    value={freqs.includes(r.frequency) ? r.frequency : (r.frequency || "Daily")}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      if (v === "__custom__") {
+                        const custom = window.prompt("Custom frequency (e.g. 'Twice a week')?", "");
+                        if (custom && custom.trim()) patch(r.id, { frequency: custom.trim() });
+                        else e.target.value = r.frequency || "Daily";
+                      } else {
+                        patch(r.id, { frequency: v });
+                      }
                     }}
                     onKeyDown={advanceOnEnter}
-                    className="mm-input-ghost text-xs !py-1.5 w-12 text-center"
-                    data-testid="routine-sr-input"
-                    title="Edit to renumber, or use the up/down arrows on the right"
-                  />
+                    className="mm-input-ghost text-xs"
+                    data-testid="routine-frequency-select"
+                  >
+                    {!freqs.includes(r.frequency) && r.frequency && (
+                      <option key={r.frequency} value={r.frequency}>{r.frequency}</option>
+                    )}
+                    {freqs.map((f) => <option key={f} value={f}>{f}</option>)}
+                    <option value="__custom__">+ Custom…</option>
+                  </select>
+                  <div className="flex items-center gap-1">
+                    {streak > 0 && (
+                      <div className="mm-chip mm-chip-gold flex items-center gap-1 text-[10px]">
+                        <Flame size={9} /> {streak}
+                      </div>
+                    )}
+                    <RowActions
+                      kind="routine"
+                      rowId={r.id}
+                      draggable
+                      onDragStart={onDragStart(r.id)}
+                      onDragOver={onDragOver(r.id)}
+                      onDrop={onDrop(r.id)}
+                      onDragEnd={onDragEnd}
+                      onUp={idx > 0 ? () => move(r.id, -1) : undefined}
+                      onDown={idx < visible.length - 1 ? () => move(r.id, 1) : undefined}
+                      onReminder={(e) => openReminderFor(r, e.currentTarget)}
+                      onAttach={(e) => setAttachFor({ row: r, anchor: e.currentTarget })}
+                      onAttachFile={async (f) => {
+                        const err = validateAttachment(f, r.attachments || []);
+                        if (err) { toast.error(err); return; }
+                        try { await uploadRowAttachment("routines", r.id, f); toast.success("Attached"); await load(); }
+                        catch (e) { toast.error(e?.response?.data?.detail || "Upload failed"); }
+                      }}
+                      attachmentCount={(r.attachments || []).length}
+                      onSubtask={(r._depth || 0) >= 2 ? undefined : () => createSubroutine(r)}
+                      onFlag={() => patch(r.id, { flagged: !r.flagged })}
+                      flagged={!!r.flagged}
+                      onComment={(projectId || r.project_id) ? (e) => setCommentFor({ row: r, anchor: e.currentTarget }) : undefined}
+                      commentCount={commentCounts[r.id] || 0}
+                      onSection={sect.enabled ? (e) => setSectionPickerFor({ row: r, anchor: e.currentTarget }) : undefined}
+                      inSection={inSection}
+                      onDelete={() => remove(r.id)}
+                    />
+                  </div>
                 </div>
-                <input list="routine-groups" defaultValue={r.group || ""} onBlur={(e) => patch(r.id, { group: e.target.value })} onKeyDown={advanceOnEnter} placeholder="—" className="mm-input-ghost text-xs" />
-                <input list="routine-names" defaultValue={r.name || ""} onBlur={(e) => patch(r.id, { name: e.target.value })} onKeyDown={advanceOnEnter} placeholder="—" className="mm-input-ghost text-xs" />
-                <input list="routine-activities" defaultValue={r.activity} onBlur={(e) => patch(r.id, { activity: e.target.value })} onKeyDown={advanceOnEnter} className={`mm-input-ghost text-xs ${(r.status === "Done" || r.status === "Completed") ? "line-through opacity-55" : ""}`} />
-                <input list="routine-details" defaultValue={r.details || ""} onBlur={(e) => patch(r.id, { details: e.target.value })} onKeyDown={advanceOnEnter} placeholder="—" className="mm-input-ghost text-xs" />
-                <select
-                  value={freqs.includes(r.frequency) ? r.frequency : (r.frequency || "Daily")}
-                  onChange={(e) => {
-                    const v = e.target.value;
-                    if (v === "__custom__") {
-                      const custom = window.prompt("Custom frequency (e.g. 'Twice a week')?", "");
-                      if (custom && custom.trim()) patch(r.id, { frequency: custom.trim() });
-                      else e.target.value = r.frequency || "Daily";
-                    } else {
-                      patch(r.id, { frequency: v });
-                    }
-                  }}
-                  onKeyDown={advanceOnEnter}
-                  className="mm-input-ghost text-xs"
-                  data-testid="routine-frequency-select"
-                >
-                  {!freqs.includes(r.frequency) && r.frequency && (
-                    <option key={r.frequency} value={r.frequency}>{r.frequency}</option>
-                  )}
-                  {freqs.map((f) => <option key={f} value={f}>{f}</option>)}
-                  <option value="__custom__">+ Custom…</option>
-                </select>
-                <div className="flex items-center gap-1">
-                  {streak > 0 && (
-                    <div className="mm-chip mm-chip-gold flex items-center gap-1 text-[10px]">
-                      <Flame size={9} /> {streak}
-                    </div>
-                  )}
-                  <RowActions
-                    kind="routine"
-                    rowId={r.id}
-                    draggable
-                    onDragStart={onDragStart(r.id)}
-                    onDragOver={onDragOver(r.id)}
-                    onDrop={onDrop(r.id)}
-                    onDragEnd={onDragEnd}
-                    onUp={idx > 0 ? () => move(r.id, -1) : undefined}
-                    onDown={idx < visible.length - 1 ? () => move(r.id, 1) : undefined}
-                    onReminder={(e) => openReminderFor(r, e.currentTarget)}
-                    onAttach={(e) => setAttachFor({ row: r, anchor: e.currentTarget })}
-                    onAttachFile={async (f) => {
-                      const err = validateAttachment(f, r.attachments || []);
-                      if (err) { toast.error(err); return; }
-                      try { await uploadRowAttachment("routines", r.id, f); toast.success("Attached"); await load(); }
-                      catch (e) { toast.error(e?.response?.data?.detail || "Upload failed"); }
-                    }}
-                    attachmentCount={(r.attachments || []).length}
-                    onSubtask={(r._depth || 0) >= 2 ? undefined : () => createSubroutine(r)}
-                    onFlag={() => patch(r.id, { flagged: !r.flagged })}
-                    flagged={!!r.flagged}
-                    onComment={(projectId || r.project_id) ? (e) => setCommentFor({ row: r, anchor: e.currentTarget }) : undefined}
-                    commentCount={commentCounts[r.id] || 0}
-                    onDelete={() => remove(r.id)}
-                  />
-                </div>
-              </div>
               );
+            };
+            order.forEach((sid) => {
+              const rowsInSec = grouped[sid] || [];
+              if (sid === "_none") {
+                if (showNoneHeader) {
+                  const collapsed = sect.isCollapsed("none");
+                  nodes.push(
+                    <SectionBar
+                      key="sec-none"
+                      name="No section"
+                      count={rowsInSec.length}
+                      collapsed={collapsed}
+                      onToggle={() => sect.toggleCollapsed("none")}
+                      testIdPrefix="routine-section"
+                      sectionKey="none"
+                    />,
+                  );
+                  if (collapsed) return;
+                }
+                rowsInSec.forEach((r) => { nodes.push(renderRow(r, runningIdx)); runningIdx++; });
+              } else {
+                const s = sect.sections.find((x) => x.id === sid);
+                if (!s) return;
+                const collapsed = sect.isCollapsed(sid);
+                const secIdx = sect.sections.findIndex((x) => x.id === sid);
+                nodes.push(
+                  <SectionBar
+                    key={`sec-${sid}`}
+                    name={s.name}
+                    count={rowsInSec.length}
+                    collapsed={collapsed}
+                    onToggle={() => sect.toggleCollapsed(sid)}
+                    onRename={(next) => sect.rename(sid, next)}
+                    onDelete={() => {
+                      if (window.confirm(`Delete section "${s.name}"? Routines stay but lose their section.`)) {
+                        sect.remove(sid);
+                      }
+                    }}
+                    onUp={secIdx > 0 ? () => sect.move(sid, -1) : undefined}
+                    onDown={secIdx < sect.sections.length - 1 ? () => sect.move(sid, 1) : undefined}
+                    testIdPrefix="routine-section"
+                    sectionKey={sid}
+                  />,
+                );
+                if (collapsed) return;
+                rowsInSec.forEach((r) => { nodes.push(renderRow(r, runningIdx)); runningIdx++; });
+              }
             });
             return nodes;
           })()
         )}
+        <AddSectionButton
+          testIdPrefix="routine"
+          onCreate={(name) => sect.create(name)}
+          disabled={!sect.enabled}
+          disabledHint="Pick a project to add sections"
+        />
         </div>
       </Card>
 
@@ -527,6 +582,24 @@ export default function Routines() {
         onChanged={async (updated) => {
           setAttachFor((prev) => (prev ? { ...prev, row: updated } : prev));
           await load();
+        }}
+      />
+
+      <SectionPicker
+        open={!!sectionPickerFor}
+        anchor={sectionPickerFor?.anchor}
+        onClose={() => setSectionPickerFor(null)}
+        sections={sect.sections}
+        currentSectionId={sectionPickerFor?.row?.section_id || null}
+        onPick={async (newSid) => {
+          const row = sectionPickerFor?.row;
+          if (!row) return;
+          try {
+            await api.patch(`/routines/${row.id}`, { section_id: newSid });
+            await load();
+          } catch (e) {
+            toast.error(e?.response?.data?.detail || "Could not move");
+          }
         }}
       />
 

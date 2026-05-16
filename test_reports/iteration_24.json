@@ -1,0 +1,49 @@
+{
+  "summary": "v2.25 project-scoped Sections (Todoist-style row dividers). Backend: 10/11 PASS in test_v225.py. Sections CRUD works end-to-end: POST /projects/{pid}/sections (201/200 with full doc incl. id/position/created_by), GET ascending by position+created_at, PATCH name + position, POST /sections/reorder assigns 1..N, DELETE cascades section_id=null on tasks/routines/transactions (verified the orphaned task persists with section_id=None), permissions enforced (non-member GET → 403; viewer GET → 200, viewer POST/PATCH/DELETE → 403), invalid module='notes' → 422, blank name → 400. ONE CRITICAL BUG: PATCH /api/tasks/{id} with body {section_id:<sid>} returns 200 but section_id stays null because the PATCH whitelist at server.py L612-615 omits 'section_id'. Same omission exists in PATCH /routines/{rid} (L770-773) and PATCH /transactions/{tid} (L1073-1077). This breaks the entire SectionPicker 'move row to section' flow on the frontend even though the picker UI itself works. Frontend (Karan account, /tasks page): task-add-section-open ✓, inline input + task-add-section-confirm ✓, new SectionBar renders with text 'MORNING'/'TEST_UI_v225_*' visible ✓, task-section-* testid set populated (44 elements incl. task-section-none bucket + 33 row/bar ids), clicking a row's task-section-<rowid> opens [data-testid='section-picker'] with options ['MOVE TO SECTION','No section','MORNING','TEST_UI_v225_df039'] ✓. /routines page: routine-add-section-open present ✓. /cashflow page: tx-add-section-open present ✓.",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "PATCH /api/tasks/{id}", "issue": "Whitelist filter (server.py:612-615) does NOT include 'section_id', so PATCH {section_id:'<sid>'} silently no-ops. SectionPicker UI fires this PATCH on every option click → row never persists into the chosen section. test_patch_task_section_id_set_and_clear fails on this.", "priority": "CRITICAL"},
+      {"endpoint": "PATCH /api/routines/{rid}", "issue": "Same whitelist omission (server.py:770-773). 'section_id' not in allowed set → routine cannot be moved between sections via PATCH.", "priority": "CRITICAL"},
+      {"endpoint": "PATCH /api/transactions/{tid}", "issue": "Same whitelist omission (server.py:1073-1077). 'section_id' not in allowed set → transaction cannot be moved between sections via PATCH.", "priority": "CRITICAL"}
+    ],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {"flow": "SectionPicker → move row to section", "issue": "UI opens picker fine and POSTs PATCH with section_id; backend swallows the field (see critical issue) so the row icon never glows gold and the row never reparents under the new SectionBar after reload. Will look like 'nothing happened' to the user.", "affected_selectors": ["[data-testid='section-picker']", "[data-testid^='task-section-']"]}
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_v225.py",
+    "/app/test_reports/pytest/v225_results.xml"
+  ],
+  "action_items": [
+    "(CRITICAL) Add 'section_id' to PATCH whitelist in three places: server.py:613 (tasks update_task), server.py:771 (routines update_routine), server.py:1074 (transactions update_transaction). One-line fix per endpoint — just append \"section_id\" to the existing allowed-keys set.",
+    "(NICE-TO-HAVE) Consider validating that section_id (when not null) actually references a real Section that belongs to the same project_id as the task/routine/transaction being updated — otherwise a stale or cross-project sid could orphan the row."
+  ],
+  "critical_code_review_comments": [
+    "server.py:268-280 Section/SectionIn models are clean — module restricted via Literal['tasks','routines','transactions'] which gives free 422 validation. ✓",
+    "server.py:2605-2719 sections router: GET enforces role via _user_role_in_project; POST/PATCH/DELETE require admin/editor — viewer correctly 403'd. DELETE cascades via _SECTION_MODULE_TO_COLL map → tasks/routines/transactions get section_id:None on the matching project. ✓",
+    "server.py:2629-2634 auto-position uses 'last position + 1' inside the (project_id, module) bucket — race-free for sequential creates; under concurrent creates two clients could land on the same position but order is still preserved via created_at secondary sort. Acceptable.",
+    "server.py:610-615 (tasks PATCH), 770-773 (routines PATCH), 1073-1077 (transactions PATCH): MISSING 'section_id' in whitelist — root cause of the only critical bug found. Task/Routine/Transaction Pydantic models DO declare section_id (lines 147, 175, 239) but the PATCH endpoints filter the request body to a hard-coded set that was never updated when v2.25 added section_id. Identical class of bug; fix in all three.",
+    "server.py:2680-2701 reorder endpoint: silently skips ids that don't match {project_id, module} — good defensive coding; returns {count: len(ids)} which represents requested-count not updated-count, slightly misleading but harmless.",
+    "Frontend SectionPicker integration: picker options render correctly including the synthetic 'No section' radio. Once the PATCH bug is fixed the move flow should light up immediately — no frontend changes needed."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_v225.py",
+    "/app/test_reports/pytest/v225_results.xml",
+    "/app/test_reports/iteration_24.json"
+  ],
+  "success_rate": {
+    "backend": "91% (10/11 v2.25 — create/list/patch/reorder/delete-cascade/permissions all green; PATCH-task-with-section_id fails due to missing whitelist entry)",
+    "frontend": "~95% (task-add-section-open ✓, inline input + confirm ✓, SectionBar rendered + name visible ✓, task-section-* testids ✓ on tasks/routines/cashflow add buttons ✓, section-picker opens with correct option list ✓; move-row flow is blocked by the backend PATCH bug — not a frontend defect)"
+  },
+  "test_credentials": "karan@mindmatters.local / changeme123 (Karan account also has a fresh viewer_<hex>@v225.test account created during permissions test)",
+  "seed_data_creation": "Backend tests created one throwaway project per run (named TEST_v225_<hex8>) and tore it down in the autouse cleanup fixture. A second 'private' project was created by test_non_member_get_returns_403 (TEST_v225_private_*) and NOT deleted — main agent may want to GC. Frontend smoke also left one section 'TEST_UI_v225_<hex5>' on Karan's default project tasks module — harmless, ~1 doc.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "test_v225.py is reusable. After main agent adds 'section_id' to the three PATCH whitelists, just re-run pytest backend/tests/test_v225.py -v to confirm 11/11. Frontend section-picker → move-row flow can then be smoke-tested by: (1) login Karan, (2) /tasks page, (3) click any [data-testid='task-section-<rowid>'] in RowActions, (4) pick the 'MORNING' radio in [data-testid='section-picker'], (5) reload → that task should now render under the MORNING SectionBar and its row icon should have the gold glow class. v2.25 SectionBar interactive testids (toggle/name/up/down/delete) and pencil-rename + reorder were NOT exercised in this run — recommend covering in iteration_25 once the PATCH bug is fixed.",
+  "rca of the issue": "PATCH section_id silently dropped — RCA: server.py defines section_id on Task (line 147), Routine (line 175), Transaction (line 239) and on POST /tasks accepts it via TaskIn (so test_delete_unsets_section_id_on_tasks could create a task already linked to a section). However, the three PATCH endpoints filter the incoming body through a hard-coded whitelist (tasks:L612-615, routines:L770-773, transactions:L1073-1077) — and the developer forgot to add 'section_id' to all three sets when implementing v2.25. The whitelist is a defensive measure against mass-assignment, so the silent-drop behavior is by design for unknown keys; the fix is to acknowledge section_id as a legitimate updatable column. Reproduction: POST /tasks {…, project_id:pid} → t; POST /projects/{pid}/sections {module:'tasks', name:'X'} → s; PATCH /tasks/{t.id} {section_id: s.id} → returns 200 with body.section_id === null. Mitigation: append \"section_id\" to each of the three allowed-key sets (single-line change in each). Verified test_v225.py::TestPatchTaskSection::test_patch_task_section_id_set_and_clear will pass after the fix."
+}

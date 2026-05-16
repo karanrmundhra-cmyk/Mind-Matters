@@ -143,7 +143,8 @@ class TaskIn(BaseModel):
     details: str = ""
     status: str = "Pending"  # free text — common values: Pending, Completed, Done (legacy), Follow-Up, or any custom user value
     group: str = ""  # custom group, user-defined (replaces block1..4)
-    section: str = ""  # optional second-level grouping (Todoist-style sub-header)
+    section: str = ""  # optional second-level grouping (Todoist-style sub-header) — legacy free-text
+    section_id: Optional[str] = None  # v2.25 — link to a project-scoped Section doc
     parent_id: Optional[str] = None  # if set, this is a subtask nested under another task
     flagged: bool = False  # priority flag — flagged rows sort to top
     project_id: Optional[str] = None  # v2.17 — project this row belongs to
@@ -170,7 +171,8 @@ class RoutineIn(BaseModel):
     frequency: str = "Daily"  # free-form now (Daily/Weekly/Custom…)
     priority: Literal["Low", "Medium", "High"] = "Medium"
     status: Literal["Active", "Paused", "Done", "Completed"] = "Active"
-    section: str = ""  # optional second-level grouping (Todoist-style sub-header)
+    section: str = ""  # optional second-level grouping (Todoist-style sub-header) — legacy free-text
+    section_id: Optional[str] = None  # v2.25 — link to a project-scoped Section doc
     parent_id: Optional[str] = None  # nested subtask support (max depth 3, enforced client-side)
     flagged: bool = False
     project_id: Optional[str] = None  # v2.17 — project this row belongs to
@@ -233,7 +235,8 @@ class TransactionIn(BaseModel):
     head: str = "Uncategorized"
     category: str = "expense"  # was Literal — now free text so users can add custom
     group: str = ""
-    section: str = ""  # second-level grouping
+    section: str = ""  # second-level grouping — legacy free-text
+    section_id: Optional[str] = None  # v2.25 — link to a project-scoped Section doc
     company: str = ""
     expense_head: str = "Uncategorized"
     direction: Literal["in", "out"] = "out"
@@ -257,6 +260,22 @@ class Transaction(TransactionIn):
     sr_no: int = 0
     order_index: int = 0
     user_id: str
+    created_at: str
+    updated_at: str
+
+
+# Section (v2.25) — Todoist-style collapsible row divider, project-scoped.
+class SectionIn(BaseModel):
+    name: str
+    module: Literal["tasks", "routines", "transactions"]
+    color: Optional[str] = None  # hex like "#C9A961" — reserved for future use
+
+
+class Section(SectionIn):
+    id: str
+    project_id: str
+    position: int = 0  # ascending order — lower renders first
+    created_by: str  # user_id of creator
     created_at: str
     updated_at: str
 
@@ -2567,6 +2586,136 @@ async def delete_comment(cid: str, user=Depends(get_current_user)):
     if c["user_id"] != user["id"] and role != "admin":
         raise HTTPException(403, "Cannot delete this comment")
     await db.comments.delete_one({"id": cid})
+    return {"ok": True}
+
+
+# ───────────────────── Sections (v2.25) ─────────────────────
+# Project-scoped Todoist-style collapsible row dividers. Live alongside
+# tasks / routines / transactions and reference the same project. Any member
+# (including viewers) can READ; editors and admins can mutate. Deleting a
+# section unsets `section_id` on every linked row but keeps the rows.
+
+_SECTION_MODULE_TO_COLL = {
+    "tasks": "tasks",
+    "routines": "routines",
+    "transactions": "transactions",
+}
+
+
+@api.get("/projects/{pid}/sections", response_model=List[Section])
+async def list_sections(
+    pid: str,
+    module: Optional[Literal["tasks", "routines", "transactions"]] = None,
+    user=Depends(get_current_user),
+):
+    role = await _user_role_in_project(user["id"], pid)
+    if role is None:
+        raise HTTPException(403, "Not a member of this project")
+    q: Dict[str, Any] = {"project_id": pid}
+    if module:
+        q["module"] = module
+    docs = await db.sections.find(q, {"_id": 0}).sort([("position", 1), ("created_at", 1)]).to_list(500)
+    return [Section(**d) for d in docs]
+
+
+@api.post("/projects/{pid}/sections", response_model=Section)
+async def create_section(pid: str, body: SectionIn, user=Depends(get_current_user)):
+    role = await _user_role_in_project(user["id"], pid)
+    if role not in ("admin", "editor"):
+        raise HTTPException(403, "You don't have write access to this project")
+    if not body.name.strip():
+        raise HTTPException(400, "Section name is required")
+    # Auto-position: append to the end.
+    last = await db.sections.find_one(
+        {"project_id": pid, "module": body.module},
+        {"_id": 0, "position": 1},
+        sort=[("position", -1)],
+    )
+    next_pos = ((last or {}).get("position") or 0) + 1
+    doc = {
+        "id": new_id(),
+        "project_id": pid,
+        "module": body.module,
+        "name": body.name.strip(),
+        "color": body.color,
+        "position": next_pos,
+        "created_by": user["id"],
+        "created_at": now_iso(),
+        "updated_at": now_iso(),
+    }
+    await db.sections.insert_one(dict(doc))
+    return Section(**doc)
+
+
+class SectionPatch(BaseModel):
+    name: Optional[str] = None
+    color: Optional[str] = None
+    position: Optional[int] = None
+
+
+@api.patch("/sections/{sid}", response_model=Section)
+async def update_section(sid: str, body: SectionPatch, user=Depends(get_current_user)):
+    sec = await db.sections.find_one({"id": sid}, {"_id": 0})
+    if not sec:
+        raise HTTPException(404, "Section not found")
+    role = await _user_role_in_project(user["id"], sec["project_id"])
+    if role not in ("admin", "editor"):
+        raise HTTPException(403, "You don't have write access to this project")
+    patch: Dict[str, Any] = {}
+    if body.name is not None:
+        if not body.name.strip():
+            raise HTTPException(400, "Section name is required")
+        patch["name"] = body.name.strip()
+    if body.color is not None:
+        patch["color"] = body.color
+    if body.position is not None:
+        patch["position"] = int(body.position)
+    if patch:
+        patch["updated_at"] = now_iso()
+        await db.sections.update_one({"id": sid}, {"$set": patch})
+    fresh = await db.sections.find_one({"id": sid}, {"_id": 0})
+    return Section(**fresh)
+
+
+@api.post("/projects/{pid}/sections/reorder")
+async def reorder_sections(
+    pid: str,
+    body: Dict[str, Any],
+    user=Depends(get_current_user),
+):
+    """Body: { "module": "tasks", "ids": ["sid1", "sid2", …] } — assigns position
+    1..N in the given order. Member-write required. Silently skips ids that
+    don't belong to this project/module."""
+    role = await _user_role_in_project(user["id"], pid)
+    if role not in ("admin", "editor"):
+        raise HTTPException(403, "You don't have write access to this project")
+    module = body.get("module")
+    ids = body.get("ids") or []
+    if module not in _SECTION_MODULE_TO_COLL or not isinstance(ids, list):
+        raise HTTPException(400, "Bad payload")
+    for i, sid in enumerate(ids, start=1):
+        await db.sections.update_one(
+            {"id": sid, "project_id": pid, "module": module},
+            {"$set": {"position": i, "updated_at": now_iso()}},
+        )
+    return {"ok": True, "count": len(ids)}
+
+
+@api.delete("/sections/{sid}")
+async def delete_section(sid: str, user=Depends(get_current_user)):
+    sec = await db.sections.find_one({"id": sid}, {"_id": 0})
+    if not sec:
+        raise HTTPException(404, "Section not found")
+    role = await _user_role_in_project(user["id"], sec["project_id"])
+    if role not in ("admin", "editor"):
+        raise HTTPException(403, "You don't have write access to this project")
+    coll = _SECTION_MODULE_TO_COLL.get(sec.get("module", ""))
+    if coll:
+        await db[coll].update_many(
+            {"project_id": sec["project_id"], "section_id": sid},
+            {"$set": {"section_id": None, "updated_at": now_iso()}},
+        )
+    await db.sections.delete_one({"id": sid})
     return {"ok": True}
 
 

@@ -9,10 +9,14 @@ import CommentDrawer from "@/components/CommentDrawer";
 import FilterHeader from "@/components/FilterHeader";
 import ExportButton from "@/components/ExportButton";
 import AttachmentsDialog from "@/components/AttachmentsDialog";
+import SectionBar from "@/components/SectionBar";
+import AddSectionButton from "@/components/AddSectionButton";
+import SectionPicker from "@/components/SectionPicker";
 import { useReorder } from "@/lib/useReorder";
 import { useProjectReload, useProjects } from "@/lib/projects";
 import { nestRows, depthPaddingClass } from "@/lib/nestRows";
 import { validateAttachment } from "@/lib/attachments";
+import { useSections } from "@/lib/useSections";
 import { Plus, Upload, Check, X } from "lucide-react";
 import { toast } from "sonner";
 import { todayISO } from "@/lib/format";
@@ -54,7 +58,9 @@ export default function CashFlow() {
   const [attachFor, setAttachFor] = useState(null);
   const [commentFor, setCommentFor] = useState(null);
   const [commentCounts, setCommentCounts] = useState({});
+  const [sectionPickerFor, setSectionPickerFor] = useState(null);
   const { currentId: projectId } = useProjects();
+  const sect = useSections(projectId, "transactions");
   const stmtRef = useRef(null);
   const [filters, setFilters] = useState({
     sr: "", date: "", group: "", name: "", details: "", amount: "",
@@ -87,6 +93,7 @@ export default function CashFlow() {
     load();
   }, []);
   useProjectReload(load);
+  useProjectReload(sect.load);
 
   const { move, onDragStart, onDragOver, onDrop, onDragEnd, draggingId } =
     useReorder("transactions", rows, setRows, { onCommit: load });
@@ -470,34 +477,85 @@ export default function CashFlow() {
           <EmptyState title="No entries" hint="Use AI bar, manual row, or upload a statement." />
         ) : (
           (() => {
-            const anySection = visible.some((r) => (r.section || "").trim());
-            let prevSection = null;
+            // Sort visible rows into section buckets so we render them grouped,
+            // emitting a SectionBar each time we cross a section boundary.
+            const sectionIds = new Set(sect.sections.map((s) => s.id));
+            const buckets = { _none: [] };
+            sect.sections.forEach((s) => { buckets[s.id] = []; });
+            visible.forEach((r) => {
+              const sid = r.section_id && sectionIds.has(r.section_id) ? r.section_id : "_none";
+              buckets[sid].push(r);
+            });
+            const order = ["_none", ...sect.sections.map((s) => s.id)];
+            const showNoneHeader = sect.sections.length > 0 && buckets._none.length > 0;
+            // Flattened render order so the per-row idx still tracks visible position.
+            const flatOrdered = [];
+            order.forEach((sid) => {
+              const rs = buckets[sid] || [];
+              rs.forEach((r) => flatOrdered.push({ row: r, sid }));
+            });
+
             const nodes = [];
-            visible.forEach((t, idx) => {
-              if (anySection) {
-                const cur = (t.section || "").trim();
-                if (cur !== prevSection) {
-                  nodes.push(
-                    <div
-                      key={`sec-${idx}-${cur || "none"}`}
-                      className="px-4 py-2 bg-[rgba(201,169,97,0.06)] border-b border-[rgba(201,169,97,0.12)]"
-                      data-testid={`tx-section-${cur || "none"}`}
-                    >
-                      <span className="text-[10px] uppercase tracking-[0.3em] mm-text-gold">
-                        {cur ? cur : "No section"}
-                      </span>
-                    </div>,
-                  );
-                  prevSection = cur;
+            let lastSid = null;
+            flatOrdered.forEach(({ row: t, sid }, idx) => {
+              // Emit a section header when entering a new bucket.
+              if (sid !== lastSid) {
+                if (sid === "_none") {
+                  if (showNoneHeader) {
+                    const collapsed = sect.isCollapsed("none");
+                    nodes.push(
+                      <SectionBar
+                        key="sec-none"
+                        name="No section"
+                        count={buckets._none.length}
+                        collapsed={collapsed}
+                        onToggle={() => sect.toggleCollapsed("none")}
+                        testIdPrefix="tx-section"
+                        sectionKey="none"
+                      />,
+                    );
+                  }
+                } else {
+                  const s = sect.sections.find((x) => x.id === sid);
+                  if (s) {
+                    const collapsed = sect.isCollapsed(sid);
+                    const secIdx = sect.sections.findIndex((x) => x.id === sid);
+                    nodes.push(
+                      <SectionBar
+                        key={`sec-${sid}`}
+                        name={s.name}
+                        count={buckets[sid].length}
+                        collapsed={collapsed}
+                        onToggle={() => sect.toggleCollapsed(sid)}
+                        onRename={(next) => sect.rename(sid, next)}
+                        onDelete={() => {
+                          if (window.confirm(`Delete section "${s.name}"? Entries stay but lose their section.`)) {
+                            sect.remove(sid);
+                          }
+                        }}
+                        onUp={secIdx > 0 ? () => sect.move(sid, -1) : undefined}
+                        onDown={secIdx < sect.sections.length - 1 ? () => sect.move(sid, 1) : undefined}
+                        testIdPrefix="tx-section"
+                        sectionKey={sid}
+                      />,
+                    );
+                  }
                 }
+                lastSid = sid;
               }
+              // Skip rendering rows under a collapsed section.
+              const sectionKey = sid === "_none" ? "none" : sid;
+              const collapsedHere = (sid === "_none" ? showNoneHeader : true) && sect.isCollapsed(sectionKey);
+              if (collapsedHere) return;
               const cat = t.category || (t.direction === "in" ? "income" : "expense");
+              const inSection = !!(t.section_id && sectionIds.has(t.section_id));
               nodes.push(
               <div
                 key={t.id}
                 className={`grid grid-cols-2 ${GRID} gap-3 px-4 py-2.5 border-b border-[rgba(201,169,97,0.08)] hover:bg-[rgba(201,169,97,0.04)] items-center ${draggingId === t.id ? "opacity-40" : ""} ${t._isSubtask ? `${depthPaddingClass(t._depth || 1)} bg-[rgba(201,169,97,0.015)]` : ""}`}
                 data-testid={t._isSubtask ? "tx-subtask-row" : "tx-row"}
                 data-depth={t._depth || 0}
+                data-section-id={t.section_id || ""}
                 data-row="data"
               >
                 <input
@@ -570,7 +628,7 @@ export default function CashFlow() {
                   onDrop={onDrop(t.id)}
                   onDragEnd={onDragEnd}
                   onUp={idx > 0 ? () => move(t.id, -1) : undefined}
-                  onDown={idx < visible.length - 1 ? () => move(t.id, 1) : undefined}
+                  onDown={idx < flatOrdered.length - 1 ? () => move(t.id, 1) : undefined}
                   onReminder={(e) => openReminderFor(t, e.currentTarget)}
                   onAttach={(e) => setAttachFor({ row: t, anchor: e.currentTarget })}
                   onAttachFile={async (f) => {
@@ -585,6 +643,8 @@ export default function CashFlow() {
                   flagged={!!t.flagged}
                   onComment={(projectId || t.project_id) ? (e) => setCommentFor({ row: t, anchor: e.currentTarget }) : undefined}
                   commentCount={commentCounts[t.id] || 0}
+                  onSection={sect.enabled ? (e) => setSectionPickerFor({ row: t, anchor: e.currentTarget }) : undefined}
+                  inSection={inSection}
                   onDelete={() => remove(t.id)}
                 />
               </div>
@@ -677,6 +737,12 @@ export default function CashFlow() {
             return nodes;
           })()
         )}
+        <AddSectionButton
+          testIdPrefix="tx"
+          onCreate={(name) => sect.create(name)}
+          disabled={!sect.enabled}
+          disabledHint="Pick a project to add sections"
+        />
         </div>
       </Card>
 
@@ -721,6 +787,24 @@ export default function CashFlow() {
         onChanged={async (updated) => {
           setAttachFor((prev) => (prev ? { ...prev, row: updated } : prev));
           await load();
+        }}
+      />
+
+      <SectionPicker
+        open={!!sectionPickerFor}
+        anchor={sectionPickerFor?.anchor}
+        onClose={() => setSectionPickerFor(null)}
+        sections={sect.sections}
+        currentSectionId={sectionPickerFor?.row?.section_id || null}
+        onPick={async (newSid) => {
+          const row = sectionPickerFor?.row;
+          if (!row) return;
+          try {
+            await api.patch(`/transactions/${row.id}`, { section_id: newSid });
+            await load();
+          } catch (e) {
+            toast.error(e?.response?.data?.detail || "Could not move");
+          }
         }}
       />
     </div>
