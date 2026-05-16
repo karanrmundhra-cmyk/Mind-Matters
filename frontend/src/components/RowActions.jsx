@@ -176,7 +176,7 @@ export default function RowActions({
               : "text-[#B7A98A]/45 hover:text-[#E4C98C]"
           }`}
           title={inSection ? "Change section" : "Move to a section"}
-          data-testid={tid("section")}
+          data-testid={tid("move-section")}
         >
           <FolderInput size={13} />
         </button>

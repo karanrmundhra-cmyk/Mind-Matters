@@ -90,6 +90,19 @@ export default function Tasks() {
   const { move, onDragStart, onDragOver, onDrop, onDragEnd, draggingId } =
     useReorder("tasks", tasks, setTasks, { onCommit: load });
 
+  // Drag-and-drop helper: when a row is dropped on a SectionBar, PATCH that
+  // row's section_id (using the live useReorder draggingId).
+  const moveRowToSection = async (sectionId) => {
+    const id = draggingId;
+    if (!id) return;
+    try {
+      await api.patch(`/tasks/${id}`, { section_id: sectionId });
+      await load();
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Could not move");
+    }
+  };
+
   const groups = useMemo(
     () => Array.from(new Set(tasks.map((t) => t.group).filter(Boolean))).sort(),
     [tasks],
@@ -600,6 +613,7 @@ export default function Tasks() {
                       count={rowsInSec.length}
                       collapsed={collapsed}
                       onToggle={() => sect.toggleCollapsed("none")}
+                      onDropRow={() => moveRowToSection(null)}
                       testIdPrefix="task-section"
                       sectionKey="none"
                     />,
@@ -627,6 +641,7 @@ export default function Tasks() {
                     }}
                     onUp={secIdx > 0 ? () => sect.move(sid, -1) : undefined}
                     onDown={secIdx < sect.sections.length - 1 ? () => sect.move(sid, 1) : undefined}
+                    onDropRow={() => moveRowToSection(sid)}
                     testIdPrefix="task-section"
                     sectionKey={sid}
                   />,

@@ -14,6 +14,11 @@ import { ChevronRight, ChevronDown, ArrowUp, ArrowDown, Trash2, Pencil } from "l
  *   onDelete?: () => void
  *   onUp?:    () => void
  *   onDown?:  () => void
+ *   onDropRow?: () => Promise<void> | void
+ *                                 — called when a row is dropped onto this bar.
+ *                                   Parent reads its useReorder draggingId and
+ *                                   PATCHes that row's `section_id` accordingly.
+ *                                   When omitted, the bar is not a drop target.
  *   testIdPrefix: string          — e.g. "task-section" / "routine-section" / "tx-section"
  *   sectionKey: string            — stable id used in testid suffix (section id, or "none")
  *   readOnly?: boolean            — viewer/commenter role — hide rename/reorder/delete
@@ -27,12 +32,14 @@ export default function SectionBar({
   onDelete,
   onUp,
   onDown,
+  onDropRow,
   testIdPrefix,
   sectionKey,
   readOnly = false,
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(name);
+  const [dropHover, setDropHover] = useState(false);
 
   const submit = () => {
     const next = draft.trim();
@@ -47,10 +54,29 @@ export default function SectionBar({
 
   const tid = (suffix) => `${testIdPrefix}-${sectionKey}-${suffix}`;
 
+  const dropHandlers = onDropRow
+    ? {
+        onDragOver: (e) => { e.preventDefault(); if (!dropHover) setDropHover(true); },
+        onDragEnter: (e) => { e.preventDefault(); setDropHover(true); },
+        onDragLeave: () => setDropHover(false),
+        onDrop: async (e) => {
+          e.preventDefault();
+          setDropHover(false);
+          await onDropRow();
+        },
+      }
+    : {};
+
   return (
     <div
-      className="flex items-center gap-2 px-4 py-2 bg-[rgba(201,169,97,0.06)] border-b border-[rgba(201,169,97,0.18)] min-w-[800px] md:min-w-0 group"
+      {...dropHandlers}
+      className={`flex items-center gap-2 px-4 py-2 min-w-[800px] md:min-w-0 group transition border-b ${
+        dropHover
+          ? "bg-[rgba(201,169,97,0.18)] border-[#C9A961] ring-1 ring-[#C9A961]/40"
+          : "bg-[rgba(201,169,97,0.06)] border-[rgba(201,169,97,0.18)]"
+      }`}
       data-testid={`${testIdPrefix}-${sectionKey}`}
+      data-drop-hover={dropHover ? "true" : "false"}
     >
       <button
         onClick={onToggle}

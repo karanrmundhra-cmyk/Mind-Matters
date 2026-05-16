@@ -1,0 +1,62 @@
+{
+  "summary": "v2.26 HTML5 drag-and-drop (row → SectionBar) wired on Tasks/Routines/CashFlow. Tested 3 modules end-to-end via UI drag_to with API verification. Mixed results: testid disambiguation (task-move-section-<rowid> vs task-section-<sectionKey>) is correctly disambiguated on all 3 modules (counts 1/1/1). Drop-hover gold highlight attribute (data-drop-hover='true') confirmed firing on dragenter/dragover. However TWO blocker bugs were discovered that make the drag-back-to-no-section and drag-into-empty-section flows impossible in practice, plus two flaky/failing drag PATCH cases that need main-agent attention.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "Tasks.jsx L474 + Routines.jsx L390",
+        "issue": "BUG-1: SectionBar for 'No section' is hidden whenever it has 0 rows (showNoneHeader = sect.sections.length>0 && grouped._none.length>0). Result: after moving the only no-section row into a section, the 'No section' drop target disappears entirely and users CANNOT drag rows back to no-section via DnD — there is no bar to drop onto. Reproduced: created 1 task, moved it via PATCH section_id=<sid>; reloaded /tasks; [data-testid='task-section-none'] count = 0.",
+        "selector": "[data-testid='task-section-none'] / [data-testid='routine-section-none']",
+        "priority": "HIGH"
+      },
+      {
+        "component": "CashFlow.jsx L490–558",
+        "issue": "BUG-2: Empty (zero-row) section bars are NOT emitted in CashFlow because the renderer iterates flatOrdered rows and only emits a SectionBar on bucket boundary crossings. A bucket with 0 rows is never visited, so a freshly-created section bar never appears — making it impossible to drag a row INTO an empty section in CashFlow. Tasks/Routines DO emit empty section bars (they iterate `order.forEach(sid => ...)`); CashFlow needs the same pattern.",
+        "selector": "[data-testid='tx-section-<sid>'] for an empty section",
+        "priority": "HIGH"
+      },
+      {
+        "component": "CashFlow.jsx (rendering)",
+        "issue": "Even after PATCHing a transaction into the newly-created section via API, the section bar still did not render on reload (bar count=0). Likely caused by BUG-2 path OR an interaction with the active group filter ('Personal' chip) — the test tx had no group string. Worth investigating once BUG-2 fix lands.",
+        "selector": "[data-testid='tx-section-<sid>']",
+        "priority": "MEDIUM"
+      }
+    ],
+    "integration_issues": [
+      {
+        "flow": "Tasks drag → 'No section' bar (T2)",
+        "issue": "With 2 tasks (one in DRAGTEST, one in no-section so the No section bar stays visible), drag of the DRAGTEST task onto [data-testid='task-section-none'] DID NOT clear section_id (API GET still showed section_id=<sid>). T1 (drag → DRAGTEST) PASSED in the same run, so wiring works one direction but not the return. Drop-hover attribute test PASSED via synthetic DragEvents, so the drop handler IS attached. Possible cause: stale useReorder draggingId after a prior successful drag, OR Playwright's HTML5 DnD synthesis on a re-rendered handle. Main agent should verify by manual UX test or instrument moveRowToSection to log calls.",
+        "affected_selectors": ["[data-testid='task-drag-<rowid>']", "[data-testid='task-section-none']"]
+      },
+      {
+        "flow": "Routines drag → section bar (T1)",
+        "issue": "Drag of routine row onto [data-testid='routine-section-<sid>'] DID NOT update section_id (API GET still null). T2 (drag → no-section) appeared 'pass' only because section_id was already null. Suggests moveRowToSection on Routines page may not be firing or PATCH /routines/<id> {section_id:<sid>} response not being persisted. Backend test_v225 confirms PATCH works at the API layer, so issue is on the frontend drop wire-up path for Routines specifically.",
+        "affected_selectors": ["[data-testid='routine-drag-<rowid>']", "[data-testid='routine-section-<sid>']"]
+      }
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [],
+  "action_items": [
+    "BUG-1 (HIGH): In Tasks.jsx (line 474) and Routines.jsx (line 390), drop the `&& grouped._none.length > 0` clause so the No-section bar stays visible whenever any section exists. Without this fix, drag-back-to-no-section is structurally impossible.",
+    "BUG-2 (HIGH): In CashFlow.jsx (lines 490–558), refactor render to iterate `order.forEach(sid => emit SectionBar; then emit rows)` (mirroring Tasks/Routines) so empty section bars appear and become drop targets.",
+    "INVESTIGATE: Tasks 'drag back to No section' (T2) failed in automation even when the No-section bar was visible — likely stale draggingId or re-render race in useReorder after the first successful drop. Add a console.log in moveRowToSection and manually verify in browser.",
+    "INVESTIGATE: Routines drag→section (T1) failed — moveRowToSection on Routines page either not firing or PATCH not persisting in this flow. Backend PATCH /routines/<id> section_id=<sid> is known good (iteration_25 13/13)."
+  ],
+  "critical_code_review_comments": [
+    "Tasks.jsx:474 / Routines.jsx:390 — `showNoneHeader = sect.sections.length>0 && grouped._none.length>0` is overly aggressive; the second clause makes No-section bar a transient UI element and breaks the symmetric drag-back affordance introduced in v2.26.",
+    "CashFlow.jsx:490–558 — Section bar emission is coupled to row presence (lastSid-on-flatOrdered pattern). Inconsistent with Tasks/Routines which emit bars from `order.forEach`. Diverges feature parity for v2.26 DnD.",
+    "RowActions.jsx:179 — testid `task-move-section-<id>` correctly disambiguated from SectionBar `task-section-<sid>`. Confirmed counts (1/1/1) on Tasks & Routines runs."
+  ],
+  "updated_files": ["/app/test_reports/iteration_26.json"],
+  "success_rate": {
+    "backend": "n/a (not retested this iteration — frontend-only request)",
+    "frontend": "Tasks: 3/4 (disambig PASS, T1 drag→section PASS, T2 drag→none FAIL, drop-hover attr PASS). Routines: 2/3 (disambig PASS, T1 FAIL, T2 vacuous-pass). CashFlow: 0/2 actionable (BUG-2 blocks empty-section drop). Overall ~50%."
+  },
+  "test_credentials": "karan@mindmatters.local / changeme123 (from /app/memory/test_credentials.md)",
+  "seed_data_creation": "Each module run creates 1 section (DRAG_<MODULE>_<hex>) and 1–2 rows (TEST_*_<hex>); all cleaned up via DELETE in the same run.",
+  "retest_needed": true,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Test environment: hit BACKEND_URL/login with credentials, read token from localStorage('mm_token') and project_id from localStorage('mm_current_project'), then drive REST via fetch + UI via Playwright drag_to. IMPORTANT: backend routes have NO trailing slash (e.g. POST /api/tasks not /api/tasks/) — otherwise FastAPI 307s to HTTP and mixed-content blocks the call. Sections endpoint is POST /api/projects/<pid>/sections with {module,name}. Routine schema requires `activity` (not `task`). Page renderers: Tasks/Routines iterate `order.forEach(sid => emit bar then rows)`; CashFlow iterates flatOrdered which skips empty buckets (BUG-2). showNoneHeader hides no-section bar when empty in Tasks/Routines (BUG-1). After main-agent fixes, re-run only the failing cases.",
+  "rca of the issue": "BUG-1 root cause: line 474 of Tasks.jsx (mirrored Routines.jsx:390) treats No-section as a row-only bucket: `showNoneHeader = sect.sections.length>0 && grouped._none.length>0`. Once the user drags the last no-section row into any other section, `grouped._none.length===0` and the entire No-section SectionBar (which is also the drop target) is unmounted. The user has no surface left to drag back onto. Fix: remove the `grouped._none.length>0` clause; render an empty 'No section' bar with count=0 whenever sections exist. BUG-2 root cause: CashFlow.jsx flattens rows first then emits bars on bucket boundaries (lines 503–558); a bucket with zero rows is never iterated so its SectionBar never renders. Tasks and Routines emit bars from `order.forEach` independently of rowsInSec.length, which is the correct pattern. Fix: align CashFlow to the same pattern."
+}

@@ -98,6 +98,17 @@ export default function CashFlow() {
   const { move, onDragStart, onDragOver, onDrop, onDragEnd, draggingId } =
     useReorder("transactions", rows, setRows, { onCommit: load });
 
+  const moveRowToSection = async (sectionId) => {
+    const id = draggingId;
+    if (!id) return;
+    try {
+      await api.patch(`/transactions/${id}`, { section_id: sectionId });
+      await load();
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Could not move");
+    }
+  };
+
   const groups = useMemo(
     () => Array.from(new Set(rows.map((r) => r.group).filter(Boolean))).sort(),
     [rows],
@@ -510,6 +521,7 @@ export default function CashFlow() {
                         count={buckets._none.length}
                         collapsed={collapsed}
                         onToggle={() => sect.toggleCollapsed("none")}
+                        onDropRow={() => moveRowToSection(null)}
                         testIdPrefix="tx-section"
                         sectionKey="none"
                       />,
@@ -535,6 +547,7 @@ export default function CashFlow() {
                         }}
                         onUp={secIdx > 0 ? () => sect.move(sid, -1) : undefined}
                         onDown={secIdx < sect.sections.length - 1 ? () => sect.move(sid, 1) : undefined}
+                        onDropRow={() => moveRowToSection(sid)}
                         testIdPrefix="tx-section"
                         sectionKey={sid}
                       />,

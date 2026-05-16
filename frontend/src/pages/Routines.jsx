@@ -76,6 +76,17 @@ export default function Routines() {
   const { move, onDragStart, onDragOver, onDrop, onDragEnd, draggingId } =
     useReorder("routines", routines, setRoutines, { onCommit: load });
 
+  const moveRowToSection = async (sectionId) => {
+    const id = draggingId;
+    if (!id) return;
+    try {
+      await api.patch(`/routines/${id}`, { section_id: sectionId });
+      await load();
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Could not move");
+    }
+  };
+
   const groups = useMemo(
     () => Array.from(new Set(routines.map((r) => r.group).filter(Boolean))).sort(),
     [routines],
@@ -499,6 +510,7 @@ export default function Routines() {
                       count={rowsInSec.length}
                       collapsed={collapsed}
                       onToggle={() => sect.toggleCollapsed("none")}
+                      onDropRow={() => moveRowToSection(null)}
                       testIdPrefix="routine-section"
                       sectionKey="none"
                     />,
@@ -526,6 +538,7 @@ export default function Routines() {
                     }}
                     onUp={secIdx > 0 ? () => sect.move(sid, -1) : undefined}
                     onDown={secIdx < sect.sections.length - 1 ? () => sect.move(sid, 1) : undefined}
+                    onDropRow={() => moveRowToSection(sid)}
                     testIdPrefix="routine-section"
                     sectionKey={sid}
                   />,
