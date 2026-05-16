@@ -18,7 +18,24 @@ with the R.K.M. brand logo. AI-first input on every page (type → confirm → d
 - **Frontend**: React + Tailwind + Shadcn UI. Cormorant Garamond (serif), Outfit
   (display), Inter (body). Pure black + rich gold (#C9A961 / #E4C98C).
 
-### v2.26 — Drag-and-drop "row → SectionBar" (2026-02)
+### v2.27 — Fresh DB wipe + onboarding seed (2026-02)
+- **Full database wipe** per user instruction. Every collection
+  (users, projects, tasks, routines, transactions, notes, reminders,
+  sections, comments, tg_links, …) cleared. No pre-existing accounts.
+- **`_seed_examples_for_user(user_id, project_id)`** added to
+  `/app/backend/server.py` (just above `/auth/demo-login`). Wired into
+  both `POST /api/auth/signup` and `POST /api/auth/demo-login`.
+  Idempotent — guarded by a `seeded_at` field on the user doc.
+- **2 examples per module** are inserted into the user's default
+  "Personal" project on first signup:
+  - **Tasks**: a flagged "Try Mind Matters — tick this off" + an AI-bar prompt example
+  - **Routines**: Daily morning hydration (streak demo) + Weekly review (Medium/High priority demo)
+  - **Cash Flow**: ₹100,000 income from "Employer" + ₹450 expense at "Local cafe" (Bank vs UPI mode demo)
+  - **Notes**: Pinned "Welcome to Mind Matters" + "How sections work" tutorial
+  - **Reminders**: Daily-recurring "Plan tomorrow's top 3" + one-shot "Try the @-mention"
+- All 5 collections return exactly 2 documents per `GET /api/{module}` after a fresh signup; re-login does not duplicate.
+
+
 - **SectionBar** now accepts an `onDropRow` callback prop. When set, the
   bar listens on `onDragEnter` / `onDragOver` / `onDrop` and shows a
   gold-ring highlight (`data-drop-hover="true"`) while a row is dragged

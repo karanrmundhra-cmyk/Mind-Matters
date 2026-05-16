@@ -337,6 +337,113 @@ class Affirmation(BaseModel):
 
 
 # ───────────────────────────── auth ─────────────────────────────
+async def _seed_examples_for_user(user_id: str, project_id: str) -> None:
+    """Insert two demo rows per module so a brand-new user sees how the app
+    works at a glance. Idempotent — guarded by `seeded_at` on the user doc."""
+    user = await db.users.find_one({"id": user_id}, {"_id": 0, "seeded_at": 1})
+    if user and user.get("seeded_at"):
+        return
+
+    from datetime import timedelta
+    nowdt = datetime.now(timezone.utc)
+    today = nowdt.date().isoformat()
+    soon_iso = (nowdt + timedelta(hours=2)).isoformat()
+    tomorrow_9am = (nowdt + timedelta(days=1)).replace(
+        hour=9, minute=0, second=0, microsecond=0
+    ).isoformat()
+    base = {
+        "user_id": user_id, "project_id": project_id,
+        "created_at": now_iso(), "updated_at": now_iso(),
+        "attachments": [], "flagged": False,
+        "section": "", "section_id": None, "parent_id": None,
+    }
+
+    # 2 Tasks
+    await db.tasks.insert_many([
+        {**base, "id": new_id(), "sr_no": 1, "order_index": 1,
+         "date": today, "group": "Work", "name": "Self",
+         "task": "Try Mind Matters — tick this off when ready",
+         "details": "Click the circle on the left to mark this complete. The strike-through is satisfying, promise.",
+         "status": "Pending", "flagged": True},
+        {**base, "id": new_id(), "sr_no": 2, "order_index": 2,
+         "date": today, "group": "Personal", "name": "Self",
+         "task": "Add your first real task with the AI bar above",
+         "details": "Type something like '#Work Call Brinda Tuesday at 3pm' and hit Parse — the AI fills it in for you.",
+         "status": "Pending"},
+    ])
+
+    # 2 Routines
+    await db.routines.insert_many([
+        {**base, "id": new_id(), "sr_no": 1, "order_index": 1,
+         "group": "Health", "name": "Self",
+         "activity": "Morning hydration — 1 glass of water",
+         "details": "Tick it off daily; the gold flame chip shows your streak.",
+         "frequency": "Daily", "priority": "Medium", "status": "Active"},
+        {**base, "id": new_id(), "sr_no": 2, "order_index": 2,
+         "group": "Mind", "name": "Self",
+         "activity": "Weekly review — Sunday 8pm",
+         "details": "Look back at what worked, drop a few notes in the Notes tab.",
+         "frequency": "Weekly", "priority": "High", "status": "Active",
+         "flagged": True},
+    ])
+
+    # 2 Cash Flow entries (one income, one expense)
+    await db.transactions.insert_many([
+        {**base, "id": new_id(), "sr_no": 1, "order_index": 1,
+         "date": today, "group": "Income",
+         "vendor": "Employer", "name": "Employer", "company": "Employer",
+         "details": "Sample salary credit — replace with your own.",
+         "notes": "Sample salary credit — replace with your own.",
+         "amount": 100000, "currency": "INR",
+         "mode": "Bank", "remarks": "Bank",
+         "head": "Salary", "expense_head": "Salary",
+         "category": "income", "direction": "in"},
+        {**base, "id": new_id(), "sr_no": 2, "order_index": 2,
+         "date": today, "group": "Living",
+         "vendor": "Local cafe", "name": "Local cafe", "company": "Local cafe",
+         "details": "Sample coffee + croissant.",
+         "notes": "Sample coffee + croissant.",
+         "amount": 450, "currency": "INR",
+         "mode": "UPI", "remarks": "UPI",
+         "head": "Food", "expense_head": "Food",
+         "category": "expense", "direction": "out"},
+    ])
+
+    # 2 Notes
+    await db.notes.insert_many([
+        {**{k: v for k, v in base.items() if k not in {"section", "section_id", "parent_id"}},
+         "id": new_id(),
+         "title": "Welcome to Mind Matters",
+         "body": "This is your scratchpad. Type, hit Save. The AI bar parses long-form text into structured Notes too.\n\nTry pinning this with the pin icon so it stays at the top.",
+         "tags": ["welcome"], "pinned": True},
+        {**{k: v for k, v in base.items() if k not in {"section", "section_id", "parent_id"}},
+         "id": new_id(),
+         "title": "How sections work",
+         "body": "Open Tasks or Cash Flow → scroll to the bottom → '+ Add section'. You'll get a Todoist-style collapsible divider. Drag rows onto a section bar to move them — the bar glows gold while you hover. Sections live inside a project, so share the project and your collaborators see the same layout.",
+         "tags": ["tutorial"], "pinned": False},
+    ])
+
+    # 2 Reminders
+    await db.reminders.insert_many([
+        {"id": new_id(), "user_id": user_id, "project_id": project_id,
+         "title": "Plan tomorrow's top 3",
+         "notes": "Tonight, set your three must-do items for tomorrow. Future-you will thank present-you.",
+         "fire_at": tomorrow_9am, "recurrence": "daily",
+         "custom_recurrence": None, "sent": False,
+         "source_page": None, "source_context": None,
+         "created_at": now_iso()},
+        {"id": new_id(), "user_id": user_id, "project_id": project_id,
+         "title": "Try the @-mention",
+         "notes": "Open any task's comment thread and type @ to mention a collaborator. They'll get a Telegram ping if they've linked their account.",
+         "fire_at": soon_iso, "recurrence": "none",
+         "custom_recurrence": None, "sent": False,
+         "source_page": None, "source_context": None,
+         "created_at": now_iso()},
+    ])
+
+    await db.users.update_one({"id": user_id}, {"$set": {"seeded_at": now_iso()}})
+
+
 @api.post("/auth/demo-login", response_model=TokenResp)
 async def demo_login(body: DemoLoginReq):
     """Instant auth for v1. Creates or reuses the 'You' user."""
@@ -356,6 +463,12 @@ async def demo_login(body: DemoLoginReq):
         if user.get("first_name") != first_name:
             await db.users.update_one({"id": user["id"]}, {"$set": {"first_name": first_name}})
             user["first_name"] = first_name
+    # Seed 2 demo rows per module on first demo-login so the empty state isn't blank.
+    pid = await _ensure_default_project(user["id"])
+    try:
+        await _seed_examples_for_user(user["id"], pid)
+    except Exception as e:
+        logging.exception("Seed failed for demo-login: %s", e)
     token = make_token(user["id"])
     return {"token": token, "user": User(**user)}
 
@@ -406,6 +519,12 @@ async def signup(body: SignupReq):
             "created_at": now_iso(),
         }
         await db.users.insert_one(dict(user))
+    # Seed 2 demo rows per module on first signup so the empty state isn't blank.
+    pid = await _ensure_default_project(user["id"])
+    try:
+        await _seed_examples_for_user(user["id"], pid)
+    except Exception as e:
+        logging.exception("Seed failed for new signup: %s", e)
     token = make_token(user["id"])
     user_resp = {k: v for k, v in user.items() if k != "password_hash"}
     return {"token": token, "user": User(**user_resp)}
