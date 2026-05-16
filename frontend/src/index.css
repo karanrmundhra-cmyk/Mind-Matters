@@ -300,6 +300,41 @@ input[type="month"] {
 }
 
 /* Mobile-only: when a table row's first cell has class .mm-frozen-col, freeze it
+   so the SR / checkbox stays visible while the rest of the columns scroll
+   horizontally. Desktop ignores this class entirely. */
+@media (max-width: 767px) {
+  .mm-frozen-col {
+    position: sticky;
+    left: 0;
+    z-index: 5;
+    background: var(--mm-bg);
+    box-shadow: 6px 0 8px -4px rgba(0, 0, 0, 0.4);
+  }
+  /* Right-edge fade hint + scroll cue on horizontally scrollable tables */
+  .mm-table-wrap {
+    position: relative;
+  }
+  .mm-table-wrap::after {
+    content: "Scroll →";
+    position: absolute;
+    top: 6px;
+    right: 8px;
+    font-size: 9px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: rgba(201, 169, 97, 0.65);
+    background: rgba(0, 0, 0, 0.55);
+    padding: 2px 6px;
+    border-radius: 4px;
+    pointer-events: none;
+    z-index: 6;
+    animation: mm-scroll-hint 2.4s ease-in-out 2;
+  }
+}
+@keyframes mm-scroll-hint {
+  0%, 100% { opacity: 0.85; transform: translateX(0); }
+  50% { opacity: 1; transform: translateX(-6px); }
+}
  * to the left edge while the row scrolls horizontally. Combined with a wider
  * min-width on the grid, this gives spreadsheet-style "freeze panes" on phones.
  */
