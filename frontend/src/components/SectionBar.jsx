@@ -106,12 +106,12 @@ export default function SectionBar({
         ) : (
           <button
             type="button"
-            onClick={() => !readOnly && onRename && setEditing(true)}
-            disabled={readOnly || !onRename}
+            onClick={() => !readOnly && setEditing(true)}
+            disabled={readOnly}
             className={`text-[11px] uppercase tracking-[0.3em] mm-text-gold text-left w-full truncate ${
-              readOnly || !onRename ? "cursor-default" : "hover:mm-text-gold-bright"
+              readOnly ? "cursor-default" : "hover:mm-text-gold-bright"
             }`}
-            title={readOnly || !onRename ? "" : "Click to rename"}
+            title={readOnly ? "" : "Click to rename"}
             data-testid={tid("name")}
           >
             {name}
@@ -124,7 +124,7 @@ export default function SectionBar({
       >
         {count}
       </span>
-      {!readOnly && onRename && (
+      {!readOnly && (
         <button
           onClick={() => setEditing(true)}
           className="opacity-0 group-hover:opacity-100 text-[#B7A98A]/55 hover:text-[#E4C98C] transition p-0.5 shrink-0"

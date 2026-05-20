@@ -131,41 +131,43 @@ export default function ShareDialog({ project, onClose }) {
           </button>
         </div>
 
-        <form onSubmit={handleInvite} className="space-y-2">
-          <label className="text-[10px] uppercase tracking-[0.3em] text-[#B7A98A]/70">
-            Invite by email
-          </label>
-          <div className="flex gap-2">
+        <form onSubmit={handleInvite} className="space-y-3">
+          <div>
+            <label className="text-[10px] uppercase tracking-[0.3em] text-[#B7A98A]/70 block mb-1.5">
+              Invite by email
+            </label>
             <input
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="teammate@email.com"
-              className="mm-input text-sm flex-1"
+              className="w-full px-4 py-3 bg-[rgba(255,255,255,0.03)] border border-[rgba(201,169,97,0.25)] rounded-lg text-sm text-[var(--mm-text)] placeholder-[#B7A98A]/50 focus:outline-none focus:ring-2 focus:ring-[#C9A961]/50 focus:border-[#C9A961]/60 transition"
               data-testid="share-email-input"
             />
+          </div>
+          <div>
+            <label className="text-[10px] uppercase tracking-[0.3em] text-[#B7A98A]/70 block mb-1.5">
+              Role
+            </label>
             <select
               value={role}
               onChange={(e) => setRole(e.target.value)}
-              className="mm-input text-xs w-32"
+              className="w-full px-4 py-3 bg-[rgba(255,255,255,0.03)] border border-[rgba(201,169,97,0.25)] rounded-lg text-sm text-[var(--mm-text)] focus:outline-none focus:ring-2 focus:ring-[#C9A961]/50 focus:border-[#C9A961]/60 transition"
               data-testid="share-role-select"
             >
               {ROLES.map((r) => (
-                <option key={r.value} value={r.value}>{r.label}</option>
+                <option key={r.value} value={r.value}>{r.label} — {r.desc}</option>
               ))}
             </select>
-            <button
-              type="submit"
-              disabled={busy}
-              className="mm-btn-primary text-xs flex items-center gap-1.5 disabled:opacity-40"
-              data-testid="share-invite-btn"
-            >
-              <UserPlus size={13} /> Invite
-            </button>
           </div>
-          <p className="text-[10px] text-[#B7A98A]/55">
-            {ROLES.find((r) => r.value === role)?.desc}
-          </p>
+          <button
+            type="submit"
+            disabled={busy}
+            className="w-full px-4 py-3 bg-[#C9A961] hover:bg-[#E4C98C] text-black font-medium rounded-lg text-sm flex items-center justify-center gap-2 disabled:opacity-40 transition"
+            data-testid="share-invite-btn"
+          >
+            <UserPlus size={15} /> {busy ? "Sending…" : "Send Invite"}
+          </button>
         </form>
 
         <div className="mt-6">

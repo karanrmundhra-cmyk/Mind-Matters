@@ -24,14 +24,30 @@ import { todayISO } from "@/lib/format";
 const fmtINR = (n) =>
   new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 }).format(n || 0);
 
-const CATEGORIES = ["Income", "Expense", "Asset", "Liability", "Loan Given", "Loan Taken"];
+// FIX #11: 4 categories only (removed Loan Given / Loan Taken)
+const CATEGORIES = ["Income", "Expense", "Asset", "Liability"];
 const CAT_LABEL = {
   income: "Income",
   expense: "Expense",
   asset: "Asset",
   liability: "Liability",
-  loan_given: "Loan Given",
-  loan_taken: "Loan Taken",
+};
+
+// FIX #12: calculate the next occurrence date for a recurring transaction
+const getNextRecurrenceDate = (currentDate, recurrence) => {
+  const date = new Date(currentDate);
+  switch (recurrence) {
+    case "daily":      date.setDate(date.getDate() + 1); break;
+    case "weekly":     date.setDate(date.getDate() + 7); break;
+    case "biweekly":   date.setDate(date.getDate() + 14); break;
+    case "monthly":    date.setMonth(date.getMonth() + 1); break;
+    case "bimonthly":  date.setMonth(date.getMonth() + 2); break;
+    case "quarterly":  date.setMonth(date.getMonth() + 3); break;
+    case "halfyearly": date.setMonth(date.getMonth() + 6); break;
+    case "yearly":     date.setFullYear(date.getFullYear() + 1); break;
+    default: break;
+  }
+  return date.toISOString().split("T")[0];
 };
 
 const TX_COLUMNS = [
@@ -235,7 +251,7 @@ export default function CashFlow() {
     const mode = row.mode || row.remarks || "Bank";
     const head = row.head || row.expense_head || "";
     const details = row.details || row.notes || "";
-    await api.post("/transactions", {
+    const { data: saved } = await api.post("/transactions", {
       date: row.date || todayISO(),
       amount: Math.abs(Number(row.amount) || 0),
       group: row.group || activeGroup || "",
@@ -251,6 +267,21 @@ export default function CashFlow() {
       expense_head: head,
       direction: cat === "income" || cat === "asset" ? "in" : "out",
     });
+    // FIX #12: auto-create reminder for recurring transactions
+    if (row.recurring && row.recurrence) {
+      try {
+        const nextDate = getNextRecurrenceDate(row.date || todayISO(), row.recurrence);
+        await api.post("/reminders", {
+          title: `${vendor || details} — ${row.currency || "₹"}${Math.abs(Number(row.amount) || 0)}`,
+          fire_at: `${nextDate}T09:00:00`,
+          recurrence: row.recurrence,
+          notes: "Recurring payment reminder",
+          source_page: "cash-flow",
+          source_context: { source_id: saved?.id },
+        });
+      } catch { /* non-fatal */ }
+    }
+    return saved;
   };
 
   const add = async () => {
@@ -548,7 +579,7 @@ export default function CashFlow() {
                     <option value="JPY">¥</option>
                     <option value="AED">د.إ</option>
                   </select>
-                  <input type="number" defaultValue={t.amount} onBlur={(e) => patch(t.id, { amount: Number(e.target.value) })} onKeyDown={advanceOnEnter} className="mm-input-ghost text-xs flex-1" />
+                  <input type="number" defaultValue={t.amount ?? ""} onBlur={(e) => patch(t.id, { amount: Number(e.target.value) })} onKeyDown={advanceOnEnter} className="mm-input-ghost text-xs flex-1" placeholder="0" />
                 </div>
                 <input list="tx-modes" defaultValue={t.mode || t.remarks || ""} onBlur={(e) => patch(t.id, { mode: e.target.value, remarks: e.target.value })} onKeyDown={advanceOnEnter} className="mm-input-ghost text-xs" placeholder="—" />
                 <input list="tx-heads" defaultValue={t.head || t.expense_head || ""} onBlur={(e) => patch(t.id, { head: e.target.value, expense_head: e.target.value })} onKeyDown={advanceOnEnter} className="mm-input-ghost text-xs" />

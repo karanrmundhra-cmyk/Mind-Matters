@@ -27,6 +27,9 @@ import logging
 import json
 import jwt as pyjwt
 import httpx
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 
 from emergentintegrations.llm.chat import LlmChat, UserMessage
 import bcrypt
@@ -554,6 +557,44 @@ class ResetReq(BaseModel):
     new_password: str = Field(min_length=6, max_length=128)
 
 
+async def send_reset_email(recipient: str, reset_code: str) -> bool:
+    """Send password reset code via SMTP. Returns True on success."""
+    smtp_server = os.getenv("SMTP_SERVER")
+    smtp_port = os.getenv("SMTP_PORT")
+    sender = os.getenv("SENDER_EMAIL")
+    password = os.getenv("SENDER_PASSWORD")
+    if not all([smtp_server, smtp_port, sender, password]):
+        logger.warning("SMTP not configured — skipping email delivery")
+        return False
+    try:
+        msg = MIMEMultipart("alternative")
+        msg["Subject"] = "Mind Matters — Reset Your Password"
+        msg["From"] = sender
+        msg["To"] = recipient
+        text = f"Your Mind Matters password reset code is: {reset_code}\n\nExpires in 30 minutes."
+        html = f"""<html><body style="font-family:Inter,sans-serif;background:#09090B;color:#F5EFDD;padding:40px">
+  <div style="max-width:480px;margin:0 auto;border:1px solid rgba(201,169,97,0.2);border-radius:10px;padding:32px">
+    <h2 style="color:#E4C98C;margin-top:0">Mind Matters</h2>
+    <p>Your password reset code is:</p>
+    <div style="background:rgba(201,169,97,0.12);padding:20px;border-radius:6px;text-align:center;margin:20px 0">
+      <code style="font-size:28px;font-weight:bold;color:#C9A961;letter-spacing:4px">{reset_code}</code>
+    </div>
+    <p style="color:#B7A98A;font-size:13px">Expires in 30 minutes. If you didn't request this, ignore this email.</p>
+  </div>
+</body></html>"""
+        msg.attach(MIMEText(text, "plain"))
+        msg.attach(MIMEText(html, "html"))
+        with smtplib.SMTP(smtp_server, int(smtp_port)) as server:
+            server.starttls()
+            server.login(sender, password)
+            server.send_message(msg)
+        logger.info(f"Reset email sent to {recipient}")
+        return True
+    except Exception as e:
+        logger.error(f"Reset email failed: {e}")
+        return False
+
+
 @api.post("/auth/forgot")
 async def auth_forgot(body: ForgotReq):
     """Generate a 6-digit reset code, store it (hashed), and deliver it
@@ -581,8 +622,11 @@ async def auth_forgot(body: ForgotReq):
         }},
         upsert=True,
     )
-    # If Telegram is linked for this user, also DM the code to them.
+    # Deliver via email (FIX #1) and/or Telegram if linked.
     delivered_via = "screen"
+    email_sent = await send_reset_email(email, code)
+    if email_sent:
+        delivered_via = "email+screen"
     try:
         tg_link = await db.tg_links.find_one({"user_id": user["id"]}, {"_id": 0})
         if tg_link and tg_link.get("chat_id"):
@@ -592,7 +636,7 @@ async def auth_forgot(body: ForgotReq):
                 f"🔐 Mind Matters password reset code: *{code}*\nExpires in 30 min.",
                 parse_mode="Markdown",
             )
-            delivered_via = "telegram+screen"
+            delivered_via = ("telegram+email+screen" if email_sent else "telegram+screen")
     except Exception as e:
         logger.warning(f"forgot-password TG send failed: {e}")
     return {"ok": True, "delivered_via": delivered_via, "expires_at": expires_iso}
@@ -1018,6 +1062,7 @@ async def routines_summary(user=Depends(get_current_user)):
 # ───────────────────────────── generic reorder + groups ─────────────────────────────
 class ReorderReq(BaseModel):
     ids: List[str]  # desired order
+    rows: Optional[List[dict]] = None  # optional full row data (frontend may send for sr_no sync)
 
 
 _REORDER_COLLECTIONS = {"tasks", "routines", "transactions"}
@@ -3019,12 +3064,12 @@ async def _backfill_default_projects() -> None:
             fixed += 1
     if fixed:
         logger.info(f"v2.17 project backfill: seeded default project for {fixed} users")
-    # v2.22 — Normalise legacy lowercase categories on transactions so they
-    # match the capitalised CATEGORIES dropdown in the frontend (Item 25).
+    # v2.22 — Normalise legacy lowercase categories. loan_given/taken map
+    # directly to Asset/Liability (no intermediate "Loan Given" step).
     _category_map = {
         "expense": "Expense", "income": "Income",
         "asset": "Asset", "liability": "Liability",
-        "loan_given": "Loan Given", "loan_taken": "Loan Taken",
+        "loan_given": "Asset", "loan_taken": "Liability",
     }
     total = 0
     for old, new in _category_map.items():
@@ -3035,6 +3080,19 @@ async def _backfill_default_projects() -> None:
     if total:
         logger.info(f"v2.22 category normalise: updated {total} transactions")
 
+
+
+async def migrate_cashflow_categories() -> None:
+    """FIX #11: Migrate Title-Case loan categories to Asset/Liability."""
+    mapping = {"Loan Given": "Asset", "Loan Taken": "Liability"}
+    total = 0
+    for old, new in mapping.items():
+        res = await db.transactions.update_many(
+            {"category": old}, {"$set": {"category": new}}
+        )
+        total += res.modified_count
+    if total:
+        logger.info(f"v2.23 loan category migration: updated {total} transactions")
 
 
 class ResetReq(BaseModel):
@@ -4817,6 +4875,12 @@ async def _mm_startup_tasks():
         await _backfill_default_projects()
     except Exception as e:
         logger.warning(f"v2.17 migration failed: {e}")
+
+    # v2.23 migration — FIX #11: Migrate "Loan Given"/"Loan Taken" → Asset/Liability
+    try:
+        await migrate_cashflow_categories()
+    except Exception as e:
+        logger.warning(f"v2.23 category migration failed: {e}")
 
     # Indexes
     try:
