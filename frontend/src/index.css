@@ -20,7 +20,7 @@
   --mm-gold-glow: rgba(201, 169, 97, 0.35);
 }
 
-:root.light,
+/* LIGHT MODE (FIXED — FIX #2) */
 html.light {
   --mm-bg: #FFFFFF;
   --mm-bg-2: #F5F5F0;
@@ -28,8 +28,8 @@ html.light {
   --mm-surface-2: rgba(0, 0, 0, 0.08);
   --mm-border: rgba(139, 122, 46, 0.35);
   --mm-border-2: rgba(139, 122, 46, 0.55);
-  --mm-text: #0F0F0F;
-  --mm-muted: #4A4233;
+  --mm-text: #0F0F0F !important;
+  --mm-muted: #4A4233 !important;
   --mm-muted-2: #7A6F5C;
   --mm-gold: #8B7A2E;
   --mm-gold-bright: #6E5F1E;
@@ -37,23 +37,106 @@ html.light {
   --mm-gold-glow: rgba(139, 122, 46, 0.22);
 }
 
-/* Light mode: kill the gold-on-gold ghosting in inputs and ghost buttons */
-html.light .mm-input,
-html.light .mm-input-ghost {
-  color: #1A1A1A;
-}
-html.light .mm-input::placeholder,
-html.light .mm-input-ghost::placeholder {
-  color: rgba(74, 66, 51, 0.6);
-}
-html.light [class*="text-[#B7A98A]"] {
-  color: #4A4233 !important;
-}
-html.light [class*="text-[#E4C98C]"] {
-  color: #6E5F1E !important;
+/* Force dark text on ALL elements in light mode */
+html.light * {
+  color: var(--mm-text);
 }
 
-/* Focus mode: hide non-essential nav so user sees only Dashboard + Tasks. */
+html.light input::placeholder,
+html.light textarea::placeholder {
+  color: rgba(74, 66, 51, 0.6) !important;
+}
+
+html.light input,
+html.light textarea,
+html.light select {
+  color: #1A1A1A !important;
+  background: rgba(0, 0, 0, 0.045);
+  border: 1px solid var(--mm-border);
+}
+
+html.light label {
+  color: var(--mm-text) !important;
+}
+
+html.light button {
+  color: var(--mm-text);
+}
+
+html.light table,
+html.light td,
+html.light th {
+  color: var(--mm-text);
+  border-color: var(--mm-border);
+}
+
+html.light option {
+  color: #1A1A1A;
+  background: #FFFFFF;
+}
+
+html.light a {
+  color: #8B7A2E;
+}
+html.light a:hover {
+  color: #6E5F1E;
+}
+
+html.light .mm-input-ghost {
+  color: #1A1A1A !important;
+}
+
+html.light .badge,
+html.light .pill {
+  color: var(--mm-text);
+  background: rgba(0, 0, 0, 0.08);
+}
+
+html.light .card {
+  background: var(--mm-bg-2);
+  border: 1px solid var(--mm-border);
+  color: var(--mm-text);
+}
+
+html.light .mm-glass {
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(14px);
+}
+
+html.light input:focus,
+html.light textarea:focus,
+html.light select:focus {
+  outline: none;
+  border-color: #8B7A2E;
+  box-shadow: 0 0 0 2px rgba(139, 122, 46, 0.1);
+}
+
+html.light button:hover {
+  background: rgba(139, 122, 46, 0.1);
+}
+
+html.light button:active {
+  background: rgba(139, 122, 46, 0.2);
+}
+
+html.light input[type="date"],
+html.light input[type="datetime-local"],
+html.light input[type="time"] {
+  color-scheme: light;
+  color: #A07D20;
+}
+
+html.light .text-white,
+html.light .text-white\/50,
+html.light .text-white\/60,
+html.light .text-white\/70,
+html.light .text-white\/80,
+html.light .text-white\/85,
+html.light .text-white\/90 {
+  color: var(--mm-text) !important;
+}
+
+/* Focus mode */
 html.focus-mode [data-testid="nav-routines"],
 html.focus-mode [data-testid="nav-cashflow"],
 html.focus-mode [data-testid="nav-notes"],
@@ -64,36 +147,6 @@ html.focus-mode [data-testid="nav-settings"] {
 }
 html.focus-mode .mm-focus-hide {
   display: none !important;
-}
-
-/* Light mode contrast hardening — ensure body text + table cells + inputs
- * inherit the dark foreground colour from --mm-text. Some Tailwind utility
- * classes hard-code rgba(255,255,255,...) which is invisible on light. */
-html.light .text-white,
-html.light .text-white\\/50,
-html.light .text-white\\/60,
-html.light .text-white\\/70,
-html.light .text-white\\/80,
-html.light .text-white\\/85,
-html.light .text-white\\/90 {
-  color: var(--mm-text) !important;
-}
-html.light .mm-input,
-html.light .mm-input-ghost,
-html.light select,
-html.light textarea {
-  color: var(--mm-text);
-}
-html.light .mm-glass {
-  background: rgba(255, 255, 255, 0.85);
-  backdrop-filter: blur(14px);
-}
-
-html.light input[type="date"],
-html.light input[type="datetime-local"],
-html.light input[type="time"] {
-  color-scheme: light;
-  color: #A07D20;
 }
 
 html,
@@ -335,9 +388,6 @@ input[type="month"] {
   0%, 100% { opacity: 0.85; transform: translateX(0); }
   50% { opacity: 1; transform: translateX(-6px); }
 }
- * to the left edge while the row scrolls horizontally. Combined with a wider
- * min-width on the grid, this gives spreadsheet-style "freeze panes" on phones.
- */
 @media (max-width: 767px) {
   .mm-frozen-col {
     position: sticky;
@@ -534,4 +584,63 @@ input[type="datetime-local"]::-webkit-datetime-edit {
     rgba(255, 255, 255, 0.45),
     transparent
   );
+}
+
+/* NEWS PANEL STYLING (FIX #7) */
+.news-customizer,
+.news-category-dropdown,
+.customize-rss-button {
+  font-family: var(--mm-font-body) !important;
+  color: var(--mm-muted) !important;
+  font-size: 14px;
+  border: 1px solid var(--mm-border);
+  background: var(--mm-surface);
+  cursor: pointer;
+  padding: 8px 12px;
+  border-radius: 6px;
+}
+
+.news-customizer:hover,
+.news-category-dropdown:hover,
+.customize-rss-button:hover {
+  color: var(--mm-text);
+  background: var(--mm-surface-2);
+}
+
+/* TABLE VISIBILITY FIX (FIX #5) */
+.table-container {
+  width: 100%;
+  overflow-x: auto;
+  max-width: 100%;
+  margin: 0 auto;
+  padding: 20px;
+}
+
+table {
+  width: 100%;
+  min-width: 800px;
+  border-collapse: collapse;
+  margin: 0 auto;
+}
+
+.dialog,
+.modal,
+[role="dialog"] {
+  z-index: 1000;
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+}
+
+.attachments-panel {
+  position: absolute;
+  right: 10px;
+  width: 300px;
+  max-height: 400px;
+  overflow-y: auto;
+  z-index: 999;
+  background: var(--mm-bg-2);
+  border: 1px solid var(--mm-border);
+  border-radius: 8px;
 }

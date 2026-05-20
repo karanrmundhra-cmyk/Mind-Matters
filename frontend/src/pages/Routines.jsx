@@ -23,6 +23,10 @@ import { toast } from "sonner";
 
 const DEFAULT_FREQS = ["Daily", "Weekly", "Every 2 Weeks", "Monthly", "Every 2 Months", "Quarterly", "Half-Yearly", "Yearly"];
 
+// FIX #3: SR numbers always equal position in array
+const renumberRows = (rows) =>
+  rows.map((row, index) => ({ ...row, sr_no: index + 1 }));
+
 const ROUTINE_COLUMNS = [
   { key: "group", label: "Group", type: "text", width: "140px" },
   { key: "name", label: "Name", type: "text", width: "140px" },
@@ -436,7 +440,7 @@ export default function Routines() {
                   </div>
                   <input list="routine-groups" defaultValue={r.group || ""} onBlur={(e) => patch(r.id, { group: e.target.value })} onKeyDown={advanceOnEnter} placeholder="—" className="mm-input-ghost text-xs" />
                   <input list="routine-names" defaultValue={r.name || ""} onBlur={(e) => patch(r.id, { name: e.target.value })} onKeyDown={advanceOnEnter} placeholder="—" className="mm-input-ghost text-xs" />
-                  <input list="routine-activities" defaultValue={r.activity} onBlur={(e) => patch(r.id, { activity: e.target.value })} onKeyDown={advanceOnEnter} className={`mm-input-ghost text-xs ${(r.status === "Done" || r.status === "Completed") ? "line-through opacity-55" : ""}`} />
+                  <input list="routine-activities" defaultValue={r.activity} onBlur={(e) => patch(r.id, { activity: e.target.value })} onKeyDown={advanceOnEnter} className={`mm-input-ghost text-xs ${(r.status === "Done" || r.status === "Completed") ? "opacity-55" : ""}`} />
                   <input list="routine-details" defaultValue={r.details || ""} onBlur={(e) => patch(r.id, { details: e.target.value })} onKeyDown={advanceOnEnter} placeholder="—" className="mm-input-ghost text-xs" />
                   <select
                     value={freqs.includes(r.frequency) ? r.frequency : (r.frequency || "Daily")}

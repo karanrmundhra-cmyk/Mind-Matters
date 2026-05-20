@@ -24,6 +24,10 @@ import { todayISO } from "@/lib/format";
 
 const STATUSES = ["Pending", "Completed", "Follow-Up", "Delegate"];
 
+// FIX #3: SR numbers always equal position in array
+const renumberRows = (rows) =>
+  rows.map((row, index) => ({ ...row, sr_no: index + 1 }));
+
 const TASK_COLUMNS = [
   { key: "date", label: "Date", type: "date", width: "140px" },
   { key: "group", label: "Group", type: "text", width: "120px" },
@@ -256,17 +260,21 @@ export default function Tasks() {
     tasksRef.current = tasks;
   }, [tasks]);
 
-  // Ticking a task → flip status AND renumber so Sr reflects the new position:
-  //  - Marking Completed: push it to the very bottom (last sr_no).
-  //  - Un-completing: send it to the top of the Pending list (sr_no 1).
+  // FIX #3 + #9: Tick moves task to bottom (no strikethrough), renumbers all SR
   const toggleDone = async (id) => {
     const cur = tasksRef.current.find((x) => x.id === id);
     if (!cur) return;
     const willComplete = !isDone(cur);
+    const updated = tasksRef.current.map((r) =>
+      r.id === id ? { ...r, status: willComplete ? "Completed" : "Pending" } : r
+    );
+    const pending = updated.filter((r) => !isDone(r));
+    const completed = updated.filter((r) => isDone(r));
+    const renumbered = renumberRows([...pending, ...completed]);
     await api.patch(`/tasks/${id}`, { status: willComplete ? "Completed" : "Pending" });
-    const others = tasksRef.current.filter((x) => x.id !== id).map((x) => x.id);
-    const newIds = willComplete ? [...others, id] : [id, ...others];
-    try { await api.post("/tasks/reorder", { ids: newIds }); } catch { /* */ }
+    try {
+      await api.post("/tasks/reorder", { ids: renumbered.map((r) => r.id), rows: renumbered });
+    } catch { /* */ }
     await load();
   };
 
@@ -523,7 +531,7 @@ export default function Tasks() {
                     defaultValue={t.task || ""}
                     onBlur={(e) => patch(t.id, { task: e.target.value })}
                     onKeyDown={advanceOnEnter}
-                    className={`mm-input-ghost text-xs !py-1.5 ${isDone(t) ? "line-through opacity-55" : ""}`}
+                    className={`mm-input-ghost text-xs !py-1.5 ${isDone(t) ? "opacity-55" : ""}`}
                   />
                   <input
                     list="task-details"
