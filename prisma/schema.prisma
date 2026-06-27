@@ -1,0 +1,406 @@
+// Personal OS — data model.
+// Mirrors src/domain/enums.ts. Postgres (Supabase). UUID PKs, FK cascade rules,
+// enums, composite indexes, optimistic-locking `version` columns on Loop & Subscription,
+// soft-delete via `deletedAt`, full transition history + audit log + idempotency keys.
+// Row-Level Security policies are applied in a companion migration (see prisma/rls.sql),
+// since Prisma does not model RLS directly.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ─────────────────────────── Enums ───────────────────────────
+
+enum LoopStatus {
+  Draft
+  Confirmed
+  Scheduled
+  Awaiting
+  Responded
+  Blocked
+  Escalated
+  Completed
+  Closed
+  Dropped
+  Archived
+  Deleted
+}
+
+enum Priority {
+  Critical
+  High
+  Medium
+  Low
+}
+
+enum Channel {
+  email
+  whatsapp
+  telephone
+  telegram
+  sms
+  voice
+}
+
+enum ConsentState {
+  none
+  opted_in
+  opted_out
+}
+
+enum Plan {
+  free
+  pro
+  business
+}
+
+enum LoopSource {
+  manual
+  voice
+  email
+}
+
+enum ReminderKind {
+  deadline
+  followup
+}
+
+enum ReminderState {
+  scheduled
+  fired
+  snoozed
+  cancelled
+}
+
+enum TouchType {
+  created
+  drafted
+  sent
+  delivered
+  seen
+  replied
+  reminded
+  followup_sent
+  call_logged
+  status_changed
+  closed
+  note
+}
+
+enum Role {
+  owner
+  admin
+  assistant
+  read_only
+}
+
+enum SpaceType {
+  work
+}
+
+enum SubscriptionStatus {
+  active
+  past_due
+  cancelled
+  grace
+  incomplete
+}
+
+enum Gateway {
+  razorpay
+  stripe
+}
+
+// ─────────────────────────── Core ───────────────────────────
+
+model User {
+  id           String   @id @default(uuid()) @db.Uuid
+  name         String
+  email        String   @unique
+  locale       String   @default("en")
+  timezone     String   @default("Asia/Kolkata")
+  plan         Plan     @default(free)
+  authProvider String   @default("google")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  deletedAt    DateTime?
+
+  ownedSpaces   Space[]        @relation("SpaceOwner")
+  memberships   Membership[]
+  routines      Routine[]
+  subscription  Subscription?
+  createdLoops  Loop[]         @relation("LoopCreatedBy")
+  createdContacts Contact[]    @relation("ContactCreatedBy")
+  attachments   Attachment[]   @relation("AttachmentCreatedBy")
+}
+
+model Space {
+  id          String    @id @default(uuid()) @db.Uuid
+  type        SpaceType @default(work)
+  ownerUserId String    @db.Uuid
+  owner       User      @relation("SpaceOwner", fields: [ownerUserId], references: [id], onDelete: Cascade)
+  createdAt   DateTime  @default(now())
+
+  memberships Membership[]
+  contacts    Contact[]
+  groups      Group[]
+  loops       Loop[]
+  auditLogs   AuditLog[]
+
+  @@index([ownerUserId])
+}
+
+// Roles modelled now for future multi-user; MVP enforces Owner-only at the service layer.
+model Membership {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @db.Uuid
+  spaceId   String   @db.Uuid
+  role      Role     @default(owner)
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  space     Space    @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, spaceId])
+  @@index([spaceId])
+}
+
+model Group {
+  id      String  @id @default(uuid()) @db.Uuid
+  spaceId String  @db.Uuid
+  name    String
+  space   Space   @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  contacts Contact[]
+
+  @@unique([spaceId, name])
+}
+
+model Contact {
+  id          String   @id @default(uuid()) @db.Uuid
+  spaceId     String   @db.Uuid
+  name        String
+  email       String?
+  whatsapp    String?
+  telephone   String?
+  groupId     String?  @db.Uuid
+  // Canonical contact for dedup/merge ("Raj", "Rajesh", "Raj Office" → one history).
+  canonicalContactId String? @db.Uuid
+  createdById String   @db.Uuid
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  deletedAt   DateTime?
+
+  space     Space   @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  group     Group?  @relation(fields: [groupId], references: [id], onDelete: SetNull)
+  createdBy User    @relation("ContactCreatedBy", fields: [createdById], references: [id])
+  canonical Contact?  @relation("ContactCanonical", fields: [canonicalContactId], references: [id], onDelete: SetNull)
+  aliases   Contact[] @relation("ContactCanonical")
+  consents  CommunicationConsent[]
+  loopOwners LoopOwner[]
+
+  @@index([spaceId])
+  @@index([spaceId, email])
+  @@index([spaceId, whatsapp])
+}
+
+// "Contacts ≠ consent": gates every autonomous channel (Phase 3). Built now.
+model CommunicationConsent {
+  id         String       @id @default(uuid()) @db.Uuid
+  contactId  String       @db.Uuid
+  channel    Channel
+  state      ConsentState @default(none)
+  source     String?
+  capturedAt DateTime     @default(now())
+  dndStatus  String?
+  expiresAt  DateTime?
+  contact    Contact      @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  @@unique([contactId, channel])
+}
+
+model Loop {
+  id               String     @id @default(uuid()) @db.Uuid
+  spaceId          String     @db.Uuid
+  title            String
+  ask              String
+  definitionOfDone String
+  deadline         DateTime?
+  priority         Priority   @default(Medium)
+  status           LoopStatus @default(Draft)
+  followupPolicyDays Int?     // user override of the priority-default cadence
+  channel          Channel?
+  orderIndex       Int        @default(0)
+  source           LoopSource @default(manual)
+  aiConfidence     Float?
+  aiVersion        String?
+  createdById      String     @db.Uuid
+
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  waitingSince DateTime?
+  lastFollowupAt DateTime?
+  nextFollowupAt DateTime?
+  completedAt  DateTime?
+  closedAt     DateTime?
+  archivedAt   DateTime?
+  deletedAt    DateTime?
+
+  version Int @default(0) // optimistic locking
+
+  space       Space            @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  createdBy   User             @relation("LoopCreatedBy", fields: [createdById], references: [id])
+  owners      LoopOwner[]
+  touches     Touch[]
+  reminders   Reminder[]
+  attachments Attachment[]
+  transitions LoopTransition[]
+
+  @@index([spaceId, status])
+  @@index([spaceId, status, deadline])
+  @@index([spaceId, orderIndex])
+  @@index([nextFollowupAt])
+  @@index([deadline])
+}
+
+// Per-owner tracking so multi-owner loops carry one sub-status per owner.
+model LoopOwner {
+  id          String      @id @default(uuid()) @db.Uuid
+  loopId      String      @db.Uuid
+  contactId   String      @db.Uuid
+  subStatus   LoopStatus  @default(Awaiting)
+  respondedAt DateTime?
+  loop        Loop        @relation(fields: [loopId], references: [id], onDelete: Cascade)
+  contact     Contact     @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  @@unique([loopId, contactId])
+  @@index([contactId])
+}
+
+// Timeline events. NOT statuses.
+model Touch {
+  id        String    @id @default(uuid()) @db.Uuid
+  loopId    String    @db.Uuid
+  type      TouchType
+  channel   Channel?
+  timestamp DateTime  @default(now())
+  payload   Json?
+  loop      Loop      @relation(fields: [loopId], references: [id], onDelete: Cascade)
+
+  @@index([loopId, timestamp])
+}
+
+// Full transition history for rollback + audit.
+model LoopTransition {
+  id         String      @id @default(uuid()) @db.Uuid
+  loopId     String      @db.Uuid
+  fromStatus LoopStatus?
+  toStatus   LoopStatus
+  byUserId   String?     @db.Uuid
+  reason     String?
+  createdAt  DateTime    @default(now())
+  loop       Loop        @relation(fields: [loopId], references: [id], onDelete: Cascade)
+
+  @@index([loopId, createdAt])
+}
+
+model Reminder {
+  id      String        @id @default(uuid()) @db.Uuid
+  loopId  String        @db.Uuid
+  dueAt   DateTime
+  kind    ReminderKind
+  state   ReminderState @default(scheduled)
+  loop    Loop          @relation(fields: [loopId], references: [id], onDelete: Cascade)
+
+  @@index([dueAt, state])
+  @@index([loopId])
+}
+
+model Routine {
+  id            String   @id @default(uuid()) @db.Uuid
+  userId        String   @db.Uuid
+  title         String
+  cadence       String   @default("daily")
+  resetAtLocal  String   @default("00:00") // local-midnight reset point
+  timezone      String   @default("Asia/Kolkata")
+  streakCount   Int      @default(0)
+  lastCheckedOn DateTime? @db.Date
+  createdAt     DateTime @default(now())
+  deletedAt     DateTime?
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  checks        RoutineCheck[]
+
+  @@index([userId])
+}
+
+model RoutineCheck {
+  id        String   @id @default(uuid()) @db.Uuid
+  routineId String   @db.Uuid
+  checkedOn DateTime @db.Date
+  createdAt DateTime @default(now())
+  routine   Routine  @relation(fields: [routineId], references: [id], onDelete: Cascade)
+
+  @@unique([routineId, checkedOn])
+}
+
+model Attachment {
+  id          String   @id @default(uuid()) @db.Uuid
+  loopId      String   @db.Uuid
+  filename    String
+  mime        String
+  size        Int
+  storageRef  String
+  createdById String   @db.Uuid
+  createdAt   DateTime @default(now())
+  loop        Loop     @relation(fields: [loopId], references: [id], onDelete: Cascade)
+  createdBy   User     @relation("AttachmentCreatedBy", fields: [createdById], references: [id])
+
+  @@index([loopId])
+}
+
+model Subscription {
+  id              String             @id @default(uuid()) @db.Uuid
+  userId          String             @unique @db.Uuid
+  plan            Plan               @default(free)
+  gateway         Gateway?
+  mandateRef      String?
+  status          SubscriptionStatus @default(incomplete)
+  currentPeriodEnd DateTime?
+  version         Int                @default(0) // optimistic locking
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+  user            User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// Every important action is audit-logged.
+model AuditLog {
+  id        String   @id @default(uuid()) @db.Uuid
+  spaceId   String?  @db.Uuid
+  userId    String?  @db.Uuid
+  action    String
+  entity    String
+  entityId  String
+  data      Json?
+  requestId String?
+  createdAt DateTime @default(now())
+  space     Space?   @relation(fields: [spaceId], references: [id], onDelete: SetNull)
+
+  @@index([entity, entityId])
+  @@index([spaceId, createdAt])
+}
+
+// De-dupes state-changing POSTs (payments, loops, sends) on retry.
+model IdempotencyKey {
+  id           String   @id @default(uuid()) @db.Uuid
+  key          String   @unique
+  scope        String
+  userId       String?  @db.Uuid
+  responseHash String?
+  createdAt    DateTime @default(now())
+
+  @@index([scope, createdAt])
+}

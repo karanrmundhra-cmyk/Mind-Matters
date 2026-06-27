@@ -1,0 +1,163 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+  Personal OS — Design tokens
+  Palette authority: BLACK / WHITE / GOLD only (overrides original spec's warm tokens).
+  Gold is the single reward/accent colour (primary actions, streaks, "closed").
+  A single restrained functional red (--pos-danger) exists ONLY for destructive/error
+  safety cues — never decorative. See DECISIONS.md (D-002).
+*/
+
+:root {
+  /* ---- Light theme (default) ---- */
+  --pos-bg: #fafafa;
+  --pos-bg-2: #f2f2f0;
+  --pos-surface: 255 255 255; /* rgb channels for alpha composition */
+  --pos-surface-a: 0.72;
+  --pos-glass: 255 255 255;
+  --pos-glass-a: 0.35;
+  --pos-border: 0 0 0;
+  --pos-border-a: 0.08;
+  --pos-border-strong-a: 0.14;
+
+  --pos-text: #0a0a0a;
+  --pos-muted: #6b6b6b;
+  --pos-faint: #9a9a9a;
+
+  --pos-gold: #c8a24a;
+  --pos-gold-soft: #e3c878;
+  --pos-gold-deep: #a6822f;
+  --pos-on-gold: #1a1505; /* text on a gold fill */
+
+  --pos-danger: #b42318; /* functional only */
+  --pos-on-danger: #ffffff;
+
+  /* Ambient blurred gradient lights (gold-on-paper) */
+  --pos-amb-1: rgba(200, 162, 74, 0.16);
+  --pos-amb-2: rgba(227, 200, 120, 0.12);
+  --pos-amb-3: rgba(0, 0, 0, 0.04);
+
+  /* Shadows — soft, layered, floating */
+  --pos-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04), 0 2px 8px rgba(0, 0, 0, 0.04);
+  --pos-shadow-md: 0 4px 14px rgba(0, 0, 0, 0.06), 0 12px 32px rgba(0, 0, 0, 0.07);
+  --pos-shadow-lg: 0 12px 40px rgba(0, 0, 0, 0.10), 0 24px 64px rgba(0, 0, 0, 0.10);
+  --pos-glow-gold: 0 6px 24px rgba(200, 162, 74, 0.30);
+
+  /* Radii — cards rounded-3xl, controls fully pill */
+  --pos-r-card: 30px;
+  --pos-r-sheet: 32px;
+  --pos-r-pill: 999px;
+
+  /* Blur levels */
+  --pos-blur-sm: 8px;
+  --pos-blur-md: 18px;
+  --pos-blur-lg: 30px;
+
+  /* Motion */
+  --pos-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --pos-dur: 200ms;
+
+  color-scheme: light;
+}
+
+:root[data-theme='dark'] {
+  --pos-bg: #0a0a0a;
+  --pos-bg-2: #050505;
+  --pos-surface: 22 22 22;
+  --pos-surface-a: 0.72;
+  --pos-glass: 40 40 40;
+  --pos-glass-a: 0.40;
+  --pos-border: 255 255 255;
+  --pos-border-a: 0.08;
+  --pos-border-strong-a: 0.16;
+
+  --pos-text: #f7f7f5;
+  --pos-muted: #a0a0a0;
+  --pos-faint: #6f6f6f;
+
+  --pos-gold: #d8b45c;
+  --pos-gold-soft: #ecd28c;
+  --pos-gold-deep: #b8923c;
+  --pos-on-gold: #16110a;
+
+  --pos-danger: #f0584b;
+  --pos-on-danger: #1a0605;
+
+  --pos-amb-1: rgba(216, 180, 92, 0.14);
+  --pos-amb-2: rgba(184, 146, 60, 0.10);
+  --pos-amb-3: rgba(255, 255, 255, 0.03);
+
+  --pos-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4), 0 2px 10px rgba(0, 0, 0, 0.4);
+  --pos-shadow-md: 0 6px 18px rgba(0, 0, 0, 0.5), 0 16px 40px rgba(0, 0, 0, 0.5);
+  --pos-shadow-lg: 0 16px 48px rgba(0, 0, 0, 0.6), 0 28px 72px rgba(0, 0, 0, 0.6);
+  --pos-glow-gold: 0 6px 28px rgba(216, 180, 92, 0.28);
+
+  color-scheme: dark;
+}
+
+* {
+  border-color: rgb(var(--pos-border) / var(--pos-border-a));
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  background-color: var(--pos-bg);
+  color: var(--pos-text);
+  font-feature-settings: 'cv11', 'ss01';
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* Ambient blurred gradient field — the "premium lighting" layer behind glass.
+   Stays strictly within gold + neutral. */
+.pos-ambient {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+  pointer-events: none;
+  background:
+    radial-gradient(60% 50% at 18% 8%, var(--pos-amb-1), transparent 70%),
+    radial-gradient(50% 40% at 88% 14%, var(--pos-amb-2), transparent 72%),
+    radial-gradient(70% 60% at 50% 108%, var(--pos-amb-3), transparent 70%);
+}
+
+/* Reusable glass surface used by cards/sheets/nav */
+.pos-glass {
+  background-color: rgb(var(--pos-surface) / var(--pos-surface-a));
+  backdrop-filter: blur(var(--pos-blur-md)) saturate(1.4);
+  -webkit-backdrop-filter: blur(var(--pos-blur-md)) saturate(1.4);
+  border: 1px solid rgb(var(--pos-border) / var(--pos-border-strong-a));
+  box-shadow: var(--pos-shadow-md);
+}
+
+/* Focus ring — visible, gold, accessible */
+.pos-focus:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--pos-bg), 0 0 0 4px var(--pos-gold);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Gold tick-to-close keyframe (used by loop rows) */
+@keyframes pos-tick {
+  0% { transform: scale(1); }
+  40% { transform: scale(1.18); }
+  100% { transform: scale(1); }
+}
+.pos-tick-anim { animation: pos-tick var(--pos-dur) var(--pos-ease); }
