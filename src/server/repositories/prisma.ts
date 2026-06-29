@@ -154,7 +154,7 @@ export class PrismaWorkspaceRepository implements WorkspaceRepository {
 
   async listTouches(loopId: string): Promise<TouchView[]> {
     const rows = await prisma.touch.findMany({ where: { loopId }, orderBy: { timestamp: 'asc' } });
-    return rows.map((t: TouchView & { payload: unknown }) => ({
+    return rows.map((t: Omit<TouchView, 'payload'> & { payload: unknown }) => ({
       id: t.id,
       loopId: t.loopId,
       type: t.type,
