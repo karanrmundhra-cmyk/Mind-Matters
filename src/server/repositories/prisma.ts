@@ -110,7 +110,12 @@ export class PrismaWorkspaceRepository implements WorkspaceRepository {
         source: input.source,
         followupPolicyDays: input.followupPolicyDays ?? null,
         orderIndex: (max._max.orderIndex ?? -1) + 1,
-        owners: { create: input.owners.map((o) => ({ contactId: o.contactId, subStatus: 'Awaiting' as LoopStatus })) },
+        owners: {
+          create: input.owners.map((o) => ({
+            subStatus: 'Awaiting' as LoopStatus,
+            contact: { connect: { id: o.contactId } },
+          })),
+        },
         touches: { create: [{ type: 'created' }] },
       },
       include: LOOP_INCLUDE,
@@ -165,7 +170,8 @@ export class PrismaWorkspaceRepository implements WorkspaceRepository {
         loopId,
         type: touch.type,
         channel: touch.channel ?? null,
-        payload: (touch.payload ?? undefined) as object | undefined,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Prisma JSON input type differs between the generated client and the local stub
+        payload: (touch.payload ?? undefined) as any,
       },
     });
     return {

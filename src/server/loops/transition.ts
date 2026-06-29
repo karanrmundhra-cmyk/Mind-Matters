@@ -50,7 +50,8 @@ export async function transitionLoop(
     });
 
     await tx.touch.create({
-      data: { loopId, type: plan.touch.type, payload: plan.touch.payload },
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Prisma JSON input type differs between the generated client and the local stub
+      data: { loopId, type: plan.touch.type, payload: plan.touch.payload as any },
     });
 
     await tx.auditLog.create({

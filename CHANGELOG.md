@@ -5,6 +5,13 @@ All notable changes to Personal OS. Format loosely follows Keep a Changelog.
 ## [Unreleased]
 _Infrastructure phase: GitHub ✅ → Supabase (DB ✅, auth pending) → Anthropic → remaining → deploy._
 
+### Deploy fixes (surfaced by the first Vercel build — real Prisma client vs local stub)
+- Prisma `Json` inputs (`Touch.payload`) cast at the persistence boundary (the generated client's
+  `InputJsonValue` type isn't present in the offline stub) — contained, documented lint exceptions.
+- `createLoop` uses the explicit `contact: { connect }` relation form for owners.
+- `db.ts` constructs the client with a placeholder datasource URL when `DATABASE_URL` is unset, so the
+  app boots on the in-memory repository without a DB configured (no construction crash).
+
 ### AI — Gemini provider added (swappable layer)
 - `GeminiProvider` (`src/ai/providers/gemini.ts`) implementing the same `ModelProvider` interface;
   `getProvider()` selects it via `AI_PROVIDER=gemini` + `GEMINI_API_KEY`. Shared `extractJson` helper
