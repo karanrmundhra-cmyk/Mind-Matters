@@ -9,8 +9,8 @@ import { PrismaWorkspaceRepository } from '@/server/repositories/prisma';
  *
  * Dev identity constants stand in for the authenticated user/space until Step 7 (auth).
  */
-export const DEV_SPACE_ID = '00000000-0000-0000-0000-0000000000s1';
-export const DEV_USER_ID = '00000000-0000-0000-0000-0000000000u1';
+export const DEV_USER_ID = '00000000-0000-0000-0000-000000000001';
+export const DEV_SPACE_ID = '00000000-0000-0000-0000-000000000002';
 
 let singleton: WorkspaceRepository | null = null;
 

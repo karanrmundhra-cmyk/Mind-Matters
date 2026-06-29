@@ -1,6 +1,7 @@
 import type { ModelProvider, AIParseInput, AIParseOutput, AIDraftInput } from '@/ai/types';
 import { aiParseOutputSchema } from '@/ai/types';
 import { buildParseMessages } from '@/ai/prompts/parse';
+import { extractJson } from '@/ai/json';
 
 const API_URL = 'https://api.anthropic.com/v1/messages';
 const API_VERSION = '2023-06-01';
@@ -74,14 +75,4 @@ export class AnthropicProvider implements ModelProvider {
     }\nWrite the message.`;
     return (await this.call(this.cfg.strongModel, system, user, 400)).trim();
   }
-}
-
-/** Pull the first JSON object out of a model response, tolerating code fences. */
-function extractJson(text: string): string {
-  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  if (fenced && fenced[1]) return fenced[1].trim();
-  const start = text.indexOf('{');
-  const end = text.lastIndexOf('}');
-  if (start !== -1 && end !== -1 && end > start) return text.slice(start, end + 1);
-  return text.trim();
 }

@@ -39,6 +39,9 @@ alter table "RoutineCheck"         enable row level security;
 alter table "Attachment"           enable row level security;
 alter table "Subscription"         enable row level security;
 alter table "AuditLog"             enable row level security;
+-- Server-internal table: RLS on with no policy → no anon/authenticated access
+-- (the app reaches it only via the privileged direct connection, which bypasses RLS).
+alter table "IdempotencyKey"       enable row level security;
 
 -- User: can read/update only self.
 create policy user_self on "User"

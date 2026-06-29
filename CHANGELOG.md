@@ -3,7 +3,25 @@
 All notable changes to Personal OS. Format loosely follows Keep a Changelog.
 
 ## [Unreleased]
-_Infrastructure phase: GitHub → Supabase → Anthropic → remaining integrations → deploy._
+_Infrastructure phase: GitHub ✅ → Supabase (DB ✅, auth pending) → Anthropic → remaining → deploy._
+
+### AI — Gemini provider added (swappable layer)
+- `GeminiProvider` (`src/ai/providers/gemini.ts`) implementing the same `ModelProvider` interface;
+  `getProvider()` selects it via `AI_PROVIDER=gemini` + `GEMINI_API_KEY`. Shared `extractJson` helper
+  factored out (used by both providers) + tested. `tsc` 0, `eslint` 0, **101 tests**.
+
+### Supabase — database (applied + verified via connector)
+- Wiped the legacy schema from the `mind-matters` project (13 empty tables, owner-authorized).
+- Applied the full Personal OS schema: **17 tables + 13 enums + indexes + FKs**, matching
+  `schema.prisma` naming/types (so the Prisma baseline stays clean).
+- **RLS enabled with tenant-isolation policies** (`accessible_space_ids()` + per-table policies) —
+  fixed the connector's critical "RLS disabled" advisory. `rls.sql` updated to match.
+- Seeded the demo workspace (3 loops, 2 contacts, 3 owners, 2 routines, 3 touches) under the dev
+  user/space; verified the `listLoops` join returns owners correctly.
+- Fixed dev user/space constants to valid UUIDs (Postgres `uuid` columns).
+- **Pending for live in-app use:** `DATABASE_URL`/`DIRECT_URL` + `service_role` in env (→ Prisma
+  client connects, `getRepository()` flips to Prisma), Prisma migration baseline, and Google OAuth
+  (Supabase Auth) for sign-in.
 
 ### Infra prep (keyless, ahead of credentials)
 - **Prisma/Supabase repository** (`src/server/repositories/prisma.ts`) implementing the full

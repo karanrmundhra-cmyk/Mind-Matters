@@ -5,7 +5,8 @@
   "description": "Personal OS — an AI Chief of Staff that closes the loop on what you delegate.",
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "prisma generate && next build",
+    "postinstall": "prisma generate",
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
