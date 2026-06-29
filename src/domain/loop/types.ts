@@ -59,3 +59,11 @@ export interface GroupView {
   id: string;
   name: string;
 }
+
+export interface RoutineView {
+  id: string;
+  title: string;
+  streakCount: number;
+  lastCheckedOn: Date | null;
+  timezone: string;
+}

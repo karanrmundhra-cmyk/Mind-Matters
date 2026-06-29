@@ -1,5 +1,6 @@
 import type { Loop } from '@/domain/loop/types';
 import type { LoopStatus, Priority, Channel } from '@/domain/enums';
+import { isHidden } from '@/domain/loop/stateMachine';
 
 /** The four Loops segments. */
 export type Segment = 'by_me' | 'to_me' | 'waiting' | 'watching';
@@ -23,11 +24,8 @@ const WAITING_STATUSES: ReadonlySet<LoopStatus> = new Set<LoopStatus>([
   'Escalated',
 ]);
 
-/** Statuses hidden from the default lists (terminal / archived / soft-deleted). */
-const HIDDEN_STATUSES: ReadonlySet<LoopStatus> = new Set<LoopStatus>(['Archived', 'Deleted']);
-
 export function isActive(loop: Loop): boolean {
-  return !HIDDEN_STATUSES.has(loop.status);
+  return !isHidden(loop.status);
 }
 
 /** Which day-bucket a loop's deadline falls into, relative to `now` (local-naive for MVP). */

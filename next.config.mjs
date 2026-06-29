@@ -2,6 +2,7 @@
 const nextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
+  output: 'standalone',
   // Security headers applied to every response. CSP is intentionally strict;
   // it is widened per-integration (Razorpay/Stripe/Supabase) in Step 7/8.
   async headers() {

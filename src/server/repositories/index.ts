@@ -1,5 +1,6 @@
 import type { WorkspaceRepository } from '@/domain/loop/repository';
 import { InMemoryWorkspaceRepository } from '@/server/repositories/inMemory';
+import { PrismaWorkspaceRepository } from '@/server/repositories/prisma';
 
 /**
  * Single swap point for the persistence layer. Today it returns the in-memory
@@ -13,9 +14,16 @@ export const DEV_USER_ID = '00000000-0000-0000-0000-0000000000u1';
 
 let singleton: WorkspaceRepository | null = null;
 
+/**
+ * Returns the Prisma/Supabase repository once DATABASE_URL is configured, otherwise the
+ * in-memory dev repository. Both satisfy the same WorkspaceRepository interface, so no
+ * other code changes when the database is connected.
+ */
 export function getRepository(): WorkspaceRepository {
   if (!singleton) {
-    singleton = new InMemoryWorkspaceRepository(DEV_SPACE_ID, DEV_USER_ID);
+    singleton = process.env.DATABASE_URL
+      ? new PrismaWorkspaceRepository()
+      : new InMemoryWorkspaceRepository(DEV_SPACE_ID, DEV_USER_ID);
   }
   return singleton;
 }

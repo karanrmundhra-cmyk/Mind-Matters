@@ -1,4 +1,4 @@
-import type { Loop, TouchView, ContactView, GroupView, LoopOwnerView } from '@/domain/loop/types';
+import type { Loop, TouchView, ContactView, GroupView, LoopOwnerView, RoutineView } from '@/domain/loop/types';
 import type { LoopStatus, Priority, Channel, LoopSource } from '@/domain/enums';
 import type { TransitionOptions } from '@/domain/loop/service';
 
@@ -58,4 +58,10 @@ export interface WorkspaceRepository {
   // Contacts & groups (for owner display, filters, quick-tabs)
   listContacts(spaceId: string): Promise<ContactView[]>;
   listGroups(spaceId: string): Promise<GroupView[]>;
+
+  // Routines (daily habits with streaks; reset is computed from the local day, not stored)
+  listRoutines(userId: string): Promise<RoutineView[]>;
+  createRoutine(userId: string, title: string, timezone: string): Promise<RoutineView>;
+  /** Toggle today's check for a routine, applying the streak rules. */
+  checkRoutine(userId: string, routineId: string, now: Date): Promise<RoutineView>;
 }

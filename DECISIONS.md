@@ -38,3 +38,20 @@ Every product/engineering decision the spec did not explicitly cover. Format:
 - **Decision:** The deterministic fast-path date parser returns target days at 18:00 UTC.
 - **Reason:** Deterministic + testable without a tz database. Full local-tz + DST handling is layered in Step 4 (reminders), where deadlines/"due today" are computed against the user's timezone (UTC stored, local displayed — per spec).
 - **Files:** `src/domain/parse/dates.ts`. Revisit in Step 4.
+
+### D-007 — GitHub is the canonical repository (primary branch `main`)
+- **Decision:** GitHub (private repo `mind-matters`, branch `main`) is the single source of truth for the codebase. Local folder is a working copy.
+- **Reason:** Version history, backup, work-from-any-device, easy Vercel deploy, clean collaboration. Requested by Karan (2026-06-28).
+- **Status:** ⏳ Push pending Karan's GitHub auth (can't create accounts / handle credentials autonomously). One-step setup in `PUSH_TO_GITHUB.md`. Sandbox mount also blocks git ref writes, so branch-rename + commit happen on Karan's Mac.
+- **Files:** `README.md`, `PUSH_TO_GITHUB.md`.
+
+### D-008 — Milestone-1 review cleanup (before infrastructure)
+- **Decision:** Removed duplication + dead code found in the pre-infrastructure self-review:
+  centralised the status-group sets (`HIDDEN_STATUSES`, `DONE_STATUSES`, `isHidden`, `isDone`) in
+  `stateMachine.ts` (were duplicated across filters/reminders/briefing); centralised the dev timezone
+  as `DEV_TZ` in `src/lib/dev.ts` (was a literal in 5 files); tightened ESLint (`ignoreRestSiblings`).
+- **Reason:** One source of truth per rule; cheaper to fix now than after infra is wired.
+- **Known leftover:** `src/components/ui/ComingSoon.tsx` is now orphaned (all 4 placeholder pages were
+  replaced with real screens). The sandbox mount can't delete files, so **delete it on the Mac**:
+  `rm src/components/ui/ComingSoon.tsx`. It is unreferenced and tree-shaken out of bundles; harmless until then.
+- **Files:** `stateMachine.ts`, `filters.ts`, `reminders.ts`, `briefing.ts`, `lib/dev.ts`, 5 pages, `eslint.config.mjs`.

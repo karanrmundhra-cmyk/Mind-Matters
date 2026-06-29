@@ -31,6 +31,20 @@ export const TERMINAL_STATUSES: readonly LoopStatus[] = ['Deleted'];
 /** Statuses that represent a successfully closed loop (count toward Weekly Closed Loops). */
 export const CLOSED_STATUSES: readonly LoopStatus[] = ['Completed', 'Closed'];
 
+/** Statuses hidden from the default lists. */
+export const HIDDEN_STATUSES: readonly LoopStatus[] = ['Archived', 'Deleted'];
+
+/** "Done" statuses — no reminders, excluded from the briefing. */
+export const DONE_STATUSES: readonly LoopStatus[] = ['Completed', 'Closed', 'Dropped', 'Archived', 'Deleted'];
+
+export function isHidden(status: LoopStatus): boolean {
+  return HIDDEN_STATUSES.includes(status);
+}
+
+export function isDone(status: LoopStatus): boolean {
+  return DONE_STATUSES.includes(status);
+}
+
 export class InvalidTransitionError extends Error {
   readonly from: LoopStatus;
   readonly to: LoopStatus;

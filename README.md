@@ -7,6 +7,12 @@ and closes the loop.
 > **Status:** Phase 1 (MVP) in active build. This is production-intent software, built feature by
 > feature with verification. See `DECISIONS.md` for the decision log and `CHANGELOG.md` for progress.
 
+## Repository (canonical)
+**GitHub is the single source of truth for this codebase.** The primary branch is `main`.
+All work continues against the GitHub-backed repo: every verified feature is committed, and the
+repo connects to Vercel for deployment. First-time setup instructions are in `PUSH_TO_GITHUB.md`.
+The local `Mind Matters` folder is a working copy; GitHub is authoritative.
+
 ## Stack
 - **Next.js 15** (App Router) · **TypeScript** (strict) · **Tailwind CSS** · PWA (installable)
 - **PostgreSQL** via Supabase · **Prisma**

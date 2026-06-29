@@ -5,11 +5,22 @@ import { GlassCard } from '@/components/ui/GlassCard';
 import { StatusDot } from '@/components/ui/StatusDot';
 import { Timeline } from '@/components/loops/Timeline';
 import { LoopActions } from '@/components/loops/LoopActions';
+import { SendButton } from '@/components/loops/SendButton';
 import { BottomNav } from '@/components/ui/BottomNav';
+import type { LoopStatus } from '@/domain/enums';
 import { CHANNEL_ICON, formatDeadline, initials } from '@/lib/format';
 import { getRepository, DEV_SPACE_ID } from '@/server/repositories';
 
 export const dynamic = 'force-dynamic';
+
+const SENDABLE: ReadonlySet<LoopStatus> = new Set<LoopStatus>([
+  'Confirmed',
+  'Scheduled',
+  'Awaiting',
+  'Responded',
+  'Blocked',
+  'Escalated',
+]);
 
 export default async function LoopDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -66,6 +77,11 @@ export default async function LoopDetailPage({ params }: { params: Promise<{ id:
         <Timeline touches={touches} />
       </GlassCard>
 
+      {SENDABLE.has(loop.status) && loop.owners.length > 0 && (
+        <div className="mb-3">
+          <SendButton loopId={loop.id} channel={loop.channel ?? 'email'} />
+        </div>
+      )}
       <LoopActions loopId={loop.id} status={loop.status} />
       <BottomNav />
     </main>

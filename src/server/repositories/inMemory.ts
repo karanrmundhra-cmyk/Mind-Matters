@@ -4,11 +4,17 @@ import type {
   LoopPatch,
   NewTouchInput,
 } from '@/domain/loop/repository';
-import type { Loop, TouchView, ContactView, GroupView } from '@/domain/loop/types';
+import type { Loop, TouchView, ContactView, GroupView, RoutineView } from '@/domain/loop/types';
 import type { LoopStatus } from '@/domain/enums';
 import type { TransitionOptions } from '@/domain/loop/service';
 import { planTransition } from '@/domain/loop/service';
+import { checkRoutine as applyCheck } from '@/domain/routines/streak';
 import { LoopNotFoundError, OptimisticLockError } from '@/domain/errors';
+import { DEV_TZ } from '@/lib/dev';
+
+interface RoutineRecord extends RoutineView {
+  userId: string;
+}
 
 const uuid = () => globalThis.crypto.randomUUID();
 
@@ -23,6 +29,7 @@ export class InMemoryWorkspaceRepository implements WorkspaceRepository {
   private touches = new Map<string, TouchView[]>();
   private contacts = new Map<string, ContactView>();
   private groups = new Map<string, GroupView>();
+  private routines = new Map<string, RoutineRecord>();
 
   constructor(private readonly spaceId: string, private readonly userId: string) {
     this.seed();
@@ -157,6 +164,35 @@ export class InMemoryWorkspaceRepository implements WorkspaceRepository {
     return [...this.groups.values()];
   }
 
+  async listRoutines(userId: string): Promise<RoutineView[]> {
+    return [...this.routines.values()]
+      .filter((r) => r.userId === userId)
+      .map(({ userId: _u, ...view }) => view);
+  }
+
+  async createRoutine(userId: string, title: string, timezone: string): Promise<RoutineView> {
+    const id = uuid();
+    const record: RoutineRecord = { id, userId, title, streakCount: 0, lastCheckedOn: null, timezone };
+    this.routines.set(id, record);
+    const { userId: _u, ...view } = record;
+    return view;
+  }
+
+  async checkRoutine(userId: string, routineId: string, now: Date): Promise<RoutineView> {
+    const record = this.routines.get(routineId);
+    if (!record || record.userId !== userId) throw new Error(`Routine ${routineId} not found`);
+    // Single business-logic source: the streak engine.
+    const next = applyCheck(
+      { streakCount: record.streakCount, lastCheckedOn: record.lastCheckedOn },
+      now,
+      record.timezone,
+    );
+    record.streakCount = next.streakCount;
+    record.lastCheckedOn = next.lastCheckedOn;
+    const { userId: _u, ...view } = record;
+    return view;
+  }
+
   // ---- seed (dev only) ----
   private seed() {
     const group: GroupView = { id: uuid(), name: 'Clients' };
@@ -254,6 +290,24 @@ export class InMemoryWorkspaceRepository implements WorkspaceRepository {
       this.touches.set(id, [
         { id: uuid(), loopId: id, type: 'created', channel: null, timestamp: now, payload: null },
       ]);
+    }
+
+    // Seed routines (one checked yesterday so the streak is live and today is pending).
+    const yesterday = new Date(now.getTime() - 86_400_000);
+    const seedRoutines: Array<{ title: string; streak: number; last: Date | null }> = [
+      { title: 'Review open loops', streak: 3, last: yesterday },
+      { title: 'Clear inbox to zero', streak: 0, last: null },
+    ];
+    for (const r of seedRoutines) {
+      const id = uuid();
+      this.routines.set(id, {
+        id,
+        userId: this.userId,
+        title: r.title,
+        streakCount: r.streak,
+        lastCheckedOn: r.last,
+        timezone: DEV_TZ,
+      });
     }
   }
 }
