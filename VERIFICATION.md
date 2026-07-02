@@ -176,6 +176,37 @@ build env (preview deploy).
 ## Overall: 98/98 unit tests passing · tsc 0 errors · all keyless MVP scope built.
 Remaining work is credential/infra-gated (Supabase, Anthropic, Resend, Razorpay/Stripe, push, deploy).
 
+## Master-prompt MVP scorecard (evidence-based, honest)
+
+Gates green: **tsc 0 · eslint 0 · 122 tests · 0 TODO/placeholder · live deploy Ready**.
+
+| MVP area | State |
+|----------|-------|
+| Chat capture (type + **voice**) + @-tag + attributes | ✅ (voice via Web Speech API) |
+| AI parse → editable Confirm → confirm; one clarifying question; never invents; wrong-contact guard | ✅ (live model needs Gemini env in deploy) |
+| Loop state machine + transitions + audit + history | ✅ |
+| Follow-up engine (cadence + ready draft) | ✅ logic; dispatch needs notifications infra |
+| Waiting engine + communication timeline | ✅ |
+| Reminders (calendar + overdue/today/upcoming) | ✅ screen; **push notifications** ⏳ infra |
+| Routines (local-midnight reset + streak) | ✅ |
+| Lists: drag-reorder, tick-to-close, group tabs, AND filters, **search** | ✅ |
+| AI daily briefing | ✅ (deterministic; AI phrasing optional) |
+| Assisted send (email/wa/tel deep links) | ✅; **Resend email send** ⏳ key |
+| Document attachment (validation) | ✅ validation; **signed-URL storage + virus scan** ⏳ infra |
+| Payments tiers + webhook verification + Plans UI | ✅ logic/UI; **live Razorpay/Stripe checkout** ⏳ keys |
+| Onboarding → first loop | ✅ flow; **Google sign-in** ⏳ OAuth creds |
+| Data model (15 models, RLS, optimistic lock, soft-delete) | ✅ applied to Supabase |
+| Idempotency · feature flags · analytics events · contact dedup | ✅ (analytics no-op until PostHog key) |
+| Repo deliverables (README/INSTALL/DEPLOY/ARCH/CHANGELOG/LICENSE/Docker/CI/.env.example) | ✅ |
+| **Auth** (Google OAuth + sessions + real tenant context replacing dev user) | ⏳ needs Google OAuth creds |
+| **Migrations committed** (forward+rollback) for clean-clone | ⏳ run `prisma migrate dev` on a machine with the engine + DB |
+| Observability (PostHog/Sentry wired) | ⏳ keys |
+| Visual screenshots (light/dark × mobile/desktop) · Lighthouse ≥90 · cross-browser | ⏳ build env / manual QA |
+
+**Blocked strictly on user inputs:** Google OAuth client (auth), Razorpay+Stripe keys (live payments),
+Resend key (email), PostHog/Sentry keys (observability), Supabase DB connection string + service-role
+(live persistence in deploy), GoDaddy DNS (custom domain). Everything not requiring those is built/tested.
+
 ## Milestone-1 readiness review (pre-infrastructure, evidence-based)
 
 | Item | Result (verified by command) |

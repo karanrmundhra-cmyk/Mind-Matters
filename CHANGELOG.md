@@ -3,7 +3,24 @@
 All notable changes to Personal OS. Format loosely follows Keep a Changelog.
 
 ## [Unreleased]
-_Infrastructure phase: GitHub ✅ → Supabase (DB ✅, auth pending) → Anthropic → remaining → deploy._
+_Infrastructure phase: GitHub ✅ → Supabase (DB ✅, auth pending) → Gemini ✅ → Vercel deploy ✅ → remaining._
+
+### Live deployment
+- **Deployed to Vercel** (production: `mind-matters-52lw.vercel.app`, Ready) after fixing real-client
+  Prisma typings, a DB-client fallback, and bumping `next` to **15.3.9** (Vercel blocks the 15.3.4 CVE).
+- DB schema + RLS + seed applied to Supabase via the connector; Gemini wired into the AI layer.
+
+### Feature completion pass (keyless, tested)
+- **Full-text search** (`domain/search/`) across loop title/ask/owner + contacts, ranked with recency +
+  status weighting; wired into the Loops screen (search box, hides tabs/filters while searching).
+- **Feature flags** (`domain/flags/`): voice on, autonomous_send/payments/telegram/sms off; env-overridable.
+- **Analytics** (`lib/analytics.ts`): typed event names (all 18 from the spec), no-op until a sink is
+  registered; wired into create/close/drop/send/routine-check actions.
+- **Idempotency** (`lib/idempotency.ts`): key validation + run-once store (in-memory + Prisma-table-ready).
+- **Contact dedup** (`domain/contacts/dedup.ts`): normalized email/phone matching + canonical chooser.
+- **Voice capture** (`useSpeechRecognition` + capture bar): Web Speech API, transcript editable before
+  parse, gated by the voice flag, graceful when unsupported.
+- Verified: `tsc` 0, `eslint` 0, **122 tests** (23 files).
 
 ### Deploy fixes (surfaced by the first Vercel build — real Prisma client vs local stub)
 - Prisma `Json` inputs (`Touch.payload`) cast at the persistence boundary (the generated client's

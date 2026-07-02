@@ -7,6 +7,7 @@ import type { LoopStatus, Channel } from '@/domain/enums';
 import type { CreateLoopInput } from '@/app/loops/dto';
 import { getProvider } from '@/ai';
 import { buildSendLink } from '@/domain/send/links';
+import { track } from '@/lib/analytics';
 
 /** Legal sequence to reach Awaiting (waiting on a reply) after an assisted send. */
 function pathToAwaiting(from: LoopStatus): LoopStatus[] {
@@ -61,6 +62,7 @@ export async function sendLoopAction(loopId: string, channel: Channel): Promise<
   for (const next of pathToAwaiting(loop.status)) {
     await repo.applyTransition(DEV_SPACE_ID, loopId, next, { byUserId: DEV_USER_ID });
   }
+  track('channel_used', { loopId, channel });
   revalidatePath(`/loops/${loopId}`);
   revalidatePath('/loops');
   return { ok: true, href: link.href, message };
@@ -82,6 +84,7 @@ export async function closeLoopAction(loopId: string): Promise<void> {
   for (const next of path) {
     await repo.applyTransition(DEV_SPACE_ID, loopId, next, { byUserId: DEV_USER_ID });
   }
+  track('loop_closed', { loopId });
   revalidatePath('/loops');
   revalidatePath(`/loops/${loopId}`);
 }
@@ -102,6 +105,8 @@ export async function createLoopAction(input: CreateLoopInput): Promise<string> 
     owners: input.owners,
     status: 'Confirmed',
   });
+  track('loop_created', { loopId: loop.id, priority: input.priority, channel: input.channel });
+  track('loop_confirmed', { loopId: loop.id });
   revalidatePath('/loops');
   return loop.id;
 }
@@ -113,6 +118,7 @@ export async function reorderLoopsAction(orderedIds: string[]): Promise<void> {
 
 export async function advanceLoopAction(loopId: string, to: LoopStatus): Promise<void> {
   await getRepository().applyTransition(DEV_SPACE_ID, loopId, to, { byUserId: DEV_USER_ID });
+  if (to === 'Dropped') track('loop_dropped', { loopId });
   revalidatePath('/loops');
   revalidatePath(`/loops/${loopId}`);
 }

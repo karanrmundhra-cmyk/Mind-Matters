@@ -1,12 +1,14 @@
 'use client';
 
 import { useEffect, useMemo, useState, useTransition } from 'react';
-import { Inbox, X, GripVertical } from 'lucide-react';
+import { Inbox, X, GripVertical, Search } from 'lucide-react';
 import { LoopRow } from '@/components/loops/LoopRow';
 import { Chip } from '@/components/ui/Chip';
+import { Input } from '@/components/ui/Input';
 import { GlassCard } from '@/components/ui/GlassCard';
 import { cn } from '@/lib/cn';
 import { selectLoops, type Segment, type LoopFilter, type DeadlineBucket } from '@/domain/loop/filters';
+import { searchLoops } from '@/domain/search/search';
 import { PRIORITIES, type Priority } from '@/domain/enums';
 import type { Loop, ContactView, GroupView } from '@/domain/loop/types';
 import { closeLoopAction, reorderLoopsAction } from '@/app/loops/actions';
@@ -40,6 +42,7 @@ export function LoopsClient({
   const [deadline, setDeadline] = useState<DeadlineBucket | null>(null);
   const [groupId, setGroupId] = useState<string | null>(null);
   const [closing, setClosing] = useState<Set<string>>(new Set());
+  const [search, setSearch] = useState('');
   const [, startTransition] = useTransition();
 
   // Local working order so drag/keyboard reorder reflects instantly; re-synced when
@@ -62,14 +65,17 @@ export function LoopsClient({
     return f;
   }, [priority, deadline, groupId, groupContactIds]);
 
-  const visible = useMemo(
-    () => selectLoops(localLoops, { segment, userId, filter }).filter((l) => !closing.has(l.id)),
-    [localLoops, segment, userId, filter, closing],
-  );
+  const searching = search.trim().length > 0;
+  const visible = useMemo(() => {
+    const base = searching
+      ? searchLoops(localLoops, search)
+      : selectLoops(localLoops, { segment, userId, filter });
+    return base.filter((l) => !closing.has(l.id));
+  }, [localLoops, segment, userId, filter, closing, search, searching]);
 
   const hasFilters = priority !== null || deadline !== null || groupId !== null;
-  // Manual reordering only makes sense for the unfiltered "By me" list.
-  const reorderable = !hasFilters && segment === 'by_me';
+  // Manual reordering only makes sense for the unfiltered "By me" list (not while searching).
+  const reorderable = !hasFilters && segment === 'by_me' && !searching;
 
   function clearFilters() {
     setPriority(null);
@@ -102,6 +108,30 @@ export function LoopsClient({
 
   return (
     <div>
+      {/* Search */}
+      <div className="relative mb-3">
+        <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-faint" aria-hidden />
+        <Input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search loops, people…"
+          aria-label="Search loops"
+          className="pl-11"
+        />
+        {searching && (
+          <button
+            type="button"
+            aria-label="Clear search"
+            onClick={() => setSearch('')}
+            className="pos-focus absolute right-3 top-1/2 -translate-y-1/2 text-muted hover:text-text"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        )}
+      </div>
+
+      {!searching && (
+      <>
       <div className="-mx-5 mb-3 flex gap-2 overflow-x-auto px-5 pb-1" role="tablist" aria-label="Loop segments">
         {SEGMENTS.map((s) => (
           <Chip key={s.id} active={segment === s.id} onClick={() => setSegment(s.id)} role="tab" aria-selected={segment === s.id}>
@@ -142,12 +172,18 @@ export function LoopsClient({
           </button>
         )}
       </div>
+      </>
+      )}
 
       {visible.length === 0 ? (
         <GlassCard className="mt-2 flex flex-col items-center gap-2 py-10 text-center">
           <Inbox className="h-6 w-6 text-faint" aria-hidden />
           <p className="text-sm text-muted">
-            {hasFilters ? 'No loops match these filters.' : 'No loops here yet — capture one below.'}
+            {searching
+              ? `No matches for “${search.trim()}”.`
+              : hasFilters
+                ? 'No loops match these filters.'
+                : 'No loops here yet — capture one below.'}
           </p>
         </GlassCard>
       ) : (

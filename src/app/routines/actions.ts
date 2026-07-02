@@ -3,9 +3,12 @@
 import { revalidatePath } from 'next/cache';
 import { getRepository, DEV_USER_ID } from '@/server/repositories';
 import { DEV_TZ as TZ } from '@/lib/dev';
+import { track } from '@/lib/analytics';
 
 export async function checkRoutineAction(routineId: string): Promise<void> {
-  await getRepository().checkRoutine(DEV_USER_ID, routineId, new Date());
+  const routine = await getRepository().checkRoutine(DEV_USER_ID, routineId, new Date());
+  track('routine_checked', { routineId });
+  track('streak_incremented', { routineId, streak: routine.streakCount });
   revalidatePath('/routines');
 }
 
